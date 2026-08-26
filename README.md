@@ -21,25 +21,32 @@ Equill combines a durable record ledger with versioned selection policies and re
 - Every context bundle includes record coordinates and a selection receipt.
 - The caller owns the store location and the data inside it.
 
-## Planned command surface
+Each store is isolated and owns its own schemas, selectors, grants, and projections.
+Consumer-specific wrappers choose the explicit `--store`; Equill never discovers or
+joins stores automatically.
+
+## Command surface
 
 ```text
 equill init      create a store, root owner, and first namespace
+equill schema    register an immutable versioned type
 equill record    append one validated record
-equill context   assemble a bounded context bundle
+equill import    migrate a legacy JSONL batch through the writer
 equill search    inspect matching records
-equill get       retrieve a record and its evidence
 equill rebuild   rebuild disposable projections
 equill doctor    validate a store and its policies
 equill status    show installed, optional, and planned components
-equill mcp       expose the same operations over stdio MCP
 ```
 
-The current pre-alpha slice implements `init`, immutable schema registration, validated
-`record`, `doctor`, and `status`.
+`context`, direct `get`, and the stdio MCP adapter remain planned.
+
+Commands print concise human-readable output by default. Pass the global `--json` flag
+for the stable machine-readable response, for example `equill status --json` or
+`equill doctor --full --json`.
 
 `equill doctor` runs quick health checks. `equill doctor --full` additionally scans
-all stored structures. `equill doctor --deep` also runs the offline full-catalog
+all stored structures and proves that SQLite/FTS matches the immutable log. `equill
+doctor --deep` also runs the offline full-catalog
 memory-defense audit and writes an immutable audit receipt plus an alert when needed.
 
 ## Initializing a store
@@ -60,8 +67,19 @@ permits only the store's root owner; governed grants will widen that deliberatel
 export EQUILL_ACTOR=local-orchestrator
 equill schema register --store .equill --file agent.lesson.v1.schema.json
 equill record --store .equill --input lesson.json
+equill import --store .equill --input lessons.jsonl
+equill search --store .equill --query "Run checks"
 equill doctor --store .equill --full
 ```
+
+`init` creates the embedded SQLite/FTS5 projection. A successful immutable append stays
+successful if projection indexing fails; the projection becomes `degraded` and
+`equill rebuild --store .equill` reconstructs it from the record log.
+
+`import` accepts legacy JSONL envelopes, never trusts their actor as writer identity,
+and preserves the legacy id, actor, timestamp, and source-line digest as evidence. The
+digest makes a repeated import idempotent; reusing a legacy id with changed content is
+rejected instead of silently duplicating it.
 
 ## Development
 

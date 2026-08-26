@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::projection::ProjectionState;
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RecordDraft {
@@ -55,4 +57,5 @@ pub struct AppendReport {
     pub ledger: String,
     pub receipt: String,
     pub redacted: bool,
+    pub projection: ProjectionState,
 }

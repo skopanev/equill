@@ -12,6 +12,7 @@ pub enum Error {
     InvalidSchema(String),
     InvalidType(String),
     Integrity(String),
+    Import(String),
     MemoryDefense(String),
     MissingActor,
     NotInitialized(PathBuf),
@@ -38,6 +39,7 @@ impl Display for Error {
             Self::InvalidSchema(reason) => write!(formatter, "invalid schema: {reason}"),
             Self::InvalidType(reason) => write!(formatter, "invalid record type: {reason}"),
             Self::Integrity(reason) => write!(formatter, "integrity check failed: {reason}"),
+            Self::Import(reason) => write!(formatter, "import failed: {reason}"),
             Self::MemoryDefense(reason) => write!(formatter, "memory defense failed: {reason}"),
             Self::MissingActor => write!(
                 formatter,

@@ -9,6 +9,10 @@ use std::path::Path;
 use uuid::Version;
 
 pub fn verify_all(store_root: &Path) -> Result<usize, Error> {
+    Ok(read_all(store_root)?.len())
+}
+
+pub fn read_all(store_root: &Path) -> Result<Vec<StoredRecord>, Error> {
     let config = store::load(store_root)?;
     let directory = store_root.join("records");
     if !directory.is_dir() {
@@ -18,7 +22,7 @@ pub fn verify_all(store_root: &Path) -> Result<usize, Error> {
         )));
     }
     let mut ids = HashSet::new();
-    let mut count = 0;
+    let mut records = Vec::new();
     for entry in fs::read_dir(directory)? {
         let path = entry?.path();
         let is_ledger = path.extension().is_some_and(|value| value == "jsonl");
@@ -43,10 +47,10 @@ pub fn verify_all(store_root: &Path) -> Result<usize, Error> {
                     "{location}: duplicate record identifier"
                 )));
             }
-            count += 1;
+            records.push(record);
         }
     }
-    Ok(count)
+    Ok(records)
 }
 
 fn verify_record(

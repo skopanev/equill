@@ -4,6 +4,9 @@ use std::path::PathBuf;
 #[derive(Debug, Parser)]
 #[command(name = "equill", version, about)]
 pub struct Cli {
+    /// Emit stable machine-readable JSON.
+    #[arg(long, global = true)]
+    pub json: bool,
     #[command(subcommand)]
     pub command: Command,
 }
@@ -31,6 +34,15 @@ pub enum Command {
         #[arg(long)]
         input: PathBuf,
     },
+    /// Import a legacy JSONL batch through the canonical writer.
+    Import {
+        /// Initialized store directory.
+        #[arg(long)]
+        store: PathBuf,
+        /// Legacy record envelope JSONL file.
+        #[arg(long)]
+        input: PathBuf,
+    },
     /// Check executable and store health.
     Doctor {
         /// Store directory to inspect.
@@ -53,6 +65,30 @@ pub enum Command {
         /// Store directory to inspect.
         #[arg(long)]
         store: Option<PathBuf>,
+    },
+    /// Search the embedded full-text projection.
+    Search {
+        /// Initialized store directory.
+        #[arg(long)]
+        store: PathBuf,
+        /// Text to match.
+        #[arg(long)]
+        query: String,
+        /// Restrict matches to one namespace.
+        #[arg(long)]
+        namespace: Option<String>,
+        /// Restrict matches to one registered type.
+        #[arg(long = "type")]
+        type_name: Option<String>,
+        /// Maximum number of records to return.
+        #[arg(long, default_value_t = 20, value_parser = clap::value_parser!(u16).range(1..=100))]
+        limit: u16,
+    },
+    /// Rebuild disposable projections from immutable records.
+    Rebuild {
+        /// Initialized store directory.
+        #[arg(long)]
+        store: PathBuf,
     },
 }
 

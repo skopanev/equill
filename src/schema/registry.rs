@@ -24,8 +24,37 @@ pub fn register_file(
     source: &Path,
     actor: &str,
 ) -> Result<RegisterReport, Error> {
-    let definition: TypeDefinition = serde_json::from_slice(&fs::read(source)?)?;
+    let value: serde_json::Value = serde_json::from_slice(&fs::read(source)?)?;
+    let definition = if value.get("payload_schema").is_some() {
+        serde_json::from_value(value)?
+    } else {
+        portable_definition(value, actor)?
+    };
     register(store_root, definition, actor)
+}
+
+fn portable_definition(
+    payload_schema: serde_json::Value,
+    actor: &str,
+) -> Result<TypeDefinition, Error> {
+    let type_name = payload_schema
+        .pointer("/x-equill-envelope/type")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| {
+            Error::InvalidSchema("portable schema requires x-equill-envelope.type".into())
+        })?
+        .to_owned();
+    let uri = payload_schema
+        .get("$id")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| Error::InvalidSchema("portable schema requires $id".into()))?
+        .to_owned();
+    Ok(TypeDefinition {
+        type_name,
+        uri,
+        owner: actor.to_owned(),
+        payload_schema,
+    })
 }
 
 pub fn register(

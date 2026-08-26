@@ -1,5 +1,6 @@
 use crate::kernel::error::Error;
 use crate::kernel::store;
+use crate::projection::{self, ProjectionState};
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
@@ -40,7 +41,7 @@ pub fn report(store_root: Option<&Path>) -> Result<StatusReport, Error> {
         ok,
         version: env!("CARGO_PKG_VERSION"),
         store: store_status,
-        components: components(initialized),
+        components: components(store_root, initialized)?,
     })
 }
 
@@ -81,8 +82,17 @@ fn file_stems(directory: &Path) -> Result<Vec<String>, Error> {
     Ok(names)
 }
 
-fn components(store_initialized: bool) -> Vec<Component> {
-    vec![
+fn components(store_root: Option<&Path>, store_initialized: bool) -> Result<Vec<Component>, Error> {
+    let sqlite = match (store_root, store_initialized) {
+        (None, _) => "built-in",
+        (Some(_), false) => "missing",
+        (Some(root), true) => match projection::state(root)? {
+            ProjectionState::Ready => "ready",
+            ProjectionState::Degraded => "degraded",
+            ProjectionState::Missing => "missing",
+        },
+    };
+    Ok(vec![
         Component {
             id: "ledger.jsonl",
             kind: "storage",
@@ -102,7 +112,7 @@ fn components(store_initialized: bool) -> Vec<Component> {
         Component {
             id: "projection.sqlite-fts",
             kind: "projection",
-            state: "planned",
+            state: sqlite,
             installable: false,
         },
         Component {
@@ -117,7 +127,7 @@ fn components(store_initialized: bool) -> Vec<Component> {
             state: "planned",
             installable: false,
         },
-    ]
+    ])
 }
 
 #[cfg(test)]
@@ -136,6 +146,7 @@ mod tests {
 
         assert_eq!(value["store"]["initialized"], true);
         assert_eq!(value["store"]["namespaces"][0], "agent.memory");
+        assert_eq!(value["components"][2]["state"], "ready");
         assert!(!value.to_string().contains("private-owner"));
         fs::remove_dir_all(path).expect("remove test store");
     }

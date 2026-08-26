@@ -129,8 +129,8 @@ keywords = ["-----begin"]
 
 [[rules]]
 id = "jwt"
-regex = '''\bey[A-Za-z0-9_-]{17,}\.ey[A-Za-z0-9_-]{17,}\.[A-Za-z0-9_-]{10,}\b'''
-keywords = ["ey"]
+regex = '''\beyJ[A-Za-z0-9_-]{16,}\.eyJ[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{10,}\b'''
+keywords = ["eyj"]
 entropy = 3
 
 [[rules]]

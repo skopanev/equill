@@ -1,7 +1,9 @@
 use crate::defense;
 use crate::kernel::error::Error;
 use crate::kernel::identity;
-use serde_json::{Value, json};
+use crate::projection;
+use serde::Serialize;
+use serde_json::json;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -20,7 +22,13 @@ const DIRECTORIES: &[&str] = &[
     "registry/defense",
 ];
 
-pub fn create(store: &Path, owner: &str, namespace: &str) -> Result<Value, Error> {
+#[derive(Debug, Serialize)]
+pub struct InitReport {
+    pub ok: bool,
+    pub created: bool,
+}
+
+pub fn create(store: &Path, owner: &str, namespace: &str) -> Result<InitReport, Error> {
     let owner = owner.trim();
     let namespace = namespace.trim();
     if !identity::valid(owner) {
@@ -59,12 +67,15 @@ fn valid_namespace(namespace: &str) -> bool {
         })
 }
 
-fn existing_store(store: &Path, owner: &str, namespace: &str) -> Result<Value, Error> {
-    let metadata: Value = serde_json::from_slice(&fs::read(store.join("store.json"))?)?;
+fn existing_store(store: &Path, owner: &str, namespace: &str) -> Result<InitReport, Error> {
+    let metadata: serde_json::Value = serde_json::from_slice(&fs::read(store.join("store.json"))?)?;
     if metadata["root_owner"] != owner || metadata["namespaces"][0] != namespace {
         return Err(Error::StoreMismatch);
     }
-    Ok(json!({ "ok": true, "created": false }))
+    Ok(InitReport {
+        ok: true,
+        created: false,
+    })
 }
 
 fn staging_path(store: &Path) -> Result<PathBuf, Error> {
@@ -84,11 +95,12 @@ fn staging_path(store: &Path) -> Result<PathBuf, Error> {
     Ok(staging)
 }
 
-fn initialize_staging(staging: &Path, owner: &str, namespace: &str) -> Result<Value, Error> {
+fn initialize_staging(staging: &Path, owner: &str, namespace: &str) -> Result<InitReport, Error> {
     for directory in DIRECTORIES {
         fs::create_dir_all(staging.join(directory))?;
     }
     defense::initialize(staging)?;
+    projection::initialize(staging)?;
     let created_at_unix_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -106,7 +118,10 @@ fn initialize_staging(staging: &Path, owner: &str, namespace: &str) -> Result<Va
     serde_json::to_writer_pretty(&mut file, &metadata)?;
     file.write_all(b"\n")?;
     file.sync_all()?;
-    Ok(json!({ "ok": true, "created": true }))
+    Ok(InitReport {
+        ok: true,
+        created: true,
+    })
 }
 
 #[cfg(test)]
@@ -129,10 +144,11 @@ mod tests {
         let first = create(&path, "test-owner", "agent.memory").expect("initialize");
         let second = create(&path, "test-owner", "agent.memory").expect("repeat");
 
-        assert_eq!(first["created"], true);
-        assert_eq!(second["created"], false);
+        assert!(first.created);
+        assert!(!second.created);
         assert!(path.join("records").is_dir());
         assert!(path.join("registry/types").is_dir());
+        assert!(path.join("projections/sqlite/equill.sqlite3").is_file());
         fs::remove_dir_all(path).expect("remove test store");
     }
 

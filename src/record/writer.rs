@@ -5,6 +5,7 @@ use crate::kernel::error::Error;
 use crate::kernel::identity;
 use crate::kernel::lock::StoreLock;
 use crate::kernel::store;
+use crate::projection::{self, ProjectionState};
 use crate::schema;
 use jiff::Timestamp;
 use std::fs::{self, OpenOptions};
@@ -83,6 +84,13 @@ pub fn append(
             record.id
         ))
     })?;
+    let projection = match projection::index(store_root, &record, &digest, &ledger) {
+        Ok(()) => ProjectionState::Ready,
+        Err(error) => {
+            projection::mark_degraded(store_root, &record, &error.to_string());
+            ProjectionState::Degraded
+        }
+    };
 
     Ok(AppendReport {
         ok: true,
@@ -91,6 +99,7 @@ pub fn append(
         ledger,
         receipt: receipt_path,
         redacted,
+        projection,
     })
 }
 

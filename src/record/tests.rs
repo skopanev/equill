@@ -1,5 +1,6 @@
 use super::{RecordDraft, append};
 use crate::command::init;
+use crate::projection::{self, ProjectionState, SearchRequest};
 use crate::schema::{self, TypeDefinition};
 use serde_json::json;
 use std::fs;
@@ -53,14 +54,28 @@ fn appends_valid_record_without_payload_in_receipt() {
         append(&path, draft(json!({ "rule": "Run checks." })), "writer").expect("append record");
     let contents = fs::read_to_string(path.join(&report.ledger)).expect("read ledger");
     let scan = crate::integrity::scan(&path).expect("full integrity scan");
+    let search = projection::search(
+        &path,
+        &SearchRequest {
+            query: "Run checks".into(),
+            namespace: Some("agent.memory".into()),
+            type_name: Some("agent.lesson.v1".into()),
+            limit: 10,
+        },
+    )
+    .expect("search projection");
 
     assert_eq!(contents.lines().count(), 1);
     assert_eq!(scan.records, 1);
+    assert_eq!(report.projection, ProjectionState::Ready);
+    assert_eq!(search.hits.len(), 1);
     assert!(
         !serde_json::to_string(&report)
             .expect("report")
             .contains("Run checks")
     );
+    let rebuilt = projection::rebuild(&path).expect("rebuild projection");
+    assert_eq!(rebuilt.records, 1);
     fs::remove_dir_all(path).expect("remove test store");
 }
 

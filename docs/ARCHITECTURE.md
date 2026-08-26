@@ -50,6 +50,11 @@ the store metadata, root owner, and first namespace. Versioned schemas are regis
 a separate governed operation because a store can contain several types with different
 schema owners.
 
+Stores are security boundaries. Each store has its own schema registry, selectors,
+grants, owners, projections, and receipts. There is no global schema registry, automatic
+store discovery, cross-store search, or cross-store join. A consumer wrapper selects one
+explicit store for one operation.
+
 ```text
 <store>/
   store.json     format version and root ownership
@@ -96,6 +101,12 @@ schema registry, grants, and immutable writer as CLI `record`.
 SQLite is the first projection and provides structured lookup plus full-text search.
 Vector search is optional and rebuildable. No projection can become the only copy of a
 record or object.
+
+`init` creates a versioned embedded SQLite database and an FTS5 index. `record` updates
+them only after the JSONL append and write receipt are durable. An index failure marks
+the projection degraded but cannot roll back or invalidate the record. `doctor --full`
+compares every projected record and FTS body with the immutable log; `rebuild` replaces
+the disposable database from that log under the store writer lock.
 
 ## Transport
 
@@ -206,4 +217,3 @@ owner. Nothing to provision before the first `record`. Upgrades swap the
 projection engine or add optional strategies behind explicit store
 configuration — the first-run default stays a single static binary and a
 directory.
-

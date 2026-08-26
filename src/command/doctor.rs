@@ -55,6 +55,10 @@ pub fn report(store_root: Option<&Path>, full: bool, deep: bool) -> Result<Docto
                     id: "projection-files",
                     items: scan.projection_files,
                 },
+                Check {
+                    id: "projection-records",
+                    items: scan.projection_records,
+                },
             ]);
         }
     }

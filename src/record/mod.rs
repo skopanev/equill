@@ -8,5 +8,5 @@ mod writer;
 mod tests;
 
 pub use model::{AppendReport, EvidenceRef, RecordDraft, StoredRecord};
-pub use verify::verify_all;
+pub use verify::{read_all, verify_all};
 pub use writer::{append, append_file};

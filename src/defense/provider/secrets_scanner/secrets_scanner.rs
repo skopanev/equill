@@ -1,10 +1,22 @@
 use crate::kernel::error::Error;
 use secrets_scanner::{Finding, ScanConfig, Scanner};
+use serde::Deserialize;
 use std::sync::OnceLock;
 
 const BUNDLED_RULES: &str = include_str!("patterns.toml");
 static BUNDLED: OnceLock<Scanner> = OnceLock::new();
 static DEEP: OnceLock<Scanner> = OnceLock::new();
+static INLINE_KEYWORDS: OnceLock<Result<Vec<String>, String>> = OnceLock::new();
+
+#[derive(Deserialize)]
+struct PatternPack {
+    rules: Vec<PatternRule>,
+}
+
+#[derive(Deserialize)]
+struct PatternRule {
+    keywords: Vec<String>,
+}
 
 #[derive(Debug)]
 pub struct Match {
@@ -21,6 +33,11 @@ pub struct Scan {
 }
 
 pub fn scan_inline(content: &str) -> Result<Scan, Error> {
+    if !might_match_inline(content)? {
+        return Ok(Scan {
+            matches: Vec::new(),
+        });
+    }
     scan(bundled()?, content)
 }
 
@@ -62,6 +79,26 @@ fn bundled() -> Result<&'static Scanner, Error> {
         .ok_or_else(|| Error::MemoryDefense("bundled scanner did not initialize".into()))
 }
 
+fn might_match_inline(content: &str) -> Result<bool, Error> {
+    let keywords = INLINE_KEYWORDS.get_or_init(|| {
+        let pack: PatternPack = toml::from_str(BUNDLED_RULES).map_err(|error| error.to_string())?;
+        let mut keywords = pack
+            .rules
+            .into_iter()
+            .flat_map(|rule| rule.keywords)
+            .map(|keyword| keyword.to_ascii_lowercase())
+            .collect::<Vec<_>>();
+        keywords.sort();
+        keywords.dedup();
+        Ok(keywords)
+    });
+    let keywords = keywords
+        .as_ref()
+        .map_err(|error| Error::MemoryDefense(format!("bundled keywords: {error}")))?;
+    let content = content.to_ascii_lowercase();
+    Ok(keywords.iter().any(|keyword| content.contains(keyword)))
+}
+
 fn deep() -> Result<&'static Scanner, Error> {
     if let Some(scanner) = DEEP.get() {
         return Ok(scanner);
@@ -94,7 +131,9 @@ mod tests {
             .collect();
         let token = format!("{}{}", "ghp_", tail);
         let result = super::scan_deep(&token).expect("scan with full catalog");
+        let inline = super::scan_inline(&token).expect("scan with inline catalog");
 
         assert!(!result.matches.is_empty());
+        assert!(!inline.matches.is_empty());
     }
 }
