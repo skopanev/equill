@@ -1,6 +1,6 @@
-use crate::integrity;
 use crate::kernel::error::Error;
 use crate::kernel::store;
+use crate::{defense, integrity};
 use serde::Serialize;
 use std::path::Path;
 
@@ -11,6 +11,8 @@ pub struct DoctorReport {
     pub mode: &'static str,
     pub store_initialized: Option<bool>,
     pub checks: Vec<Check>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deep_defense: Option<defense::DeepReport>,
 }
 
 #[derive(Debug, Serialize)]
@@ -19,7 +21,7 @@ pub struct Check {
     pub items: usize,
 }
 
-pub fn report(store_root: Option<&Path>, full: bool) -> Result<DoctorReport, Error> {
+pub fn report(store_root: Option<&Path>, full: bool, deep: bool) -> Result<DoctorReport, Error> {
     let store_initialized = store_root
         .map(|root| store::load(root).map(|_| true))
         .transpose()?;
@@ -33,7 +35,7 @@ pub fn report(store_root: Option<&Path>, full: bool) -> Result<DoctorReport, Err
             items: 1,
         });
     }
-    if full {
+    if full || deep {
         if let Some(root) = store_root {
             let scan = integrity::scan(root)?;
             checks.extend([
@@ -56,11 +58,25 @@ pub fn report(store_root: Option<&Path>, full: bool) -> Result<DoctorReport, Err
             ]);
         }
     }
+    let deep_defense = store_root
+        .filter(|_| deep)
+        .map(defense::audit)
+        .transpose()?;
+    let ok = deep_defense
+        .as_ref()
+        .is_none_or(|report| report.findings == 0);
     Ok(DoctorReport {
-        ok: true,
+        ok,
         version: env!("CARGO_PKG_VERSION"),
-        mode: if full { "full" } else { "quick" },
+        mode: if deep {
+            "deep"
+        } else if full {
+            "full"
+        } else {
+            "quick"
+        },
         store_initialized,
         checks,
+        deep_defense,
     })
 }

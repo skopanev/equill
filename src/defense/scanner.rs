@@ -20,7 +20,7 @@ pub fn apply(store_root: &Path, draft: &mut RecordDraft) -> Result<DefenseResult
         "evidence": &draft.evidence,
         "tags": &draft.tags,
     }))?;
-    let mut matches = secrets_scanner::scan_bundled(&content)?.matches;
+    let mut matches = secrets_scanner::scan_inline(&content)?.matches;
     if let Some(rules) = super::policy::custom_rules(store_root)? {
         matches.extend(secrets_scanner::scan_custom(&rules, &content)?.matches);
     }

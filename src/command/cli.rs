@@ -39,6 +39,9 @@ pub enum Command {
         /// Scan records, projections, and gates instead of quick health only.
         #[arg(long)]
         full: bool,
+        /// Run the offline full-catalog memory-defense audit.
+        #[arg(long, requires = "store", conflicts_with = "full")]
+        deep: bool,
     },
     /// Manage governed record schemas.
     Schema {

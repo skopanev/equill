@@ -1,0 +1,153 @@
+title = "Equill bundled memory-defense patterns"
+
+# Selected expressions are adapted from the Gitleaks default configuration (MIT).
+# Attribution and upstream license links: docs/THIRD_PARTY.md
+
+[[rules]]
+id = "anthropic-api-key"
+regex = '''\bsk-ant-(?:api|admin)[0-9]+-[A-Za-z0-9_-]{80,}\b'''
+keywords = ["sk-ant-"]
+entropy = 3
+
+[[rules]]
+id = "openai-api-key"
+regex = '''\bsk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{40,}\b'''
+keywords = ["sk-proj-", "sk-svcacct-", "sk-admin-"]
+entropy = 3
+
+[[rules]]
+id = "google-api-key"
+regex = '''\bAIza[0-9A-Za-z_-]{35}\b'''
+keywords = ["aiza"]
+entropy = 3
+
+[[rules]]
+id = "groq-api-key"
+regex = '''\bgsk_[A-Za-z0-9]{40,64}\b'''
+keywords = ["gsk_"]
+entropy = 3
+
+[[rules]]
+id = "xai-api-key"
+regex = '''\bxai-[A-Za-z0-9_-]{40,}\b'''
+keywords = ["xai-"]
+entropy = 3
+
+[[rules]]
+id = "aws-access-token"
+regex = '''\b(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z2-7]{16}\b'''
+keywords = ["a3t", "akia", "asia", "abia", "acca"]
+entropy = 3
+
+[[rules]]
+id = "digitalocean-token"
+regex = '''\bdo[opr]_v1_[a-f0-9]{64}\b'''
+keywords = ["doo_v1_", "dop_v1_", "dor_v1_"]
+entropy = 3
+
+[[rules]]
+id = "github-token"
+regex = '''\b(?:gh[oprsu]_[0-9A-Za-z]{36}|github_pat_\w{82})\b'''
+keywords = ["ghp_", "gho_", "ghr_", "ghs_", "ghu_", "github_pat_"]
+entropy = 3
+
+[[rules]]
+id = "gitlab-token"
+regex = '''\b(?:glpat-[\w-]{20}|gl(?:cbt|dt|rt|ptt|soat)-[\w-]{20,64})\b'''
+keywords = ["glpat-", "glcbt-", "gldt-", "glrt-", "glptt-", "glsoat-"]
+entropy = 3
+
+[[rules]]
+id = "npm-access-token"
+regex = '''(?i)\bnpm_[a-z0-9]{36}\b'''
+keywords = ["npm_"]
+entropy = 2
+
+[[rules]]
+id = "pypi-upload-token"
+regex = '''pypi-AgEIcHlwaS5vcmc[\w-]{50,1000}'''
+keywords = ["pypi-ageichlwas5vcmc"]
+entropy = 3
+
+[[rules]]
+id = "stripe-access-token"
+regex = '''\b(?:sk|rk)_(?:test|live|prod)_[A-Za-z0-9]{10,99}\b'''
+keywords = ["sk_test", "sk_live", "sk_prod", "rk_test", "rk_live", "rk_prod"]
+entropy = 2
+
+[[rules]]
+id = "square-access-token"
+regex = '''\b(?:EAAA|sq0atp-)[\w-]{22,60}\b'''
+keywords = ["eaaa", "sq0atp-"]
+entropy = 2
+
+[[rules]]
+id = "braintree-access-token"
+regex = '''\baccess_token\$(?:production|sandbox)\$[a-z0-9]{16}\$[a-f0-9]{32}\b'''
+keywords = ["access_token$"]
+entropy = 2
+
+[[rules]]
+id = "slack-token"
+regex = '''\bxox(?:a|b|e|o|p|r|s)-[0-9A-Za-z-]{18,166}\b'''
+keywords = ["xoxa-", "xoxb-", "xoxe-", "xoxo-", "xoxp-", "xoxr-", "xoxs-"]
+entropy = 2
+
+[[rules]]
+id = "slack-webhook"
+regex = '''https?://hooks\.slack\.com/(?:services|workflows|triggers)/[A-Za-z0-9+/]{43,56}'''
+keywords = ["hooks.slack.com"]
+
+[[rules]]
+id = "twilio-api-key"
+regex = '''\bSK[0-9A-Fa-f]{32}\b'''
+keywords = ["sk"]
+entropy = 3
+
+[[rules]]
+id = "sendgrid-api-token"
+regex = '''\bSG\.[A-Za-z0-9_=.-]{66}\b'''
+keywords = ["sg."]
+entropy = 2
+
+[[rules]]
+id = "telegram-bot-token"
+regex = '''\b[0-9]{5,16}:A[A-Za-z0-9_-]{34}\b'''
+keywords = [":a"]
+entropy = 2
+
+[[rules]]
+id = "database-connection-string"
+regex = '''(?i)\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis)://[^\s"'@]+:[^\s"'@]+@[^\s"']+'''
+secretGroup = 0
+keywords = ["postgres://", "postgresql://", "mysql://", "mongodb://", "mongodb+srv://", "redis://"]
+
+[[rules]]
+id = "private-key"
+regex = '''(?i)-----BEGIN[ A-Z0-9_-]{0,100}PRIVATE KEY(?: BLOCK)?-----[\s\S-]{64,}?KEY(?: BLOCK)?-----'''
+keywords = ["-----begin"]
+
+[[rules]]
+id = "jwt"
+regex = '''\bey[A-Za-z0-9_-]{17,}\.ey[A-Za-z0-9_-]{17,}\.[A-Za-z0-9_-]{10,}\b'''
+keywords = ["ey"]
+entropy = 3
+
+[[rules]]
+id = "payment-card-number"
+regex = '''(?i)(?:card|pan|credit[_ -]?card)[\w .-]{0,20}([0-9][ -]?){13,19}'''
+secretGroup = 0
+keywords = ["card", "pan"]
+
+[[rules]]
+id = "us-ssn"
+regex = '''(?i)(?:ssn|social[_ -]?security)[\w .:=\"'-]{0,20}\b[0-9]{3}-[0-9]{2}-[0-9]{4}\b'''
+secretGroup = 0
+keywords = ["ssn", "social"]
+
+[[rules]]
+id = "generic-api-key"
+regex = '''(?i)(?:api[_-]?key|secret|token|password)[\w .-]{0,20}[=:][\s\"']{0,3}([A-Za-z0-9_./+=-]{16,})'''
+secretGroup = 1
+keywords = ["api", "key", "secret", "token", "password"]
+entropy = 3.5

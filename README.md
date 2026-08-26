@@ -39,7 +39,8 @@ The current pre-alpha slice implements `init`, immutable schema registration, va
 `record`, `doctor`, and `status`.
 
 `equill doctor` runs quick health checks. `equill doctor --full` additionally scans
-schemas, records, projections, and context gates.
+all stored structures. `equill doctor --deep` also runs the offline full-catalog
+memory-defense audit and writes an immutable audit receipt plus an alert when needed.
 
 ## Initializing a store
 

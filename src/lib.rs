@@ -27,8 +27,8 @@ where
                 &store, &input, &actor,
             )?)?)
         }
-        command::cli::Command::Doctor { store, full } => Ok(serde_json::to_string(
-            &command::doctor::report(store.as_deref(), full)?,
+        command::cli::Command::Doctor { store, full, deep } => Ok(serde_json::to_string(
+            &command::doctor::report(store.as_deref(), full, deep)?,
         )?),
         command::cli::Command::Schema { command } => {
             let actor = kernel::identity::actor_from_env()?;

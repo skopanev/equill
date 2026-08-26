@@ -169,6 +169,13 @@ Every write passes a sanitization stage before the append:
 This is a kernel concern, not a domain concern: no type can opt out, because
 a type schema cannot promise what its writers will paste.
 
+Defense has two speeds. The inline path uses a focused bundled pack and a budget
+measured in tens of milliseconds. The offline path, `equill doctor --deep`, scans the
+immutable log with the full bundled Gitleaks and Kingfisher catalog. It never rewrites
+history: a retrospective match produces a content-free audit receipt and alert. The
+owner then decides whether to supersede the affected record. Repeating a scan over the
+same corpus and rules reuses the same receipt instead of producing duplicate alerts.
+
 The bundled pattern set covers provider API keys (anthropic, openai, google,
 groq, xai...), cloud credentials (aws, digitalocean), source-control and
 package tokens (github, gitlab, npm, pypi), payment secrets (stripe, square,
@@ -199,5 +206,4 @@ owner. Nothing to provision before the first `record`. Upgrades swap the
 projection engine or add optional strategies behind explicit store
 configuration — the first-run default stays a single static binary and a
 directory.
-
 
