@@ -12,9 +12,12 @@ pub enum Error {
     InvalidSchema(String),
     InvalidType(String),
     Integrity(String),
+    MemoryDefense(String),
     MissingActor,
     NotInitialized(PathBuf),
     PermissionDenied,
+    PostCommit(String),
+    Projection(String),
     SchemaConflict(String),
     StoreExists(PathBuf),
     StoreMismatch,
@@ -35,6 +38,7 @@ impl Display for Error {
             Self::InvalidSchema(reason) => write!(formatter, "invalid schema: {reason}"),
             Self::InvalidType(reason) => write!(formatter, "invalid record type: {reason}"),
             Self::Integrity(reason) => write!(formatter, "integrity check failed: {reason}"),
+            Self::MemoryDefense(reason) => write!(formatter, "memory defense failed: {reason}"),
             Self::MissingActor => write!(
                 formatter,
                 "EQUILL_ACTOR must be supplied by the calling orchestrator"
@@ -49,6 +53,8 @@ impl Display for Error {
                 )
             }
             Self::PermissionDenied => write!(formatter, "actor is not allowed to write"),
+            Self::PostCommit(reason) => write!(formatter, "post-commit failure: {reason}"),
+            Self::Projection(reason) => write!(formatter, "projection failed: {reason}"),
             Self::StoreExists(path) => write!(
                 formatter,
                 "refusing to initialize existing non-store directory: {}",

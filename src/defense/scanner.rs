@@ -1,36 +1,38 @@
-use super::model::{DefenseFinding, DefenseMode, DefensePolicy, DefenseResult};
+use super::model::{DefenseFinding, DefenseMode, DefenseResult};
+use super::provider::secrets_scanner::{self, Match};
 use crate::kernel::error::Error;
-use crate::record::RecordDraft;
+use crate::record::{EvidenceRef, RecordDraft};
+use serde::Deserialize;
 use serde_json::Value;
 use std::path::Path;
 
-const REDACTED: &str = "[REDACTED BY EQUILL]";
+#[derive(Deserialize)]
+struct ScannedContent {
+    payload: Value,
+    evidence: Vec<EvidenceRef>,
+    tags: Vec<String>,
+}
 
 pub fn apply(store_root: &Path, draft: &mut RecordDraft) -> Result<DefenseResult, Error> {
     let policy = super::policy::load(store_root)?;
-    let mut findings = Vec::new();
-    scan_value(&policy, &mut draft.payload, "/payload", &mut findings);
-    for (index, evidence) in draft.evidence.iter_mut().enumerate() {
-        scan_string(
-            &policy,
-            &mut evidence.kind,
-            &format!("/evidence/{index}/kind"),
-            &mut findings,
-        );
-        scan_string(
-            &policy,
-            &mut evidence.reference,
-            &format!("/evidence/{index}/reference"),
-            &mut findings,
-        );
+    let content = serde_json::to_string(&serde_json::json!({
+        "payload": &draft.payload,
+        "evidence": &draft.evidence,
+        "tags": &draft.tags,
+    }))?;
+    let mut matches = secrets_scanner::scan_bundled(&content)?.matches;
+    if let Some(rules) = super::policy::custom_rules(store_root)? {
+        matches.extend(secrets_scanner::scan_custom(&rules, &content)?.matches);
     }
-    for (index, tag) in draft.tags.iter_mut().enumerate() {
-        scan_string(
-            &policy,
-            tag,
-            &format!("/tags/{index}"),
-            &mut findings,
-        );
+    let findings = findings(&matches);
+    if policy.mode == DefenseMode::Redact && !findings.is_empty() {
+        let redacted = redact(&content, matches)?;
+        let sanitized: ScannedContent = serde_json::from_str(&redacted).map_err(|_| {
+            Error::MemoryDefense("redaction produced an invalid record body".into())
+        })?;
+        draft.payload = sanitized.payload;
+        draft.evidence = sanitized.evidence;
+        draft.tags = sanitized.tags;
     }
     Ok(DefenseResult {
         mode: policy.mode,
@@ -38,72 +40,58 @@ pub fn apply(store_root: &Path, draft: &mut RecordDraft) -> Result<DefenseResult
     })
 }
 
-fn scan_value(
-    policy: &DefensePolicy,
-    value: &mut Value,
-    path: &str,
-    findings: &mut Vec<DefenseFinding>,
-) {
-    match value {
-        Value::Object(object) => {
-            for (key, child) in object {
-                let child_path = format!("{path}/{}", pointer_segment(key));
-                if sensitive_key(policy, key) && !empty(child) {
-                    findings.push(DefenseFinding {
-                        path: child_path.clone(),
-                        rule: format!("sensitive-key:{key}"),
-                    });
-                    if policy.mode == DefenseMode::Redact {
-                        *child = Value::String(REDACTED.into());
-                        continue;
-                    }
-                }
-                scan_value(policy, child, &child_path, findings);
-            }
-        }
-        Value::Array(items) => {
-            for (index, child) in items.iter_mut().enumerate() {
-                scan_value(policy, child, &format!("{path}/{index}"), findings);
-            }
-        }
-        Value::String(text) => scan_string(policy, text, path, findings),
-        _ => {}
-    }
-}
-
-fn scan_string(
-    policy: &DefensePolicy,
-    text: &mut String,
-    path: &str,
-    findings: &mut Vec<DefenseFinding>,
-) {
-    let lowercase = text.to_ascii_lowercase();
-    let mut matched = false;
-    for pattern in &policy.literal_patterns {
-        if lowercase.contains(&pattern.literal.to_ascii_lowercase()) {
-            findings.push(DefenseFinding {
-                path: path.to_owned(),
-                rule: pattern.id.clone(),
-            });
-            matched = true;
-        }
-    }
-    if matched && policy.mode == DefenseMode::Redact {
-        *text = REDACTED.into();
-    }
-}
-
-fn sensitive_key(policy: &DefensePolicy, key: &str) -> bool {
-    policy
-        .sensitive_keys
+fn findings(matches: &[Match]) -> Vec<DefenseFinding> {
+    matches
         .iter()
-        .any(|candidate| candidate.eq_ignore_ascii_case(key))
+        .map(|item| DefenseFinding {
+            rule: item.rule.clone(),
+            line: item.line,
+            column: item.column,
+        })
+        .collect()
 }
 
-fn empty(value: &Value) -> bool {
-    matches!(value, Value::Null) || matches!(value, Value::String(text) if text.is_empty())
+fn redact(content: &str, mut matches: Vec<Match>) -> Result<String, Error> {
+    matches.sort_by_key(|item| (item.start, std::cmp::Reverse(item.end)));
+    let mut ranges: Vec<(usize, usize, String)> = Vec::new();
+    for item in matches {
+        if item.start >= item.end
+            || item.end > content.len()
+            || !content.is_char_boundary(item.start)
+            || !content.is_char_boundary(item.end)
+        {
+            return Err(Error::MemoryDefense(
+                "scanner returned an invalid redaction range".into(),
+            ));
+        }
+        if let Some(previous) = ranges.last_mut() {
+            if item.start < previous.1 {
+                previous.1 = previous.1.max(item.end);
+                if previous.2 != item.rule {
+                    previous.2.push('+');
+                    previous.2.push_str(&item.rule);
+                }
+                continue;
+            }
+        }
+        ranges.push((item.start, item.end, item.rule));
+    }
+    let mut output = content.to_owned();
+    for (start, end, rule) in ranges.into_iter().rev() {
+        let marker = format!("[REDACTED:{}]", safe_rule(&rule));
+        output.replace_range(start..end, &marker);
+    }
+    Ok(output)
 }
 
-fn pointer_segment(value: &str) -> String {
-    value.replace('~', "~0").replace('/', "~1")
+fn safe_rule(rule: &str) -> String {
+    rule.chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }

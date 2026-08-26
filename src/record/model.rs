@@ -53,4 +53,6 @@ pub struct AppendReport {
     pub id: Uuid,
     pub sha256: String,
     pub ledger: String,
+    pub receipt: String,
+    pub redacted: bool,
 }

@@ -9,23 +9,15 @@ pub enum DefenseMode {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct LiteralPattern {
-    pub id: String,
-    pub literal: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct DefensePolicy {
     pub mode: DefenseMode,
-    pub sensitive_keys: Vec<String>,
-    pub literal_patterns: Vec<LiteralPattern>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct DefenseFinding {
-    pub path: String,
     pub rule: String,
+    pub line: usize,
+    pub column: usize,
 }
 
 #[derive(Debug)]

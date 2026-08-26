@@ -1,4 +1,5 @@
 mod model;
+mod receipt;
 mod validation;
 mod verify;
 mod writer;

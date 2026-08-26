@@ -1,6 +1,6 @@
+use crate::defense;
 use crate::kernel::error::Error;
 use crate::kernel::identity;
-use crate::defense;
 use serde_json::{Value, json};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
