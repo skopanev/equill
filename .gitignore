@@ -1,0 +1,11 @@
+/target/
+/.equill/
+/data/
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+.env
+.env.*
+!.env.example
+
