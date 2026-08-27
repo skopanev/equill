@@ -1,7 +1,7 @@
 use super::doctor::DoctorReport;
 use super::init::InitReport;
 use super::status::StatusReport;
-use crate::ingest::ImportReport;
+use crate::ingest::{ImportReport, ImportSetReport};
 use crate::kernel::error::Error;
 use crate::projection::{RebuildReport, SearchReport};
 use crate::record::AppendReport;
@@ -40,6 +40,13 @@ pub fn import(report: &ImportReport) -> String {
     format!(
         "Imported {} record(s)\nSkipped: {}\nInput SHA-256: {}",
         report.imported, report.skipped, report.input_sha256
+    )
+}
+
+pub fn import_set(report: &ImportSetReport) -> String {
+    format!(
+        "Imported {} record(s) from {} input(s)\nSkipped: {}\nReceipt: {}",
+        report.imported, report.inputs, report.skipped, report.receipt
     )
 }
 

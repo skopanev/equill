@@ -24,7 +24,13 @@ pub fn import_jsonl(store: &Path, input: &Path, actor: &str) -> Result<ImportRep
     for (line, source, digest) in lines {
         if let Some(record_id) = known.by_digest.get(&digest).copied() {
             known.by_legacy.insert(source.id.clone(), record_id);
-            records.push(item(line, source.id, record_id, ImportStatus::Skipped));
+            records.push(item(
+                line,
+                digest,
+                source.id,
+                record_id,
+                ImportStatus::Skipped,
+            ));
             skipped += 1;
             continue;
         }
@@ -39,9 +45,15 @@ pub fn import_jsonl(store: &Path, input: &Path, actor: &str) -> Result<ImportRep
             .map_err(|error| Error::Import(format!("line {line}: {error}")))?;
         let report = record::append(store, draft, actor)
             .map_err(|error| Error::Import(format!("line {line}: {error}")))?;
-        known.by_digest.insert(digest, report.id);
+        known.by_digest.insert(digest.clone(), report.id);
         known.by_legacy.insert(legacy_id.clone(), report.id);
-        records.push(item(line, legacy_id, report.id, ImportStatus::Imported));
+        records.push(item(
+            line,
+            digest,
+            legacy_id,
+            report.id,
+            ImportStatus::Imported,
+        ));
         imported += 1;
     }
     Ok(ImportReport {
@@ -156,9 +168,16 @@ fn resolve_supersedes(value: &str, legacy_ids: &HashMap<String, Uuid>) -> Result
         .ok_or_else(|| Error::Import(format!("supersedes target is unknown: {value}")))
 }
 
-fn item(line: usize, legacy_id: String, record_id: Uuid, status: ImportStatus) -> ImportItem {
+fn item(
+    line: usize,
+    line_sha256: String,
+    legacy_id: String,
+    record_id: Uuid,
+    status: ImportStatus,
+) -> ImportItem {
     ImportItem {
         line,
+        line_sha256,
         legacy_id,
         record_id,
         status,

@@ -40,8 +40,15 @@ pub enum Command {
         #[arg(long)]
         store: PathBuf,
         /// Legacy record envelope JSONL file.
-        #[arg(long)]
-        input: PathBuf,
+        #[arg(
+            long,
+            required_unless_present = "manifest",
+            conflicts_with = "manifest"
+        )]
+        input: Option<PathBuf>,
+        /// JSONL manifest whose rows point to input JSONL files.
+        #[arg(long, required_unless_present = "input", conflicts_with = "input")]
+        manifest: Option<PathBuf>,
     },
     /// Check executable and store health.
     Doctor {

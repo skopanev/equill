@@ -30,10 +30,20 @@ where
             let report = record::append_file(&store, &input, &actor)?;
             command::output::render(json, &report, command::output::record(&report))
         }
-        command::cli::Command::Import { store, input } => {
+        command::cli::Command::Import {
+            store,
+            input,
+            manifest,
+        } => {
             let actor = kernel::identity::actor_from_env()?;
-            let report = ingest::import_jsonl(&store, &input, &actor)?;
-            command::output::render(json, &report, command::output::import(&report))
+            if let Some(input) = input {
+                let report = ingest::import_jsonl(&store, &input, &actor)?;
+                command::output::render(json, &report, command::output::import(&report))
+            } else {
+                let manifest = manifest.expect("clap requires one import input");
+                let report = ingest::import_manifest(&store, &manifest, &actor)?;
+                command::output::render(json, &report, command::output::import_set(&report))
+            }
         }
         command::cli::Command::Doctor { store, full, deep } => {
             let report = command::doctor::report(store.as_deref(), full, deep)?;

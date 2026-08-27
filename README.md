@@ -81,6 +81,23 @@ and preserves the legacy id, actor, timestamp, and source-line digest as evidenc
 digest makes a repeated import idempotent; reusing a legacy id with changed content is
 rejected instead of silently duplicating it.
 
+For a governed set of inputs, pass a JSONL manifest instead of one file:
+
+```jsonl
+{"path":"rules.jsonl","role":"rules"}
+{"path":"lessons.jsonl","role":"lessons"}
+```
+
+```bash
+equill import --store .equill --manifest inputs.jsonl
+```
+
+Paths are resolved relative to the manifest. `role` is optional metadata. A successful
+set writes one immutable receipt containing the manifest SHA-256, every input SHA-256,
+and every source-line digest. `equill doctor --full` proves those lines still exist in
+the immutable ledger. Duplicate paths and partially imported sets never produce a set
+receipt; rerunning after a fix is safe because each completed line is idempotent.
+
 ## Development
 
 Requires Rust 1.85 or newer.

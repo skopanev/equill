@@ -1,3 +1,4 @@
+use crate::ingest;
 use crate::kernel::error::Error;
 use crate::projection;
 use crate::record;
@@ -14,18 +15,23 @@ pub struct FullScan {
     pub gates: usize,
     pub projection_files: usize,
     pub projection_records: usize,
+    pub import_receipts: usize,
+    pub import_inputs: usize,
 }
 
 pub fn scan(store_root: &Path) -> Result<FullScan, Error> {
     let stored_records = record::read_all(store_root)?;
     let records = stored_records.len();
     let projection_records = projection::verify(store_root, &stored_records)?;
+    let (import_receipts, import_inputs) = ingest::verify_receipts(store_root, &stored_records)?;
     Ok(FullScan {
         schemas: schema::verify_all(store_root)?,
         records,
         gates: scan_json_files(&store_root.join("registry/gates"))?,
         projection_files: count_files(&store_root.join("projections"))?,
         projection_records,
+        import_receipts,
+        import_inputs,
     })
 }
 

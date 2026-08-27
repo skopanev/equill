@@ -33,7 +33,7 @@ pub enum LegacyEvidence {
     Typed(EvidenceRef),
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ImportReport {
     pub ok: bool,
     pub input_sha256: String,
@@ -43,17 +43,30 @@ pub struct ImportReport {
     pub records: Vec<ImportItem>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ImportItem {
     pub line: usize,
+    pub line_sha256: String,
     pub legacy_id: String,
     pub record_id: Uuid,
     pub status: ImportStatus,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ImportStatus {
     Imported,
     Skipped,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ImportSetReport {
+    pub ok: bool,
+    pub manifest_sha256: String,
+    pub set_sha256: String,
+    pub inputs: usize,
+    pub total: usize,
+    pub imported: usize,
+    pub skipped: usize,
+    pub receipt: String,
 }
