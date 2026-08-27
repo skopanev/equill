@@ -167,6 +167,15 @@ fn validate_selector(selector: &Selector) -> Result<(), Error> {
             "selector coordinate pointers must be JSON pointers".into(),
         ));
     }
+    if selector
+        .coordinate_modes
+        .keys()
+        .any(|key| !selector.coordinate_pointers.contains_key(key))
+    {
+        return Err(Error::Context(
+            "selector coordinate modes require matching pointers".into(),
+        ));
+    }
     Ok(())
 }
 

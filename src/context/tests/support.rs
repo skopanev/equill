@@ -28,6 +28,24 @@ pub fn registry(
     strategies: &[&str],
     grant_namespace: &str,
 ) {
+    registry_with_modes(
+        root,
+        total,
+        required_cap,
+        strategies,
+        grant_namespace,
+        json!({}),
+    );
+}
+
+pub fn registry_with_modes(
+    root: &Path,
+    total: usize,
+    required_cap: usize,
+    strategies: &[&str],
+    grant_namespace: &str,
+    coordinate_modes: serde_json::Value,
+) {
     let core_cap = total.saturating_sub(20);
     let relevant_floor = (total / 4).min(500);
     let selector = root.join("selector.json");
@@ -40,7 +58,8 @@ pub fn registry(
             "strategies": strategies,
             "required_tags": ["must"],
             "core_tags": ["core"],
-            "coordinate_pointers": { "scope": "/scope" }
+            "coordinate_pointers": { "scope": "/scope" },
+            "coordinate_modes": coordinate_modes
         }))
         .expect("selector json"),
     )
@@ -87,9 +106,27 @@ pub fn append_scoped(
     valid_at: &str,
     scope: Option<&str>,
 ) -> uuid::Uuid {
+    append_coordinate(
+        root,
+        rule,
+        tags,
+        supersedes,
+        valid_at,
+        scope.map(|value| json!(value)),
+    )
+}
+
+pub fn append_coordinate(
+    root: &Path,
+    rule: &str,
+    tags: &[&str],
+    supersedes: Option<uuid::Uuid>,
+    valid_at: &str,
+    scope: Option<serde_json::Value>,
+) -> uuid::Uuid {
     let mut payload = json!({ "rule": rule });
     if let Some(scope) = scope {
-        payload["scope"] = json!(scope);
+        payload["scope"] = scope;
     }
     record::append(
         root,
@@ -131,7 +168,10 @@ fn register_type(root: &Path) {
             "additionalProperties": false,
             "properties": {
                 "rule": { "type": "string" },
-                "scope": { "type": "string" }
+                "scope": {
+                    "type": ["string", "array", "null"],
+                    "items": { "type": "string" }
+                }
             },
             "x-equill-envelope": { "namespace": "agent.memory", "type": "agent.lesson.v1" }
         }))

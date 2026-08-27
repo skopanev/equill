@@ -1,6 +1,8 @@
 use super::super::assemble;
 use super::super::model::ExclusionReason;
-use super::support::{append, append_scoped, registry, request, store};
+use super::support::{
+    append, append_coordinate, append_scoped, registry, registry_with_modes, request, store,
+};
 use serde_json::json;
 use std::fs;
 
@@ -104,5 +106,59 @@ fn registered_coordinate_pointer_filters_without_domain_semantics() {
     let bundle = assemble(&root, "worker.v1", input, "test-owner").expect("context");
 
     assert_eq!(bundle.selected_record_ids, vec![selected]);
+    fs::remove_dir_all(root).expect("remove store");
+}
+
+#[test]
+fn opted_in_coordinate_mode_matches_sets_and_wildcards() {
+    let root = store("coordinate-set");
+    registry_with_modes(
+        &root,
+        4_000,
+        1_000,
+        &["exact"],
+        "agent.memory",
+        json!({"scope": "set_or_wildcard"}),
+    );
+    let array = append_coordinate(
+        &root,
+        "Scoped verification",
+        &[],
+        None,
+        "2026-01-01T00:00:00Z",
+        Some(json!(["scope-a", "scope-c"])),
+    );
+    let wildcard = append_coordinate(
+        &root,
+        "Wildcard verification",
+        &[],
+        None,
+        "2026-01-01T00:00:00Z",
+        Some(json!(null)),
+    );
+    let missing = append_coordinate(
+        &root,
+        "Default verification",
+        &[],
+        None,
+        "2026-01-01T00:00:00Z",
+        None,
+    );
+    let mismatch = append_coordinate(
+        &root,
+        "Scoped verification",
+        &[],
+        None,
+        "2026-01-01T00:00:00Z",
+        Some(json!(["scope-b"])),
+    );
+    let mut input = request("verification");
+    input.coordinates.insert("scope".into(), json!("scope-a"));
+    let bundle = assemble(&root, "worker.v1", input, "test-owner").expect("context");
+
+    for id in [array, wildcard, missing] {
+        assert!(bundle.selected_record_ids.contains(&id));
+    }
+    assert!(!bundle.selected_record_ids.contains(&mismatch));
     fs::remove_dir_all(root).expect("remove store");
 }

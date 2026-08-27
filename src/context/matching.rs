@@ -1,5 +1,6 @@
 use super::model::{
-    ContextProfile, ContextRequest, ExcludedCoordinate, ExclusionReason, Selector, Strategy, Tier,
+    ContextProfile, ContextRequest, CoordinateMode, ExcludedCoordinate, ExclusionReason, Selector,
+    Strategy, Tier,
 };
 use crate::kernel::error::Error;
 use crate::record::StoredRecord;
@@ -90,11 +91,24 @@ pub(super) fn exclusion(record: &StoredRecord, reason: ExclusionReason) -> Exclu
 
 fn coordinates_match(record: &StoredRecord, selector: &Selector, request: &ContextRequest) -> bool {
     selector.coordinate_pointers.iter().all(|(key, pointer)| {
-        request
-            .coordinates
-            .get(key)
-            .is_none_or(|expected| record.payload.pointer(pointer) == Some(expected))
+        request.coordinates.get(key).is_none_or(|expected| {
+            let actual = record.payload.pointer(pointer);
+            match selector.coordinate_modes.get(key) {
+                Some(CoordinateMode::SetOrWildcard) => set_or_wildcard(actual, expected),
+                _ => actual == Some(expected),
+            }
+        })
     })
+}
+
+fn set_or_wildcard(actual: Option<&serde_json::Value>, expected: &serde_json::Value) -> bool {
+    match actual {
+        None | Some(serde_json::Value::Null) => true,
+        Some(serde_json::Value::Array(values)) if !expected.is_array() => {
+            values.iter().any(|value| value == expected)
+        }
+        Some(value) => value == expected,
+    }
 }
 
 fn exact(record: &StoredRecord, query: &str) -> bool {

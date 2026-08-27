@@ -144,6 +144,11 @@ equill profile register --store .equill --file profile.json
 equill context --store .equill --profile worker.v1 --request request.json
 ```
 
+Coordinate matching is exact by default. A selector may opt individual keys
+into `set_or_wildcard`: record arrays then match a requested scalar by
+membership, while a missing or `null` record coordinate applies to every
+request. The mode is explicit because widening a scope must never be implicit.
+
 The receipt names every included and excluded coordinate, strategy degradation, budget
 use, and the bundle digest without copying payloads into the receipt. `search` remains a
 simple SQLite/FTS inspection command; both surfaces reuse the same projection operation.

@@ -65,6 +65,15 @@ pub struct Selector {
     pub expires_at_pointer: Option<String>,
     #[serde(default)]
     pub coordinate_pointers: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub coordinate_modes: BTreeMap<String, CoordinateMode>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CoordinateMode {
+    Exact,
+    SetOrWildcard,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
