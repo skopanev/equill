@@ -1,4 +1,6 @@
 pub mod command;
+pub mod compact;
+pub mod context;
 pub mod defense;
 pub mod ingest;
 pub mod integrity;
@@ -45,6 +47,16 @@ where
                 command::output::render(json, &report, command::output::import_set(&report))
             }
         }
+        command::cli::Command::Compact {
+            store,
+            manifest,
+            dry_run,
+            apply,
+        } => {
+            let actor = kernel::identity::actor_from_env()?;
+            let report = compact::run(&store, &manifest, apply && !dry_run, &actor)?;
+            command::output::render(json, &report, command::output::compact(&report))
+        }
         command::cli::Command::Doctor { store, full, deep } => {
             let report = command::doctor::report(store.as_deref(), full, deep)?;
             command::output::render(json, &report, command::output::doctor(&report))
@@ -57,6 +69,41 @@ where
                     command::output::render(json, &report, command::output::schema(&report))
                 }
             }
+        }
+        command::cli::Command::Profile { command } => {
+            let actor = kernel::identity::actor_from_env()?;
+            match command {
+                command::cli::RegistryCommand::Register { store, file } => {
+                    let report = context::register_profile(&store, &file, &actor)?;
+                    command::output::render(
+                        json,
+                        &report,
+                        command::output::registry("profile", &report),
+                    )
+                }
+            }
+        }
+        command::cli::Command::Selector { command } => {
+            let actor = kernel::identity::actor_from_env()?;
+            match command {
+                command::cli::RegistryCommand::Register { store, file } => {
+                    let report = context::register_selector(&store, &file, &actor)?;
+                    command::output::render(
+                        json,
+                        &report,
+                        command::output::registry("selector", &report),
+                    )
+                }
+            }
+        }
+        command::cli::Command::Context {
+            store,
+            profile,
+            request,
+        } => {
+            let actor = kernel::identity::actor_from_env()?;
+            let bundle = context::assemble_file(&store, &profile, &request, &actor)?;
+            command::output::render(json, &bundle, bundle.content.clone())
         }
         command::cli::Command::Status { store } => {
             let report = command::status::report(store.as_deref())?;

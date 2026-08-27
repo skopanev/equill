@@ -1,6 +1,6 @@
 use crate::kernel::error::Error;
 use crate::kernel::store;
-use crate::{defense, integrity};
+use crate::{context, defense, integrity};
 use serde::Serialize;
 use std::path::Path;
 
@@ -13,6 +13,7 @@ pub struct DoctorReport {
     pub checks: Vec<Check>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deep_defense: Option<defense::DeepReport>,
+    pub context_profile_faults: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -35,9 +36,11 @@ pub fn report(store_root: Option<&Path>, full: bool, deep: bool) -> Result<Docto
             items: 1,
         });
     }
+    let mut context_profile_faults = 0;
     if full || deep {
         if let Some(root) = store_root {
             let scan = integrity::scan(root)?;
+            context_profile_faults = context::profile_faults(root)?;
             checks.extend([
                 Check {
                     id: "schemas",
@@ -50,6 +53,10 @@ pub fn report(store_root: Option<&Path>, full: bool, deep: bool) -> Result<Docto
                 Check {
                     id: "context-gates",
                     items: scan.gates,
+                },
+                Check {
+                    id: "context-profile-faults",
+                    items: context_profile_faults,
                 },
                 Check {
                     id: "projection-files",
@@ -74,9 +81,10 @@ pub fn report(store_root: Option<&Path>, full: bool, deep: bool) -> Result<Docto
         .filter(|_| deep)
         .map(defense::audit)
         .transpose()?;
-    let ok = deep_defense
-        .as_ref()
-        .is_none_or(|report| report.findings == 0);
+    let ok = context_profile_faults == 0
+        && deep_defense
+            .as_ref()
+            .is_none_or(|report| report.findings == 0);
     Ok(DoctorReport {
         ok,
         version: env!("CARGO_PKG_VERSION"),
@@ -90,5 +98,6 @@ pub fn report(store_root: Option<&Path>, full: bool, deep: bool) -> Result<Docto
         store_initialized,
         checks,
         deep_defense,
+        context_profile_faults,
     })
 }

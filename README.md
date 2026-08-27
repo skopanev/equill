@@ -32,13 +32,17 @@ equill init      create a store, root owner, and first namespace
 equill schema    register an immutable versioned type
 equill record    append one validated record
 equill import    migrate a legacy JSONL batch through the writer
+equill compact   preview or apply governed JSONL compaction
+equill profile   register a context budget and grants
+equill selector  register canonical per-type selection
+equill context   assemble bounded deterministic context
 equill search    inspect matching records
 equill rebuild   rebuild disposable projections
 equill doctor    validate a store and its policies
 equill status    show installed, optional, and planned components
 ```
 
-`context`, direct `get`, and the stdio MCP adapter remain planned.
+Direct `get` and the stdio MCP adapter remain planned.
 
 Commands print concise human-readable output by default. Pass the global `--json` flag
 for the stable machine-readable response, for example `equill status --json` or
@@ -97,6 +101,71 @@ set writes one immutable receipt containing the manifest SHA-256, every input SH
 and every source-line digest. `equill doctor --full` proves those lines still exist in
 the immutable ledger. Duplicate paths and partially imported sets never produce a set
 receipt; rerunning after a fix is safe because each completed line is idempotent.
+
+## Context assembly
+
+A selector owns generic retrieval policy for one type. JSON pointers connect request
+coordinates to payload fields without teaching Equill domain words:
+
+```json
+{
+  "id": "agent.lesson.inject.v1",
+  "version": "1",
+  "type": "agent.lesson.v1",
+  "strategies": ["fts", "exact", "tag", "recency"],
+  "required_tags": ["must"],
+  "core_tags": ["core"],
+  "coordinate_pointers": { "scope": "/scope" }
+}
+```
+
+A profile binds selectors to read grants and a hard context budget:
+
+```json
+{
+  "id": "worker.v1",
+  "version": "1",
+  "actors": ["local-worker"],
+  "grants": [{ "namespace": "agent.memory", "types": ["agent.lesson.v1"] }],
+  "selectors": ["agent.lesson.inject.v1"],
+  "budget": {
+    "total": 8000,
+    "required_cap": 1500,
+    "core_cap": 3000,
+    "relevant_floor": 2500,
+    "receipt_reserve": 500
+  }
+}
+```
+
+```bash
+equill selector register --store .equill --file selector.json
+equill profile register --store .equill --file profile.json
+equill context --store .equill --profile worker.v1 --request request.json
+```
+
+The receipt names every included and excluded coordinate, strategy degradation, budget
+use, and the bundle digest without copying payloads into the receipt. `search` remains a
+simple SQLite/FTS inspection command; both surfaces reuse the same projection operation.
+
+## Explicit compaction
+
+Compaction operates only on the complete input manifest named by the owner:
+
+```jsonl
+{"path":"rules.jsonl","role":"rules","expiry":{"pointer":"/expires_at","warning_days":30},"anchor_resolver":"anchors.jsonl"}
+{"path":"lessons.jsonl","role":"lessons"}
+```
+
+```bash
+equill compact --store .equill --manifest inputs.jsonl --dry-run
+equill compact --store .equill --manifest inputs.jsonl --apply
+```
+
+Dry-run is read-only and reports record IDs plus reason codes. Apply stages every source
+beside its original, validates the complete result, rebuilds the ledger through the
+canonical writer, rebuilds SQLite/FTS, runs `doctor --full`, then writes a content-free
+receipt. Git is the archive for removed source lines; compaction is never automatic.
 
 ## Development
 

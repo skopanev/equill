@@ -10,18 +10,44 @@ use uuid::Uuid;
 const IMPORT_KIND: &str = "equill.import.line";
 const LEGACY_ID_KIND: &str = "legacy.record-id";
 
+pub(crate) struct ParsedLine {
+    pub number: usize,
+    pub record: LegacyRecord,
+    pub digest: String,
+}
+
 pub fn import_jsonl(store: &Path, input: &Path, actor: &str) -> Result<ImportReport, Error> {
+    import_jsonl_inner(store, input, actor, false)
+}
+
+pub(crate) fn import_jsonl_allow_empty(
+    store: &Path,
+    input: &Path,
+    actor: &str,
+) -> Result<ImportReport, Error> {
+    import_jsonl_inner(store, input, actor, true)
+}
+
+fn import_jsonl_inner(
+    store: &Path,
+    input: &Path,
+    actor: &str,
+    allow_empty: bool,
+) -> Result<ImportReport, Error> {
     let bytes = fs::read(input)?;
     let input_sha256 = sha256_hex(&bytes);
-    let contents = std::str::from_utf8(&bytes)
-        .map_err(|error| Error::Import(format!("input is not UTF-8: {error}")))?;
-    let lines = parse_lines(contents)?;
+    let lines = parse_source(&bytes, allow_empty)?;
     let mut known = known_imports(store)?;
     let mut records = Vec::with_capacity(lines.len());
     let mut imported = 0;
     let mut skipped = 0;
 
-    for (line, source, digest) in lines {
+    for parsed in lines {
+        let ParsedLine {
+            number: line,
+            record: source,
+            digest,
+        } = parsed;
         if let Some(record_id) = known.by_digest.get(&digest).copied() {
             known.by_legacy.insert(source.id.clone(), record_id);
             records.push(item(
@@ -66,7 +92,9 @@ pub fn import_jsonl(store: &Path, input: &Path, actor: &str) -> Result<ImportRep
     })
 }
 
-fn parse_lines(contents: &str) -> Result<Vec<(usize, LegacyRecord, String)>, Error> {
+pub(crate) fn parse_source(bytes: &[u8], allow_empty: bool) -> Result<Vec<ParsedLine>, Error> {
+    let contents = std::str::from_utf8(bytes)
+        .map_err(|error| Error::Import(format!("input is not UTF-8: {error}")))?;
     let mut records = Vec::new();
     for (index, line) in contents.lines().enumerate() {
         if line.trim().is_empty() {
@@ -74,9 +102,13 @@ fn parse_lines(contents: &str) -> Result<Vec<(usize, LegacyRecord, String)>, Err
         }
         let source: LegacyRecord = serde_json::from_str(line)
             .map_err(|error| Error::Import(format!("line {}: {error}", index + 1)))?;
-        records.push((index + 1, source, sha256_hex(line.as_bytes())));
+        records.push(ParsedLine {
+            number: index + 1,
+            record: source,
+            digest: sha256_hex(line.as_bytes()),
+        });
     }
-    if records.is_empty() {
+    if records.is_empty() && !allow_empty {
         return Err(Error::Import("input contains no records".into()));
     }
     Ok(records)

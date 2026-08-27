@@ -86,6 +86,9 @@ grants → active/superseded/revoked → valid time → type selector → budget
 ```
 
 Every selector ships with scenario gates containing expected inclusions and exclusions.
+Request coordinates are opaque keys. A selector may map them to payload fields with
+JSON pointers; the kernel compares values and never learns domain concepts such as a
+project, phase, or harness.
 
 ## Access
 
@@ -107,6 +110,24 @@ them only after the JSONL append and write receipt are durable. An index failure
 the projection degraded but cannot roll back or invalidate the record. `doctor --full`
 compares every projected record and FTS body with the immutable log; `rebuild` replaces
 the disposable database from that log under the store writer lock.
+
+## Source compaction
+
+Imported JSONL is an owner-governed source set, not an endlessly growing second ledger.
+`compact` takes one complete import manifest and proves the rewrite before changing any
+source: duplicate or missing inputs, malformed records, invalid supersedes graphs, and
+ambiguous lifecycle anchors fail the whole plan.
+
+Removal is conservative. Superseded ancestors, records beyond a declared expiry warning
+window, and anchors documented dead by an explicit resolver may be removed. Active or
+unknown anchors remain. When an ancestor is removed, the retained live descendant is
+materialized without a dangling legacy `supersedes` link; Git preserves the original
+chain.
+
+Apply stages same-directory files, rebuilds a shadow store through the canonical import
+writer, rebuilds projections, and requires a green full doctor before swapping the
+source files and rebuilt store structures. A compact receipt records only coordinates,
+reason codes, hashes, actor, and verification outcome. No scheduler calls compaction.
 
 ## Transport
 

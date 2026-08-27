@@ -50,6 +50,21 @@ pub enum Command {
         #[arg(long, required_unless_present = "input", conflicts_with = "input")]
         manifest: Option<PathBuf>,
     },
+    /// Preview or apply manifest-wide source compaction.
+    Compact {
+        /// Initialized store directory to rebuild after apply.
+        #[arg(long)]
+        store: PathBuf,
+        /// Complete JSONL input manifest.
+        #[arg(long)]
+        manifest: PathBuf,
+        /// Report removals without changing inputs or the store.
+        #[arg(long, required_unless_present = "apply", conflicts_with = "apply")]
+        dry_run: bool,
+        /// Rewrite inputs and rebuild the store after validation.
+        #[arg(long, required_unless_present = "dry_run", conflicts_with = "dry_run")]
+        apply: bool,
+    },
     /// Check executable and store health.
     Doctor {
         /// Store directory to inspect.
@@ -66,6 +81,28 @@ pub enum Command {
     Schema {
         #[command(subcommand)]
         command: SchemaCommand,
+    },
+    /// Manage governed context profiles.
+    Profile {
+        #[command(subcommand)]
+        command: RegistryCommand,
+    },
+    /// Manage canonical per-type selectors.
+    Selector {
+        #[command(subcommand)]
+        command: RegistryCommand,
+    },
+    /// Assemble deterministic bounded context from one explicit store.
+    Context {
+        /// Initialized store directory.
+        #[arg(long)]
+        store: PathBuf,
+        /// Registered context profile identifier.
+        #[arg(long)]
+        profile: String,
+        /// Context request JSON file.
+        #[arg(long)]
+        request: PathBuf,
     },
     /// Show installed, configured, optional, and planned components.
     Status {
@@ -107,6 +144,19 @@ pub enum SchemaCommand {
         #[arg(long)]
         store: PathBuf,
         /// Type definition JSON file.
+        #[arg(long)]
+        file: PathBuf,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum RegistryCommand {
+    /// Register one immutable profile or selector definition.
+    Register {
+        /// Initialized store directory.
+        #[arg(long)]
+        store: PathBuf,
+        /// Definition JSON file.
         #[arg(long)]
         file: PathBuf,
     },

@@ -1,6 +1,8 @@
 use super::doctor::DoctorReport;
 use super::init::InitReport;
 use super::status::StatusReport;
+use crate::compact::CompactReport;
+use crate::context::RegistryReport;
 use crate::ingest::{ImportReport, ImportSetReport};
 use crate::kernel::error::Error;
 use crate::projection::{RebuildReport, SearchReport};
@@ -50,6 +52,37 @@ pub fn import_set(report: &ImportSetReport) -> String {
     )
 }
 
+pub fn compact(report: &CompactReport) -> String {
+    let mode = if report.applied { "Applied" } else { "Dry run" };
+    let mut output = format!(
+        "{mode}: {} removal(s) across {} input(s)",
+        report.removed,
+        report.inputs.len()
+    );
+    for input in &report.inputs {
+        write!(
+            &mut output,
+            "\n  {}: {} remove, {} retained with reason",
+            input.path,
+            input.removals.len(),
+            input.retained.len()
+        )
+        .expect("writing to String cannot fail");
+        for item in &input.removals {
+            write!(&mut output, "\n    remove {} ({})", item.id, item.reason)
+                .expect("writing to String cannot fail");
+        }
+        for item in &input.retained {
+            write!(&mut output, "\n    retain {} ({})", item.id, item.reason)
+                .expect("writing to String cannot fail");
+        }
+    }
+    if let Some(receipt) = &report.receipt {
+        write!(&mut output, "\nReceipt: {receipt}").expect("writing to String cannot fail");
+    }
+    output
+}
+
 pub fn schema(report: &RegisterReport) -> String {
     let action = if report.created {
         "Registered"
@@ -57,6 +90,18 @@ pub fn schema(report: &RegisterReport) -> String {
         "Already registered"
     };
     format!("{action}: {}\nSHA-256: {}", report.type_name, report.sha256)
+}
+
+pub fn registry(kind: &str, report: &RegistryReport) -> String {
+    let action = if report.created {
+        "Registered"
+    } else {
+        "Already registered"
+    };
+    format!(
+        "{action} {kind}: {}@{}\nSHA-256: {}",
+        report.id, report.version, report.digest
+    )
 }
 
 pub fn doctor(report: &DoctorReport) -> String {
