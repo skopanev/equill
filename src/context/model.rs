@@ -63,6 +63,8 @@ pub struct Selector {
     pub kind_pointer: Option<String>,
     #[serde(default)]
     pub expires_at_pointer: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rank_pointer: Option<String>,
     #[serde(default)]
     pub coordinate_pointers: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]

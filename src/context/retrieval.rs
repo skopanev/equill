@@ -10,6 +10,7 @@ pub struct Candidate {
     pub tier: Tier,
     pub strategies: Vec<Strategy>,
     pub score: usize,
+    pub rank: Option<f64>,
 }
 
 pub struct Retrieval {
@@ -65,6 +66,11 @@ pub fn retrieve(
         let selector = selector_map[record.type_name.as_str()];
         match matching::classify(&record, selector, request, &fts) {
             Some((tier, matched)) => candidates.push(Candidate {
+                rank: selector
+                    .rank_pointer
+                    .as_ref()
+                    .and_then(|pointer| record.payload.pointer(pointer))
+                    .and_then(serde_json::Value::as_f64),
                 record,
                 tier,
                 score: matched.len(),
@@ -79,7 +85,12 @@ pub fn retrieve(
     candidates.sort_by(|left, right| {
         left.tier
             .cmp(&right.tier)
-            .then_with(|| right.score.cmp(&left.score))
+            .then_with(|| match (left.rank, right.rank) {
+                (Some(left), Some(right)) => right.total_cmp(&left),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => right.score.cmp(&left.score),
+            })
             .then_with(|| right.record.observed_at.cmp(&left.record.observed_at))
             .then_with(|| left.record.id.cmp(&right.record.id))
     });

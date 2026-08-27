@@ -8,6 +8,7 @@ pub struct Budgeted {
     pub excluded: Vec<ExcludedCoordinate>,
     pub used: usize,
     pub degraded: bool,
+    pub required_overflow: usize,
 }
 
 struct Rendered {
@@ -36,7 +37,7 @@ pub fn apply(
     let mut picked = Vec::new();
     let mut used = 0;
     let mut degraded = false;
-    take(
+    let required_overflow = take(
         &mut required,
         budget.required_cap.min(content_limit),
         &mut used,
@@ -54,7 +55,7 @@ pub fn apply(
         .core_cap
         .min(content_limit.saturating_sub(used + protected));
     let mut ignored = false;
-    take(
+    let _ = take(
         &mut core,
         used + core_limit,
         &mut used,
@@ -63,7 +64,7 @@ pub fn apply(
         ExclusionReason::CoreCap,
         &mut ignored,
     );
-    take(
+    let _ = take(
         &mut relevant,
         content_limit,
         &mut used,
@@ -73,12 +74,6 @@ pub fn apply(
         &mut ignored,
     );
     excluded.sort_by_key(|item| item.id);
-    picked.sort_by(|left, right| {
-        left.candidate
-            .tier
-            .cmp(&right.candidate.tier)
-            .then_with(|| left.candidate.record.id.cmp(&right.candidate.record.id))
-    });
     let content = picked
         .iter()
         .map(|item| item.text.as_str())
@@ -101,21 +96,12 @@ pub fn apply(
         excluded,
         used,
         degraded,
+        required_overflow,
     })
 }
 
 fn render(candidate: Candidate) -> Result<Rendered, Error> {
-    let record = &candidate.record;
-    let text = format!(
-        "[{:?}] {} {} {}\npayload: {}\nevidence: {}\ntags: {}",
-        candidate.tier,
-        record.id,
-        record.namespace,
-        record.type_name,
-        serde_json::to_string(&record.payload)?,
-        serde_json::to_string(&record.evidence)?,
-        serde_json::to_string(&record.tags)?
-    );
+    let text = serde_json::to_string(&candidate.record.payload)?;
     let units = text.chars().count();
     Ok(Rendered {
         candidate,
@@ -132,16 +118,19 @@ fn take(
     excluded: &mut Vec<ExcludedCoordinate>,
     reason: ExclusionReason,
     degraded: &mut bool,
-) {
+) -> usize {
+    let mut dropped = 0;
     for item in source.drain(..) {
         if *used + item.units <= limit {
             *used += item.units;
             picked.push(item);
         } else {
             *degraded = true;
+            dropped += 1;
             excluded.push(excluded_item(&item, reason));
         }
     }
+    dropped
 }
 
 fn excluded_item(item: &Rendered, reason: ExclusionReason) -> ExcludedCoordinate {

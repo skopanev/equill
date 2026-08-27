@@ -61,6 +61,12 @@ pub fn assemble(
     let request_digest = sha256_hex(&serde_json::to_vec(&request)?);
     let retrieved = retrieval::retrieve(store_root, &profile, &selectors, &request)?;
     let budgeted = budget::apply(retrieved.candidates, &profile.budget, retrieved.excluded)?;
+    if budgeted.required_overflow > 0 {
+        return Err(Error::Context(format!(
+            "required context exceeds required_cap {}: {} record(s) excluded",
+            profile.budget.required_cap, budgeted.required_overflow
+        )));
+    }
     let bundle_digest = sha256_hex(budgeted.content.as_bytes());
     let degraded = budgeted.degraded || !retrieved.degraded_strategies.is_empty();
     let empty = budgeted.selected.is_empty();
@@ -115,11 +121,7 @@ pub fn profile_faults(store_root: &Path) -> Result<usize, Error> {
         };
         let retrieved = retrieval::retrieve(store_root, &profile, &selectors, &request)?;
         let budgeted = budget::apply(retrieved.candidates, &profile.budget, retrieved.excluded)?;
-        if budgeted
-            .excluded
-            .iter()
-            .any(|item| item.reason == model::ExclusionReason::RequiredOverflow)
-        {
+        if budgeted.required_overflow > 0 {
             faults += 1;
         }
     }

@@ -46,22 +46,63 @@ pub fn registry_with_modes(
     grant_namespace: &str,
     coordinate_modes: serde_json::Value,
 ) {
+    registry_with_options(
+        root,
+        total,
+        required_cap,
+        strategies,
+        grant_namespace,
+        coordinate_modes,
+        None,
+    );
+}
+
+pub fn registry_with_rank(
+    root: &Path,
+    total: usize,
+    required_cap: usize,
+    strategies: &[&str],
+    rank_pointer: &str,
+) {
+    registry_with_options(
+        root,
+        total,
+        required_cap,
+        strategies,
+        "agent.memory",
+        json!({}),
+        Some(rank_pointer),
+    );
+}
+
+fn registry_with_options(
+    root: &Path,
+    total: usize,
+    required_cap: usize,
+    strategies: &[&str],
+    grant_namespace: &str,
+    coordinate_modes: serde_json::Value,
+    rank_pointer: Option<&str>,
+) {
     let core_cap = total.saturating_sub(20);
     let relevant_floor = (total / 4).min(500);
     let selector = root.join("selector.json");
+    let mut definition = json!({
+        "id": "agent.lesson.inject.v1",
+        "version": "1",
+        "type": "agent.lesson.v1",
+        "strategies": strategies,
+        "required_tags": ["must"],
+        "core_tags": ["core"],
+        "coordinate_pointers": { "scope": "/scope" },
+        "coordinate_modes": coordinate_modes
+    });
+    if let Some(pointer) = rank_pointer {
+        definition["rank_pointer"] = json!(pointer);
+    }
     fs::write(
         &selector,
-        serde_json::to_vec(&json!({
-            "id": "agent.lesson.inject.v1",
-            "version": "1",
-            "type": "agent.lesson.v1",
-            "strategies": strategies,
-            "required_tags": ["must"],
-            "core_tags": ["core"],
-            "coordinate_pointers": { "scope": "/scope" },
-            "coordinate_modes": coordinate_modes
-        }))
-        .expect("selector json"),
+        serde_json::to_vec(&definition).expect("selector json"),
     )
     .expect("selector file");
     register_selector(root, &selector, "test-owner").expect("register selector");
@@ -146,6 +187,25 @@ pub fn append_coordinate(
     .id
 }
 
+pub fn append_ranked(root: &Path, rule: &str, confidence: f64, observed_at: &str) -> uuid::Uuid {
+    record::append(
+        root,
+        RecordDraft {
+            namespace: "agent.memory".into(),
+            type_name: "agent.lesson.v1".into(),
+            observed_at: observed_at.into(),
+            valid_at: Some("2026-01-01T00:00:00Z".into()),
+            payload: json!({ "rule": rule, "confidence": confidence }),
+            evidence: vec![],
+            tags: vec![],
+            supersedes: None,
+        },
+        "test-owner",
+    )
+    .expect("append")
+    .id
+}
+
 pub fn request(query: &str) -> ContextRequest {
     ContextRequest {
         at: "2026-01-05T00:00:00Z".into(),
@@ -168,6 +228,7 @@ fn register_type(root: &Path) {
             "additionalProperties": false,
             "properties": {
                 "rule": { "type": "string" },
+                "confidence": { "type": "number" },
                 "scope": {
                     "type": ["string", "array", "null"],
                     "items": { "type": "string" }

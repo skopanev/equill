@@ -168,6 +168,15 @@ fn validate_selector(selector: &Selector) -> Result<(), Error> {
         ));
     }
     if selector
+        .rank_pointer
+        .as_ref()
+        .is_some_and(|pointer| !pointer.starts_with('/') || pointer.len() > 500)
+    {
+        return Err(Error::Context(
+            "selector rank pointer must be a JSON pointer".into(),
+        ));
+    }
+    if selector
         .coordinate_modes
         .keys()
         .any(|key| !selector.coordinate_pointers.contains_key(key))

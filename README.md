@@ -115,9 +115,14 @@ coordinates to payload fields without teaching Equill domain words:
   "strategies": ["fts", "exact", "tag", "recency"],
   "required_tags": ["must"],
   "core_tags": ["core"],
+  "rank_pointer": "/confidence",
   "coordinate_pointers": { "scope": "/scope" }
 }
 ```
+
+Context content contains payloads only. Receipts retain selected coordinates; source
+records retain evidence and tags without consuming the content budget. A numeric
+`rank_pointer` sorts records descending within a tier before `observed_at` and id.
 
 A profile binds selectors to read grants and a hard context budget:
 
