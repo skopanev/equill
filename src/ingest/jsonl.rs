@@ -2,7 +2,7 @@ use super::model::{ImportItem, ImportReport, ImportStatus, LegacyEvidence, Legac
 use crate::kernel::digest::sha256_hex;
 use crate::kernel::error::Error;
 use crate::record::{self, EvidenceRef, RecordDraft};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 use uuid::Uuid;
@@ -67,12 +67,13 @@ fn import_jsonl_inner(
             )));
         }
         let legacy_id = source.id.clone();
-        let draft = draft(source, &digest, &known.by_legacy)
+        let draft = draft(source, &digest, &known.by_legacy, &known.ids)
             .map_err(|error| Error::Import(format!("line {line}: {error}")))?;
         let report = record::append(store, draft, actor)
             .map_err(|error| Error::Import(format!("line {line}: {error}")))?;
         known.by_digest.insert(digest.clone(), report.id);
         known.by_legacy.insert(legacy_id.clone(), report.id);
+        known.ids.insert(report.id);
         records.push(item(
             line,
             digest,
@@ -117,14 +118,19 @@ pub(crate) fn parse_source(bytes: &[u8], allow_empty: bool) -> Result<Vec<Parsed
 struct KnownImports {
     by_digest: HashMap<String, Uuid>,
     by_legacy: HashMap<String, Uuid>,
+    /// Every record id already in the store. A `supersedes` written as a raw
+    /// uuid is only honoured when it names one of these.
+    ids: HashSet<Uuid>,
 }
 
 fn known_imports(store: &Path) -> Result<KnownImports, Error> {
     let mut known = KnownImports {
         by_digest: HashMap::new(),
         by_legacy: HashMap::new(),
+        ids: HashSet::new(),
     };
     for record in record::read_all(store)? {
+        known.ids.insert(record.id);
         for evidence in record.evidence {
             if evidence.kind == IMPORT_KIND {
                 if let Some(digest) = evidence.sha256 {
@@ -142,6 +148,7 @@ fn draft(
     source: LegacyRecord,
     digest: &str,
     legacy_ids: &HashMap<String, Uuid>,
+    known_ids: &HashSet<Uuid>,
 ) -> Result<RecordDraft, Error> {
     let mut evidence = source
         .evidence
@@ -179,7 +186,7 @@ fn draft(
     ]);
     let supersedes = source
         .supersedes
-        .map(|id| resolve_supersedes(&id, legacy_ids))
+        .map(|id| resolve_supersedes(&id, legacy_ids, known_ids))
         .transpose()?;
     Ok(RecordDraft {
         namespace: source.namespace,
@@ -193,10 +200,23 @@ fn draft(
     })
 }
 
-fn resolve_supersedes(value: &str, legacy_ids: &HashMap<String, Uuid>) -> Result<Uuid, Error> {
-    Uuid::parse_str(value)
-        .ok()
-        .or_else(|| legacy_ids.get(value).copied())
+/// The legacy id map wins: it is this run's own source-id to record-id mapping.
+/// A raw uuid is accepted only when a record with that id actually exists —
+/// otherwise re-importing an exported ledger would store dangling pointers and
+/// silently drop every supersession.
+fn resolve_supersedes(
+    value: &str,
+    legacy_ids: &HashMap<String, Uuid>,
+    known_ids: &HashSet<Uuid>,
+) -> Result<Uuid, Error> {
+    legacy_ids
+        .get(value)
+        .copied()
+        .or_else(|| {
+            Uuid::parse_str(value)
+                .ok()
+                .filter(|id| known_ids.contains(id))
+        })
         .ok_or_else(|| Error::Import(format!("supersedes target is unknown: {value}")))
 }
 
