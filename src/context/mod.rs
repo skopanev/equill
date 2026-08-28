@@ -41,10 +41,7 @@ pub fn assemble(
     if actor != config.root_owner {
         identity::require_root(&config, actor).or_else(|_| {
             let (profile, _) = registry::load_profile(store_root, profile_id)?;
-            profile
-                .actors
-                .iter()
-                .any(|item| item == actor)
+            identity::permits(&profile.actors, actor)
                 .then_some(())
                 .ok_or(Error::PermissionDenied)
         })?;
@@ -63,8 +60,8 @@ pub fn assemble(
     let budgeted = budget::apply(retrieved.candidates, &profile.budget, retrieved.excluded)?;
     if budgeted.required_overflow > 0 {
         return Err(Error::Context(format!(
-            "required context exceeds required_cap {}: {} record(s) excluded",
-            profile.budget.required_cap, budgeted.required_overflow
+            "required context exceeds the {} unit limit: {} record(s) excluded",
+            budgeted.required_limit, budgeted.required_overflow
         )));
     }
     let bundle_digest = sha256_hex(budgeted.content.as_bytes());

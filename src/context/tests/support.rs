@@ -129,6 +129,42 @@ fn registry_with_options(
     register_profile(root, &profile, "test-owner").expect("register profile");
 }
 
+/// Profile with no budget block at all — every bound absent. Nothing is capped
+/// and the required tier can never overflow.
+pub fn registry_unbounded(root: &Path, strategies: &[&str], grant_namespace: &str) {
+    let selector = root.join("selector.json");
+    fs::write(
+        &selector,
+        serde_json::to_vec(&json!({
+            "id": "agent.lesson.inject.v1",
+            "version": "1",
+            "type": "agent.lesson.v1",
+            "strategies": strategies,
+            "required_tags": ["must"],
+            "core_tags": ["core"],
+            "coordinate_pointers": { "scope": "/scope" },
+            "coordinate_modes": {}
+        }))
+        .expect("selector json"),
+    )
+    .expect("selector file");
+    register_selector(root, &selector, "test-owner").expect("register selector");
+    let profile = root.join("profile.json");
+    fs::write(
+        &profile,
+        serde_json::to_vec(&json!({
+            "id": "worker.v1",
+            "version": "1",
+            "actors": [],
+            "grants": [{ "namespace": grant_namespace, "types": ["agent.lesson.v1"] }],
+            "selectors": ["agent.lesson.inject.v1"]
+        }))
+        .expect("profile json"),
+    )
+    .expect("profile file");
+    register_profile(root, &profile, "test-owner").expect("register profile");
+}
+
 pub fn append(
     root: &Path,
     rule: &str,

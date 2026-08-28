@@ -135,15 +135,33 @@ fn validate_profile(profile: &ContextProfile) -> Result<(), Error> {
             "profile requires version, grants, and selectors".into(),
         ));
     }
+    // Absent bounds are legal and mean "unbounded"; only the values actually
+    // present have to agree with each other.
     let budget = &profile.budget;
-    let content = budget.total.saturating_sub(budget.receipt_reserve);
-    if budget.total == 0
-        || budget.receipt_reserve >= budget.total
-        || budget.required_cap > content
-        || budget.core_cap > content
-        || budget.relevant_floor > content
-    {
-        return Err(Error::Context("invalid context budget".into()));
+    if let Some(total) = budget.total {
+        let reserve = budget.receipt_reserve();
+        if total == 0 {
+            return Err(Error::Context(
+                "context budget total must be positive".into(),
+            ));
+        }
+        if reserve >= total {
+            return Err(Error::Context(format!(
+                "receipt_reserve {reserve} leaves no content space in total {total}"
+            )));
+        }
+        let content = total - reserve;
+        for (name, value) in [
+            ("required_cap", budget.required_cap),
+            ("core_cap", budget.core_cap),
+            ("relevant_floor", budget.relevant_floor),
+        ] {
+            if value.is_some_and(|value| value > content) {
+                return Err(Error::Context(format!(
+                    "{name} exceeds the {content} unit content limit of this budget"
+                )));
+            }
+        }
     }
     Ok(())
 }

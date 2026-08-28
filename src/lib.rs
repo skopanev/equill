@@ -23,8 +23,9 @@ where
             store,
             owner,
             namespace,
+            writers,
         } => {
-            let report = command::init::create(&store, &owner, &namespace)?;
+            let report = command::init::create_with_writers(&store, &owner, &namespace, &writers)?;
             command::output::render(json, &report, command::output::init(&store, &report))
         }
         command::cli::Command::Record { store, input } => {

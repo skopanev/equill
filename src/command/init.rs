@@ -29,6 +29,17 @@ pub struct InitReport {
 }
 
 pub fn create(store: &Path, owner: &str, namespace: &str) -> Result<InitReport, Error> {
+    create_with_writers(store, owner, namespace, &[])
+}
+
+/// `writers` are actors allowed to append records besides the owner. `["*"]`
+/// opens the store to every agent on the machine; governance stays with the owner.
+pub fn create_with_writers(
+    store: &Path,
+    owner: &str,
+    namespace: &str,
+    writers: &[String],
+) -> Result<InitReport, Error> {
     let owner = owner.trim();
     let namespace = namespace.trim();
     if !identity::valid(owner) {
@@ -47,7 +58,7 @@ pub fn create(store: &Path, owner: &str, namespace: &str) -> Result<InitReport, 
 
     let staging = staging_path(store)?;
     fs::create_dir(&staging)?;
-    let result = initialize_staging(&staging, owner, namespace).and_then(|report| {
+    let result = initialize_staging(&staging, owner, namespace, writers).and_then(|report| {
         fs::rename(&staging, store)?;
         Ok(report)
     });
@@ -95,7 +106,12 @@ fn staging_path(store: &Path) -> Result<PathBuf, Error> {
     Ok(staging)
 }
 
-fn initialize_staging(staging: &Path, owner: &str, namespace: &str) -> Result<InitReport, Error> {
+fn initialize_staging(
+    staging: &Path,
+    owner: &str,
+    namespace: &str,
+    writers: &[String],
+) -> Result<InitReport, Error> {
     for directory in DIRECTORIES {
         fs::create_dir_all(staging.join(directory))?;
     }
@@ -109,6 +125,7 @@ fn initialize_staging(staging: &Path, owner: &str, namespace: &str) -> Result<In
         "format_version": 1,
         "root_owner": owner,
         "namespaces": [namespace],
+        "writers": writers,
         "created_at_unix_ms": created_at_unix_ms,
     });
     let mut file = OpenOptions::new()

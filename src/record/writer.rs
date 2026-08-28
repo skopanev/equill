@@ -26,7 +26,7 @@ pub fn append(
     actor: &str,
 ) -> Result<AppendReport, Error> {
     let config = store::load(store_root)?;
-    identity::require_root(&config, actor)?;
+    identity::require_writer(&config, actor)?;
     let recorded_at = Timestamp::now().to_string();
     let month = month(&recorded_at)?;
     let defense = defense::apply(store_root, &mut draft)?;

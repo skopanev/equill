@@ -8,6 +8,10 @@ pub struct StoreConfig {
     pub format_version: u64,
     pub root_owner: String,
     pub namespaces: Vec<String>,
+    /// Actors allowed to append records besides the root owner. Empty keeps the
+    /// store owner-only; `["*"]` opens it to every agent on the machine.
+    #[serde(default)]
+    pub writers: Vec<String>,
     pub created_at_unix_ms: u128,
 }
 

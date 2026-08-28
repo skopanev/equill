@@ -4,6 +4,9 @@ use crate::kernel::error::Error;
 
 pub struct Budgeted {
     pub content: String,
+    /// Effective ceiling applied to the required tier, after folding in the
+    /// total. Reported so callers can explain an overflow without recomputing.
+    pub required_limit: usize,
     pub selected: Vec<SelectedCoordinate>,
     pub excluded: Vec<ExcludedCoordinate>,
     pub used: usize,
@@ -33,13 +36,14 @@ pub fn apply(
             Tier::Relevant => relevant.push(rendered),
         }
     }
-    let content_limit = budget.total - budget.receipt_reserve;
+    let content_limit = budget.content_limit();
+    let required_limit = budget.required_limit();
     let mut picked = Vec::new();
     let mut used = 0;
     let mut degraded = false;
     let required_overflow = take(
         &mut required,
-        budget.required_cap.min(content_limit),
+        required_limit,
         &mut used,
         &mut picked,
         &mut excluded,
@@ -48,16 +52,16 @@ pub fn apply(
     );
     let relevant_units: usize = relevant.iter().map(|item| item.units).sum();
     let protected = budget
-        .relevant_floor
+        .relevant_floor()
         .min(relevant_units)
         .min(content_limit.saturating_sub(used));
     let core_limit = budget
-        .core_cap
-        .min(content_limit.saturating_sub(used + protected));
+        .core_cap()
+        .min(content_limit.saturating_sub(used.saturating_add(protected)));
     let mut ignored = false;
     let _ = take(
         &mut core,
-        used + core_limit,
+        used.saturating_add(core_limit),
         &mut used,
         &mut picked,
         &mut excluded,
@@ -92,6 +96,7 @@ pub fn apply(
         .collect();
     Ok(Budgeted {
         content,
+        required_limit,
         selected,
         excluded,
         used,

@@ -27,6 +27,7 @@ pub struct ContextProfile {
     pub actors: Vec<String>,
     pub grants: Vec<ReadGrant>,
     pub selectors: Vec<String>,
+    #[serde(default)]
     pub budget: ContextBudget,
 }
 
@@ -37,14 +38,52 @@ pub struct ReadGrant {
     pub types: Vec<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+/// Every bound is optional. An absent cap means "do not bound this tier"; an
+/// absent floor or reserve means zero. A profile with no budget at all returns
+/// everything the selectors matched.
 pub struct ContextBudget {
-    pub total: usize,
-    pub required_cap: usize,
-    pub core_cap: usize,
-    pub relevant_floor: usize,
-    pub receipt_reserve: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub required_cap: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub core_cap: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relevant_floor: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receipt_reserve: Option<usize>,
+}
+
+impl ContextBudget {
+    /// Total content space once the receipt reserve is set aside.
+    pub fn content_limit(&self) -> usize {
+        match self.total {
+            Some(total) => total.saturating_sub(self.receipt_reserve()),
+            None => usize::MAX,
+        }
+    }
+
+    pub fn receipt_reserve(&self) -> usize {
+        self.receipt_reserve.unwrap_or(0)
+    }
+
+    pub fn relevant_floor(&self) -> usize {
+        self.relevant_floor.unwrap_or(0)
+    }
+
+    /// Hard ceiling on the required tier. Exceeding it is fatal, so an absent
+    /// cap is the difference between "bounded" and "never fails".
+    pub fn required_limit(&self) -> usize {
+        self.required_cap
+            .unwrap_or(usize::MAX)
+            .min(self.content_limit())
+    }
+
+    pub fn core_cap(&self) -> usize {
+        self.core_cap.unwrap_or(usize::MAX)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

@@ -24,6 +24,9 @@ pub enum Command {
         /// First logical namespace in the store.
         #[arg(long)]
         namespace: String,
+        /// Actor allowed to append records besides the owner. Repeatable; `*` opens the store.
+        #[arg(long = "writer")]
+        writers: Vec<String>,
     },
     /// Append one schema-validated immutable record.
     Record {

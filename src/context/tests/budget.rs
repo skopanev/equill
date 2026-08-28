@@ -1,6 +1,6 @@
 use super::super::assemble;
 use super::super::model::ExclusionReason;
-use super::support::{append, registry, request, store};
+use super::support::{append, registry, registry_unbounded, request, store};
 use crate::command::doctor;
 use std::fs;
 
@@ -22,7 +22,7 @@ fn required_overflow_fails_context_and_doctor() {
     assert!(
         error
             .to_string()
-            .contains("required context exceeds required_cap 10")
+            .contains("required context exceeds the 10 unit limit")
     );
     assert!(!report.ok);
     assert_eq!(report.context_profile_faults, 1);
@@ -69,5 +69,35 @@ fn relevant_floor_preserves_request_evidence_before_core() {
             .iter()
             .any(|item| { item.id == core && item.reason == ExclusionReason::CoreCap })
     );
+    fs::remove_dir_all(root).expect("remove store");
+}
+
+#[test]
+fn absent_budget_returns_everything_and_never_overflows() {
+    let root = store("unbounded");
+    registry_unbounded(&root, &["exact", "tag"], "agent.memory");
+    for index in 0..12 {
+        append(
+            &root,
+            &format!("Mandatory policy {index}"),
+            &["must"],
+            None,
+            "2026-01-01T00:00:00Z",
+        );
+    }
+    let bundle = assemble(&root, "worker.v1", request(""), "test-owner")
+        .expect("a profile without caps must never fail on volume");
+    let report = doctor::report(Some(&root), true, false).expect("doctor");
+
+    assert_eq!(bundle.receipt.included.len(), 12);
+    assert!(
+        !bundle
+            .receipt
+            .excluded
+            .iter()
+            .any(|item| matches!(item.reason, ExclusionReason::RequiredOverflow))
+    );
+    assert!(!bundle.receipt.degraded);
+    assert_eq!(report.context_profile_faults, 0);
     fs::remove_dir_all(root).expect("remove store");
 }
