@@ -90,3 +90,67 @@ fn rejects_invalid_payload_and_actor() {
     assert!(actor.to_string().contains("not allowed"));
     fs::remove_dir_all(path).expect("remove test store");
 }
+
+#[test]
+fn invalid_payload_names_the_field_and_the_constraint() {
+    // The author of a lesson appends JSONL by hand and cannot see the registered
+    // contract. "does not match" alone sends them hunting through the schema.
+    let suffix = NEXT.fetch_add(1, Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!(
+        "equill-record-detail-{}-{suffix}",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&path);
+    init::create(&path, "writer", "agent.memory").expect("initialize");
+    schema::register(
+        &path,
+        TypeDefinition {
+            type_name: "agent.lesson.v1".into(),
+            uri: "equill://agent.lesson/v1".into(),
+            owner: "schema-owner".into(),
+            payload_schema: json!({
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                    "rule": { "type": "string", "maxLength": 500 },
+                    "source": { "type": "string", "enum": ["gate", "panel", "owner"] }
+                },
+                "required": ["rule", "source"],
+                "additionalProperties": false
+            }),
+        },
+        "writer",
+    )
+    .expect("register schema");
+
+    let long_rule = "x".repeat(1070);
+    let error = append(
+        &path,
+        draft(json!({ "rule": long_rule, "source": "gm" })),
+        "writer",
+    )
+    .expect_err("reject payload");
+    let message = error.to_string();
+
+    assert!(message.contains("/rule"), "{message}");
+    assert!(message.contains("longer than 500"), "{message}");
+    assert!(message.contains("/source"), "{message}");
+    assert!(message.contains("\"gm\""), "{message}");
+    // The offending value must not bury the reason that follows it.
+    assert!(message.len() < 600, "message is {} bytes", message.len());
+
+    let missing = append(
+        &path,
+        draft(json!({ "rule": "long enough rule" })),
+        "writer",
+    )
+    .expect_err("reject missing field");
+    assert!(
+        missing
+            .to_string()
+            .contains("\"source\" is a required property"),
+        "{missing}"
+    );
+
+    fs::remove_dir_all(path).expect("remove test store");
+}

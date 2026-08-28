@@ -56,12 +56,53 @@ fn validate_payload(
 ) -> Result<(), Error> {
     let validator = jsonschema::draft202012::new(&definition.payload_schema)
         .map_err(|_| Error::InvalidSchema("payload validator could not compile".into()))?;
-    if !validator.is_valid(payload) {
-        return Err(Error::InvalidRecord(format!(
-            "payload does not match {type_name}"
-        )));
+    // The writer is usually appending JSONL by hand and cannot see the registered
+    // contract, so a bare "does not match" costs them a hunt through the schema.
+    // Name the field and the constraint instead.
+    let mut faults = validator
+        .iter_errors(payload)
+        .map(|error| {
+            let pointer = error.instance_path().to_string();
+            let at = if pointer.is_empty() {
+                "payload"
+            } else {
+                &pointer
+            };
+            // The offending value is quoted back in full by the validator; a
+            // rule that is too long would then bury its own error message.
+            format!("{at}: {}", shorten(&error.to_string()))
+        })
+        .collect::<Vec<_>>();
+    if faults.is_empty() {
+        return Ok(());
     }
-    Ok(())
+    faults.sort();
+    const SHOWN: usize = 5;
+    let hidden = faults.len().saturating_sub(SHOWN);
+    faults.truncate(SHOWN);
+    let mut message = format!("payload does not match {type_name}: {}", faults.join("; "));
+    if hidden > 0 {
+        message.push_str(&format!(" (and {hidden} more)"));
+    }
+    Err(Error::InvalidRecord(message))
+}
+
+/// The validator quotes the offending value before stating the reason, so a
+/// value that is itself too long would push its own explanation out of view.
+/// Keep both ends: enough of the value to recognise it, all of the reason.
+fn shorten(text: &str) -> String {
+    const HEAD: usize = 60;
+    const TAIL: usize = 90;
+    let indices = text
+        .char_indices()
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    if indices.len() <= HEAD + TAIL {
+        return text.to_owned();
+    }
+    let head = &text[..indices[HEAD]];
+    let tail = &text[indices[indices.len() - TAIL]..];
+    format!("{head}… …{tail}")
 }
 
 fn validate_tags(tags: &[String]) -> Result<(), Error> {
