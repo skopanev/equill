@@ -3,7 +3,6 @@ use super::revoke;
 use super::tests::{add, store};
 use crate::record::read_all;
 use crate::schema::LifecyclePolicy;
-use serde_json::json;
 use std::fs;
 
 /// An ordinary search answers with what is current. Handing back a claim its
@@ -66,5 +65,53 @@ fn an_ordinary_search_stops_serving_a_withdrawn_claim() {
             .iter()
             .any(|item| item.reference == "no longer true")
     );
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+/// History has to be excluded before the page is cut. Filtering a limited
+/// result set instead returns nothing when the top hit happens to be a record a
+/// later one replaced, while a live match waits one row below it.
+#[test]
+fn a_page_of_one_returns_the_live_match_not_an_empty_page() {
+    let root = store("paging", LifecyclePolicy::default());
+    let withdrawn = add(&root, "deployment checklist alpha");
+    let live = add(&root, "deployment checklist beta");
+    revoke(&root, withdrawn, None, "owner").expect("revoke");
+
+    let ask = |limit: u16| {
+        crate::vector::search(
+            &root,
+            &crate::projection::SearchRequest {
+                query: Some("deployment".into()),
+                namespace: None,
+                type_name: None,
+                limit,
+            },
+            crate::vector::SearchStrategy::Fts,
+        )
+        .expect("search")
+        .hits
+        .into_iter()
+        .map(|hit| hit.record.id)
+        .collect::<Vec<_>>()
+    };
+
+    assert_eq!(ask(1), vec![live], "one row must be the live one");
+    assert_eq!(ask(10), vec![live], "and it is the only one either way");
+    // The same holds when the filter alone selects, with no text to rank by.
+    let scanned = crate::vector::search(
+        &root,
+        &crate::projection::SearchRequest {
+            query: None,
+            namespace: None,
+            type_name: None,
+            limit: 1,
+        },
+        crate::vector::SearchStrategy::Fts,
+    )
+    .expect("scan")
+    .hits;
+    assert_eq!(scanned.len(), 1);
+    assert_eq!(scanned[0].record.id, live);
     fs::remove_dir_all(root).expect("cleanup");
 }

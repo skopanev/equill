@@ -62,6 +62,7 @@ pub fn search(
                 .map(|record| SearchHit { record })
                 .collect::<Vec<_>>();
             current_only(store_root, &mut hits)?;
+            hits.truncate(request.limit as usize);
             Ok(StrategySearchReport {
                 ok: true,
                 strategy,
@@ -96,6 +97,12 @@ fn semantic(
     let projection = VectorProjection::open(store_root)?
         .ok_or_else(|| vector_error("vector projection is not configured"))?;
     let embedder = EmbeddingRuntime::load(store_root, &config)?;
+    // The index ranks history alongside current records, so ask for more than
+    // the page and cut afterwards — bounded, never past what the engine scans.
+    let overfetch = request
+        .limit
+        .saturating_mul(4)
+        .clamp(request.limit, crate::projection::MAX_SCAN);
     let verified = retrieval::retrieve(
         &projection,
         &embedder,
@@ -104,7 +111,7 @@ fn semantic(
             vector: Vec::new(),
             namespaces: request.namespace.clone().into_iter().collect(),
             type_names: request.type_name.clone().into_iter().collect(),
-            limit: request.limit,
+            limit: overfetch,
         },
     )?;
     Ok((verified.records, verified.rejected))

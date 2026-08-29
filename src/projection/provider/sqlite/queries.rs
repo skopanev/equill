@@ -5,6 +5,9 @@ INSERT OR IGNORE INTO records(
 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
 "#;
 
+/// History is excluded before the page is cut, not after: filtering a limited
+/// result set would return nothing when the top hit happens to be a record a
+/// later one replaced, while a live match waited one row below.
 pub const SEARCH: &str = r#"
 SELECT r.id, r.namespace, r.type_name, r.actor, r.recorded_at, r.observed_at,
        r.valid_at, r.payload_json, r.evidence_json, r.tags_json, r.supersedes
@@ -13,6 +16,9 @@ JOIN records r ON r.id = f.id
 WHERE records_fts MATCH ?1
   AND (?2 IS NULL OR r.namespace = ?2)
   AND (?3 IS NULL OR r.type_name = ?3)
+  AND r.id NOT IN (SELECT supersedes FROM records WHERE supersedes IS NOT NULL)
+  AND r.tags_json NOT LIKE '%"equill:revoked"%'
+  AND r.tags_json NOT LIKE '%"status:revoked"%'
 ORDER BY bm25(records_fts), r.recorded_at DESC, r.id
 LIMIT ?4
 "#;
@@ -27,6 +33,9 @@ SELECT id, namespace, type_name, actor, recorded_at, observed_at, valid_at,
 FROM records
 WHERE (?1 IS NULL OR namespace = ?1)
   AND (?2 IS NULL OR type_name = ?2)
+  AND id NOT IN (SELECT supersedes FROM records WHERE supersedes IS NOT NULL)
+  AND tags_json NOT LIKE '%"equill:revoked"%'
+  AND tags_json NOT LIKE '%"status:revoked"%'
 ORDER BY id
 LIMIT ?3
 "#;
