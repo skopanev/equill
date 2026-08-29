@@ -239,6 +239,12 @@ pub enum Command {
         #[arg(long, value_delimiter = ',')]
         fields: Vec<String>,
     },
+    /// Serve the local MCP adapter over stdio. No socket is opened.
+    Mcp {
+        /// Initialized store directory.
+        #[arg(long)]
+        store: PathBuf,
+    },
     /// Rebuild disposable projections from immutable records.
     Rebuild {
         /// Initialized store directory.
