@@ -17,6 +17,18 @@ pub fn validate(filter: &Filter, definitions: &[TypeDefinition]) -> Result<(), E
         ));
     }
     for condition in filter.conditions() {
+        // An envelope name needs no schema, but a typo inside one is still a
+        // typo: `evidence.sha` names nothing and must say so.
+        match super::envelope_path(&condition.path) {
+            Some(true) => continue,
+            Some(false) => {
+                let field = condition.path.join(".");
+                return Err(invalid(format!(
+                    "unknown field {field}: the record envelope has no such name"
+                )));
+            }
+            None => {}
+        }
         let known = definitions
             .iter()
             .any(|definition| declared(&definition.payload_schema, &condition.path));

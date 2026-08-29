@@ -108,7 +108,7 @@ pub fn search(
     let mut report = vector::search(&store, &request, strategy)?;
     report
         .hits
-        .retain(|hit| filter::matches(&hit.record.payload, &filter));
+        .retain(|hit| filter::matches(&hit.record, &filter));
     report.hits.truncate(limit as usize);
     let text = match &report.fallback {
         Some(reason) => format!(

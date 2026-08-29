@@ -1,6 +1,8 @@
 use super::{Filter, candidate_limit, matches, validate};
+use crate::record::{EvidenceRef, StoredRecord};
 use crate::schema::TypeDefinition;
-use serde_json::{Value, json};
+use serde_json::json;
+use uuid::Uuid;
 
 fn filter(flags: &[&str], strict: bool) -> Filter {
     Filter::parse(
@@ -13,8 +15,23 @@ fn filter(flags: &[&str], strict: bool) -> Filter {
     .expect("filter parses")
 }
 
-fn record() -> Value {
-    json!({
+fn record() -> StoredRecord {
+    StoredRecord {
+        id: Uuid::now_v7(),
+        namespace: "agent.memory".into(),
+        type_name: "agent.lesson.v1".into(),
+        actor: "owner".into(),
+        recorded_at: "2026-01-01T00:00:00Z".into(),
+        observed_at: "2026-01-01T00:00:00Z".into(),
+        valid_at: "2026-01-02T00:00:00Z".into(),
+        evidence: vec![EvidenceRef {
+            kind: "commit".into(),
+            reference: "synthetic-ref".into(),
+            sha256: None,
+        }],
+        tags: vec!["must".into(), "core".into()],
+        supersedes: None,
+        payload: json!({
         "rule": "Run the checks.",
         "source": "owner",
         "severity": "must",
@@ -23,7 +40,8 @@ fn record() -> Value {
         "evidence": [{ "kind": "commit", "digest": "abc" }],
         "weight": 3,
         "active": true
-    })
+        }),
+    }
 }
 
 #[test]
@@ -165,4 +183,48 @@ fn definition() -> TypeDefinition {
         }),
         lifecycle: Default::default(),
     }
+}
+
+/// The envelope carries what every record has whatever its type. A caller
+/// asking about tags or the actor is asking an ordinary question, and it would
+/// be strange for the same name to be printable by --fields but unfilterable.
+#[test]
+fn envelope_names_are_filterable_beside_payload_fields() {
+    let item = record();
+    let id = item.id.to_string();
+
+    for flag in [
+        "namespace=agent.memory",
+        "type=agent.lesson.v1",
+        "actor=owner",
+        "valid_at=2026-01-02T00:00:00Z",
+        "tags=must",
+        "tags=core",
+        "evidence.kind=commit",
+        "evidence.reference=synthetic-ref",
+        "supersedes=null",
+    ] {
+        assert!(matches(&item, &filter(&[flag], false)), "{flag} must match");
+    }
+    assert!(matches(&item, &filter(&[&format!("id={id}")], false)));
+    assert!(!matches(&item, &filter(&["actor=someone-else"], false)));
+    assert!(!matches(&item, &filter(&["tags=absent-tag"], true)));
+    assert!(matches(&item, &filter(&["type=!agent.lesson.v2"], false)));
+    // Envelope names are always legal: no schema declares or omits them.
+    validate(
+        &filter(&["tags=must", "evidence.kind=commit"], false),
+        &[definition()],
+    )
+    .expect("envelope names need no declaration");
+}
+
+/// A payload field of the same name still wins, because that is the name the
+/// caller was reading in the schema when they typed it.
+#[test]
+fn a_payload_field_shadows_an_envelope_name() {
+    let mut item = record();
+    item.payload = json!({ "actor": "payload-actor" });
+
+    assert!(matches(&item, &filter(&["actor=payload-actor"], false)));
+    assert!(!matches(&item, &filter(&["actor=owner"], false)));
 }

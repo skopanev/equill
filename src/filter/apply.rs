@@ -1,18 +1,30 @@
-use super::{Absent, Condition, Filter, Term};
+use super::{Absent, Condition, Filter, Term, envelope_path};
+use crate::record::StoredRecord;
 use serde_json::Value;
 
 /// A record passes when every flag passes; a flag passes when any of its values
 /// does. Absence is decided once, by the filter's own policy, so the answer
 /// never depends on which condition happened to be evaluated first.
-pub fn matches(payload: &Value, filter: &Filter) -> bool {
+/// A record is filtered as a whole. Its payload carries the domain's own
+/// fields, while namespace, type, actor, tags and evidence sit on the envelope
+/// — and a caller asking about `tags` or `evidence.kind` is asking an ordinary
+/// question, not reaching into internals. Payload names win a collision,
+/// because they belong to the schema the caller was reading when they typed it.
+pub fn matches(record: &StoredRecord, filter: &Filter) -> bool {
+    let envelope = serde_json::to_value(record).unwrap_or(Value::Null);
     filter
         .conditions()
         .iter()
-        .all(|condition| holds(payload, condition, filter.absent()))
+        .all(|condition| holds(&record.payload, &envelope, condition, filter.absent()))
 }
 
-fn holds(payload: &Value, condition: &Condition, absent: Absent) -> bool {
-    let actual = resolve(payload, &condition.path);
+fn holds(payload: &Value, envelope: &Value, condition: &Condition, absent: Absent) -> bool {
+    let actual = resolve(payload, &condition.path).or_else(|| {
+        envelope_path(&condition.path)
+            .unwrap_or(false)
+            .then(|| resolve(envelope, &condition.path))
+            .flatten()
+    });
     let missing = matches!(actual, None | Some(Value::Null));
     // `field=null` and `field=!null` are questions about presence itself, so
     // they answer directly instead of going through the absence policy.

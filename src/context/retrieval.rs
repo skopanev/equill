@@ -80,7 +80,7 @@ pub fn retrieve(
         // Filtering here, before a candidate is ever built, keeps excluded
         // records from consuming the budget that the caller asked to spend on
         // what it actually wanted.
-        if !crate::filter::matches(&record.payload, filter) {
+        if !crate::filter::matches(&record, filter) {
             excluded.push(matching::exclusion(
                 &record,
                 ExclusionReason::FilterMismatch,

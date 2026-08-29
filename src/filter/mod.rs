@@ -5,6 +5,33 @@ mod tests;
 
 use crate::kernel::error::Error;
 pub use apply::matches;
+
+/// Envelope names a caller may filter on, with the sub-names each one allows.
+/// These are the coordinates every record carries whatever its type, so no
+/// schema declares them — but a typo inside one still has to be caught, which
+/// is why the nested names are listed rather than waved through.
+pub const ENVELOPE_FIELDS: [(&str, &[&str]); 9] = [
+    ("id", &[]),
+    ("namespace", &[]),
+    ("type", &[]),
+    ("actor", &[]),
+    ("recorded_at", &[]),
+    ("observed_at", &[]),
+    ("valid_at", &[]),
+    ("tags", &[]),
+    ("evidence", &["kind", "reference", "sha256"]),
+];
+
+/// Whether a path addresses the envelope, and if so whether it names something
+/// the envelope actually has.
+pub(crate) fn envelope_path(path: &[String]) -> Option<bool> {
+    let (_, nested) = ENVELOPE_FIELDS.iter().find(|(name, _)| *name == path[0])?;
+    Some(match path.len() {
+        1 => true,
+        2 => nested.contains(&path[1].as_str()),
+        _ => false,
+    })
+}
 pub use schema::{in_scope, validate};
 
 /// One `--where` flag. Values inside a single flag are alternatives; separate
