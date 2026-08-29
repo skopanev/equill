@@ -1,0 +1,70 @@
+//! Who still sees a withdrawn claim, and who must not.
+use super::revoke;
+use super::tests::{add, store};
+use crate::record::read_all;
+use crate::schema::LifecyclePolicy;
+use serde_json::json;
+use std::fs;
+
+/// An ordinary search answers with what is current. Handing back a claim its
+/// author already withdrew — or the tombstone that withdrew it — would make the
+/// retraction decorative.
+#[test]
+fn an_ordinary_search_stops_serving_a_withdrawn_claim() {
+    let root = store("search", LifecyclePolicy::default());
+    let target = add(&root, "Run the build checks");
+    let kept = add(&root, "Rotate credentials often");
+
+    let before = crate::vector::search(
+        &root,
+        &crate::projection::SearchRequest {
+            query: Some("checks credentials".into()),
+            namespace: None,
+            type_name: None,
+            limit: 10,
+        },
+        crate::vector::SearchStrategy::Fts,
+    )
+    .expect("search");
+    let report = revoke(&root, target, Some("no longer true"), "owner").expect("revoke");
+    let after = crate::vector::search(
+        &root,
+        &crate::projection::SearchRequest {
+            query: Some("checks credentials".into()),
+            namespace: None,
+            type_name: None,
+            limit: 10,
+        },
+        crate::vector::SearchStrategy::Fts,
+    )
+    .expect("search again");
+    let ids = |report: &crate::vector::StrategySearchReport| {
+        report
+            .hits
+            .iter()
+            .map(|hit| hit.record.id)
+            .collect::<Vec<_>>()
+    };
+
+    assert!(ids(&before).contains(&target));
+    // Neither the withdrawn claim nor its tombstone answers an ordinary search.
+    assert!(!ids(&after).contains(&target));
+    assert!(!ids(&after).contains(&report.tombstone));
+    assert!(
+        ids(&after).contains(&kept),
+        "an untouched record still answers"
+    );
+    // Auditing still works: get reaches the tombstone and its reason.
+    let stone = read_all(&root)
+        .expect("records")
+        .into_iter()
+        .find(|record| record.id == report.tombstone)
+        .expect("tombstone is still stored");
+    assert!(
+        stone
+            .evidence
+            .iter()
+            .any(|item| item.reference == "no longer true")
+    );
+    fs::remove_dir_all(root).expect("cleanup");
+}

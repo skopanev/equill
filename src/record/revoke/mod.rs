@@ -84,3 +84,5 @@ fn tombstone(target: &StoredRecord, comment: Option<&str>) -> RecordDraft {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod visibility_tests;
