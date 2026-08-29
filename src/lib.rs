@@ -231,6 +231,13 @@ where
     }
 }
 
+fn shape(format: command::cli::FormatArg) -> command::present::Format {
+    match format {
+        command::cli::FormatArg::Jsonl => command::present::Format::Jsonl,
+        command::cli::FormatArg::Text => command::present::Format::Text,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -243,12 +250,5 @@ mod tests {
 
         let human = super::run(["equill", "doctor"]).expect("human doctor output");
         assert!(human.starts_with("Equill doctor (quick) — OK"));
-    }
-}
-
-fn shape(format: command::cli::FormatArg) -> command::present::Format {
-    match format {
-        command::cli::FormatArg::Jsonl => command::present::Format::Jsonl,
-        command::cli::FormatArg::Text => command::present::Format::Text,
     }
 }
