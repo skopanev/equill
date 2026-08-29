@@ -37,45 +37,45 @@ pub fn report(store_root: Option<&Path>, full: bool, deep: bool) -> Result<Docto
         });
     }
     let mut context_profile_faults = 0;
-    if full || deep {
-        if let Some(root) = store_root {
-            let scan = integrity::scan(root)?;
-            context_profile_faults = context::profile_faults(root)?;
-            checks.extend([
-                Check {
-                    id: "schemas",
-                    items: scan.schemas,
-                },
-                Check {
-                    id: "records",
-                    items: scan.records,
-                },
-                Check {
-                    id: "context-gates",
-                    items: scan.gates,
-                },
-                Check {
-                    id: "context-profile-faults",
-                    items: context_profile_faults,
-                },
-                Check {
-                    id: "projection-files",
-                    items: scan.projection_files,
-                },
-                Check {
-                    id: "projection-records",
-                    items: scan.projection_records,
-                },
-                Check {
-                    id: "import-receipts",
-                    items: scan.import_receipts,
-                },
-                Check {
-                    id: "import-inputs",
-                    items: scan.import_inputs,
-                },
-            ]);
-        }
+    if (full || deep)
+        && let Some(root) = store_root
+    {
+        let scan = integrity::scan(root)?;
+        context_profile_faults = context::profile_faults(root)?;
+        checks.extend([
+            Check {
+                id: "schemas",
+                items: scan.schemas,
+            },
+            Check {
+                id: "records",
+                items: scan.records,
+            },
+            Check {
+                id: "context-gates",
+                items: scan.gates,
+            },
+            Check {
+                id: "context-profile-faults",
+                items: context_profile_faults,
+            },
+            Check {
+                id: "projection-files",
+                items: scan.projection_files,
+            },
+            Check {
+                id: "projection-records",
+                items: scan.projection_records,
+            },
+            Check {
+                id: "import-receipts",
+                items: scan.import_receipts,
+            },
+            Check {
+                id: "import-inputs",
+                items: scan.import_inputs,
+            },
+        ]);
     }
     let deep_defense = store_root
         .filter(|_| deep)

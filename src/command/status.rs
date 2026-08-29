@@ -1,6 +1,7 @@
 use crate::kernel::error::Error;
 use crate::kernel::store;
 use crate::projection::{self, ProjectionState};
+use crate::vector::{self, VectorState};
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
@@ -73,10 +74,9 @@ fn file_stems(directory: &Path) -> Result<Vec<String>, Error> {
         if path
             .extension()
             .is_some_and(|extension| extension == "json")
+            && let Some(name) = path.file_stem().and_then(|name| name.to_str())
         {
-            if let Some(name) = path.file_stem().and_then(|name| name.to_str()) {
-                names.push(name.to_owned());
-            }
+            names.push(name.to_owned());
         }
     }
     Ok(names)
@@ -90,6 +90,16 @@ fn components(store_root: Option<&Path>, store_initialized: bool) -> Result<Vec<
             ProjectionState::Ready => "ready",
             ProjectionState::Degraded => "degraded",
             ProjectionState::Missing => "missing",
+        },
+    };
+    let vector = match (store_root, store_initialized) {
+        (None, _) => "optional",
+        (Some(_), false) => "missing",
+        (Some(root), true) => match vector::state(root)? {
+            VectorState::Disabled => "disabled",
+            VectorState::Ready => "ready",
+            VectorState::Degraded => "degraded",
+            VectorState::Missing => "missing",
         },
     };
     Ok(vec![
@@ -118,7 +128,7 @@ fn components(store_root: Option<&Path>, store_initialized: bool) -> Result<Vec<
         Component {
             id: "vector.qdrant",
             kind: "projection",
-            state: "planned",
+            state: vector,
             installable: false,
         },
         Component {

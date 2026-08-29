@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
@@ -130,6 +130,14 @@ pub enum Command {
         /// Maximum number of records to return.
         #[arg(long, default_value_t = 20, value_parser = clap::value_parser!(u16).range(1..=100))]
         limit: u16,
+        /// Retrieval strategy. `hybrid` prefers semantics and falls back to text.
+        #[arg(long, value_enum, default_value_t = StrategyArg::Fts)]
+        strategy: StrategyArg,
+    },
+    /// Manage the optional Qdrant vector projection.
+    Vector {
+        #[command(subcommand)]
+        command: VectorCommand,
     },
     /// Rebuild disposable projections from immutable records.
     Rebuild {
@@ -163,4 +171,39 @@ pub enum RegistryCommand {
         #[arg(long)]
         file: PathBuf,
     },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum VectorCommand {
+    /// Install or replace the store's vector configuration after validating it.
+    Configure {
+        /// Initialized store directory.
+        #[arg(long)]
+        store: PathBuf,
+        /// Vector configuration JSON file.
+        #[arg(long)]
+        file: PathBuf,
+    },
+    /// Turn the vector projection off without discarding its descriptor.
+    Disable {
+        /// Initialized store directory.
+        #[arg(long)]
+        store: PathBuf,
+    },
+    /// Re-embed the immutable ledger and activate the result atomically.
+    Rebuild {
+        /// Initialized store directory.
+        #[arg(long)]
+        store: PathBuf,
+    },
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum StrategyArg {
+    /// Full-text search over the embedded projection.
+    Fts,
+    /// Semantic search only; an unavailable vector index is an error.
+    Vector,
+    /// Semantic search with a reported fall back to full text.
+    Hybrid,
 }

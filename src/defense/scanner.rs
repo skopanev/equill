@@ -64,15 +64,15 @@ fn redact(content: &str, mut matches: Vec<Match>) -> Result<String, Error> {
                 "scanner returned an invalid redaction range".into(),
             ));
         }
-        if let Some(previous) = ranges.last_mut() {
-            if item.start < previous.1 {
-                previous.1 = previous.1.max(item.end);
-                if previous.2 != item.rule {
-                    previous.2.push('+');
-                    previous.2.push_str(&item.rule);
-                }
-                continue;
+        if let Some(previous) = ranges.last_mut()
+            && item.start < previous.1
+        {
+            previous.1 = previous.1.max(item.end);
+            if previous.2 != item.rule {
+                previous.2.push('+');
+                previous.2.push_str(&item.rule);
             }
+            continue;
         }
         ranges.push((item.start, item.end, item.rule));
     }

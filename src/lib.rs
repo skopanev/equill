@@ -8,6 +8,7 @@ pub mod kernel;
 pub mod projection;
 pub mod record;
 pub mod schema;
+pub mod vector;
 
 pub fn run<I, T>(args: I) -> Result<String, kernel::error::Error>
 where
@@ -116,6 +117,7 @@ where
             namespace,
             type_name,
             limit,
+            strategy,
         } => {
             let request = projection::SearchRequest {
                 query,
@@ -123,8 +125,51 @@ where
                 type_name,
                 limit,
             };
-            let report = projection::search(&store, &request)?;
-            command::output::render(json, &report, command::output::search(&report))
+            let strategy = match strategy {
+                command::cli::StrategyArg::Fts => vector::SearchStrategy::Fts,
+                command::cli::StrategyArg::Vector => vector::SearchStrategy::Vector,
+                command::cli::StrategyArg::Hybrid => vector::SearchStrategy::Hybrid,
+            };
+            let report = vector::search(&store, &request, strategy)?;
+            let text = match &report.fallback {
+                Some(reason) => format!(
+                    "{} hits via {} (vector unavailable: {reason})",
+                    report.hits.len(),
+                    report.answered_by
+                ),
+                None => format!("{} hits via {}", report.hits.len(), report.answered_by),
+            };
+            command::output::render(json, &report, text)
+        }
+        command::cli::Command::Vector { command } => {
+            let actor = kernel::identity::actor_from_env()?;
+            match command {
+                command::cli::VectorCommand::Configure { store, file } => {
+                    let report = vector::configure(&store, &file, &actor)?;
+                    let text = format!(
+                        "Vector projection configured — alias {} ({})",
+                        report.collection_alias,
+                        if report.enabled {
+                            "enabled"
+                        } else {
+                            "disabled"
+                        }
+                    );
+                    command::output::render(json, &report, text)
+                }
+                command::cli::VectorCommand::Disable { store } => {
+                    let report = vector::disable(&store, &actor)?;
+                    command::output::render(json, &report, "Vector projection disabled".into())
+                }
+                command::cli::VectorCommand::Rebuild { store } => {
+                    let report = vector::rebuild(&store, &actor)?;
+                    let text = format!(
+                        "Vector projection rebuilt — {} records into {}",
+                        report.records, report.collection
+                    );
+                    command::output::render(json, &report, text)
+                }
+            }
         }
         command::cli::Command::Rebuild { store } => {
             let report = projection::rebuild(&store)?;
