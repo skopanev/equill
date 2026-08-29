@@ -8,8 +8,6 @@ mod verify;
 mod writer;
 
 #[cfg(test)]
-mod batch_tests;
-#[cfg(test)]
 mod lifecycle_tests;
 #[cfg(test)]
 mod tests;

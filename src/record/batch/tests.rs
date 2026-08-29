@@ -65,7 +65,7 @@ fn a_rejected_line_stops_only_itself_and_names_its_reason() {
     assert!(report.records[1].id.is_none());
     let reason = report.records[1].error.as_deref().expect("reason");
     assert!(reason.contains("does not match"), "{reason}");
-    assert_eq!(super::read_all(&root).expect("records").len(), 2);
+    assert_eq!(crate::record::read_all(&root).expect("records").len(), 2);
     fs::remove_dir_all(root).expect("cleanup");
 }
 

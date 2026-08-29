@@ -73,48 +73,9 @@ where
         command::cli::Command::Schema { command } => {
             let actor = kernel::identity::actor_from_env()?;
             match command {
-                command::cli::SchemaCommand::List { store } => {
-                    let report = schema::list(&store)?;
-                    let text = report
-                        .types
-                        .iter()
-                        .map(|item| {
-                            format!(
-                                "{} ({}) required: {}",
-                                item.type_name,
-                                item.lifecycle,
-                                if item.required.is_empty() {
-                                    "none".to_string()
-                                } else {
-                                    item.required.join(", ")
-                                }
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    command::output::render(json, &report, text)
-                }
+                command::cli::SchemaCommand::List { store } => command::catalog::list(json, &store),
                 command::cli::SchemaCommand::Show { store, type_name } => {
-                    let report = schema::show(&store, &type_name)?;
-                    let text = report
-                        .fields
-                        .iter()
-                        .map(|field| {
-                            let mark = if field.required {
-                                "required"
-                            } else {
-                                "optional"
-                            };
-                            let allowed = if field.allowed.is_empty() {
-                                String::new()
-                            } else {
-                                format!(" one of: {}", field.allowed.join(", "))
-                            };
-                            format!("{} {} {}{}", field.name, field.kind, mark, allowed)
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    command::output::render(json, &report, text)
+                    command::catalog::show(json, &store, &type_name)
                 }
                 command::cli::SchemaCommand::Register { store, file } => {
                     let report = schema::register_file(&store, &file, &actor)?;
@@ -162,46 +123,22 @@ where
             strict,
             format,
             fields,
-        } => {
-            let actor = kernel::identity::actor_from_env()?;
-            let filter = filter::Filter::parse(&filters, strict)?;
-            let bundle = match request {
-                Some(path) => context::assemble_file(&store, &profile, &path, &actor, &filter)?,
-                None => {
-                    let request = context::inline_request(
-                        query,
-                        coordinates,
-                        tags,
-                        kinds,
-                        at,
-                        include_superseded,
-                    )?;
-                    context::assemble(&store, &profile, request, &actor, &filter)?
-                }
-            };
-            let text = if fields.is_empty() && matches!(format, command::cli::FormatArg::Jsonl) {
-                bundle.content.clone()
-            } else {
-                let selected = record::read_all(&store)?
-                    .into_iter()
-                    .filter(|item| bundle.selected_record_ids.contains(&item.id))
-                    .collect::<Vec<_>>();
-                command::present::records(&selected, shape(format), &fields)?
-            };
-            telemetry::record_query(
-                &store,
-                "context",
-                &bundle.receipt.request_digest,
-                bundle
-                    .receipt
-                    .unmatched_coordinates
-                    .iter()
-                    .map(|item| item.key.as_str())
-                    .collect(),
-                bundle.selected_record_ids.len(),
-            );
-            command::output::render(json, &bundle, text)
-        }
+        } => command::query::context(
+            json,
+            store,
+            profile,
+            request,
+            query,
+            coordinates,
+            tags,
+            kinds,
+            at,
+            include_superseded,
+            filters,
+            strict,
+            format,
+            fields,
+        ),
         command::cli::Command::Status { store } => {
             let report = command::status::report(store.as_deref())?;
             command::output::render(json, &report, command::output::status(&report))
@@ -217,60 +154,10 @@ where
             strict,
             format,
             fields,
-        } => {
-            let filter = filter::Filter::parse(&filters, strict)?;
-            filter::validate(&filter, &filter::in_scope(&store, type_name.as_deref())?)?;
-            // The projection caps its own result set, so a filter that runs
-            // afterwards must inspect the entire corpus or refuse explicitly.
-            let pool = if filter.is_empty() {
-                limit
-            } else {
-                filter::candidate_limit(record::read_all(&store)?.len(), limit)?
-            };
-            let report_query = query.clone();
-            let request = projection::SearchRequest {
-                query,
-                namespace,
-                type_name,
-                limit: pool,
-            };
-            let strategy = match strategy {
-                command::cli::StrategyArg::Fts => vector::SearchStrategy::Fts,
-                command::cli::StrategyArg::Vector => vector::SearchStrategy::Vector,
-                command::cli::StrategyArg::Hybrid => vector::SearchStrategy::Hybrid,
-            };
-            let mut report = vector::search(&store, &request, strategy)?;
-            report
-                .hits
-                .retain(|hit| filter::matches(&hit.record.payload, &filter));
-            report.hits.truncate(limit as usize);
-            let text = match &report.fallback {
-                Some(reason) => format!(
-                    "{} hits via {} (vector unavailable: {reason})",
-                    report.hits.len(),
-                    report.answered_by
-                ),
-                None => format!("{} hits via {}", report.hits.len(), report.answered_by),
-            };
-            let text = if fields.is_empty() && matches!(format, command::cli::FormatArg::Jsonl) {
-                text
-            } else {
-                let hits = report
-                    .hits
-                    .iter()
-                    .map(|hit| hit.record.clone())
-                    .collect::<Vec<_>>();
-                command::present::records(&hits, shape(format), &fields)?
-            };
-            telemetry::record_query(
-                &store,
-                "search",
-                &report_query,
-                Vec::new(),
-                report.hits.len(),
-            );
-            command::output::render(json, &report, text)
-        }
+        } => command::query::search(
+            json, store, query, namespace, type_name, limit, strategy, filters, strict, format,
+            fields,
+        ),
         command::cli::Command::Vector { command } => {
             let actor = kernel::identity::actor_from_env()?;
             match command {
@@ -316,21 +203,17 @@ where
                 .ok_or_else(|| {
                     kernel::error::Error::InvalidRecord(format!("no record with id {id}"))
                 })?;
-            let text =
-                command::present::records(std::slice::from_ref(&found), shape(format), &fields)?;
+            let text = command::present::records(
+                std::slice::from_ref(&found),
+                command::query::shape(format),
+                &fields,
+            )?;
             command::output::render(json, &found, text)
         }
         command::cli::Command::Rebuild { store } => {
             let report = projection::rebuild(&store)?;
             command::output::render(json, &report, command::output::rebuild(&report))
         }
-    }
-}
-
-fn shape(format: command::cli::FormatArg) -> command::present::Format {
-    match format {
-        command::cli::FormatArg::Jsonl => command::present::Format::Jsonl,
-        command::cli::FormatArg::Text => command::present::Format::Text,
     }
 }
 

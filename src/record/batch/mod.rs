@@ -81,3 +81,6 @@ fn write(store_root: &Path, line: &str, actor: &str) -> Result<AppendReport, Err
     let draft: RecordDraft = serde_json::from_str(line)?;
     append(store_root, draft, actor)
 }
+
+#[cfg(test)]
+mod tests;
