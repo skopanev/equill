@@ -78,6 +78,30 @@ Context excludes both the superseded ancestor and the revoked tombstone. A later
 schema-valid correction can supersede the tombstone; physical history remains immutable
 until governed compaction.
 
+### Vocabulary ownership
+
+The engine stores and retrieves a domain's fields without knowing what they
+mean. A field like `role` or `surface` belongs to the client: the client decides
+its legal values, and Equill never needs the list. Two consequences follow, and
+both are load-bearing:
+
+- An unconstrained field works immediately. Filtering on a value the engine has
+  never seen is an ordinary query, not a schema change.
+- A record that leaves such a field null applies to every request for it, when
+  the selector opts that key into `set_or_wildcard`. That is the difference
+  between "this rule is for reviewers" and "this rule has nothing to say about
+  roles", and it has to be declared per key because widening a scope must never
+  be implicit.
+
+If a field's values really are fixed, the type may declare an `enum`, and
+`schema show` prints it — that is how a caller learns a vocabulary it did not
+write. A type that omits the enum has made the opposite choice deliberately.
+
+Migration across versions is the same mechanism as any other replacement: a
+`v2` record supersedes its `v1` predecessor, `v2` names `v1` in
+`allowed_predecessor_types`, and readers see the current claim while the chain
+stays reachable with `--include-superseded`. Nothing rewrites the old record.
+
 ### Type evolution
 
 A registered type is immutable, and understanding is not. The answer is

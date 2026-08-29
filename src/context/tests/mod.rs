@@ -7,3 +7,4 @@ mod records;
 mod registries;
 mod support;
 mod visibility;
+mod vocabulary;
