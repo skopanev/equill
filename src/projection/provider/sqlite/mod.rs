@@ -6,6 +6,8 @@ mod queries;
 mod row;
 mod schema;
 mod search;
+#[cfg(test)]
+mod stemming_tests;
 mod writer;
 
 pub use search::search;

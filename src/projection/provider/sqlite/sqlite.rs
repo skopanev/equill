@@ -21,9 +21,13 @@ pub fn initialize(store_root: &Path) -> Result<(), Error> {
 }
 
 pub fn state(store_root: &Path) -> Result<ProjectionState, Error> {
+    let database = database(store_root);
+    if database.is_file() {
+        verify_schema(&open(&database)?)?;
+    }
     if store_root.join(DEGRADED).is_file() {
         Ok(ProjectionState::Degraded)
-    } else if database(store_root).is_file() {
+    } else if database.is_file() {
         Ok(ProjectionState::Ready)
     } else {
         Ok(ProjectionState::Missing)
@@ -142,9 +146,10 @@ fn verify_schema(connection: &Connection) -> Result<(), Error> {
         .optional()
         .map_err(|error| projection_error("read schema version", error))?;
     if version.as_deref() != Some(schema::VERSION) {
-        return Err(Error::Projection(
-            "unsupported sqlite schema version".into(),
-        ));
+        return Err(Error::Projection(format!(
+            "sqlite schema version {} is unsupported; run `equill rebuild --store <path>`",
+            version.as_deref().unwrap_or("missing")
+        )));
     }
     Ok(())
 }
