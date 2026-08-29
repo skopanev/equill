@@ -3,15 +3,6 @@ mod args;
 pub use args::*;
 use clap::{Parser, Subcommand};
 
-/// The first thing a new caller trips over, so it belongs in `--help` rather
-/// than in an error message they have to provoke.
-const ACTOR_HELP: &str = concat!(
-    "Actor:\n",
-    "  Every write and every context assembly reads EQUILL_ACTOR from the\n",
-    "  environment. Set it to an identity the store knows: its root owner, an\n",
-    "  actor listed in the store's writers, or one covered by a write grant.\n",
-    "  An unset or unknown actor fails the call before anything is read."
-);
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
