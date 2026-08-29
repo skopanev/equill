@@ -12,7 +12,11 @@ pub fn context(
     profile: String,
     request: Option<PathBuf>,
     query: Option<String>,
-    coordinates: Vec<String>,
+    mut coordinates: Vec<String>,
+    project: Option<String>,
+    role: Option<String>,
+    phase: Option<String>,
+    harness: Option<String>,
     tags: Vec<String>,
     kinds: Vec<String>,
     at: Option<String>,
@@ -24,6 +28,16 @@ pub fn context(
 ) -> Result<String, Error> {
     let actor = kernel::identity::actor_from_env()?;
     let filter = filter::Filter::parse(&filters, strict)?;
+    for (key, value) in [
+        ("project", project),
+        ("role", role),
+        ("phase", phase),
+        ("harness", harness),
+    ] {
+        if let Some(value) = value {
+            coordinates.push(format!("{key}={value}"));
+        }
+    }
     let bundle = match request {
         Some(path) => context::assemble_file(&store, &profile, &path, &actor, &filter)?,
         None => {

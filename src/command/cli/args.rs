@@ -87,3 +87,47 @@ pub enum FormatArg {
     /// One readable line per record.
     Text,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::{Cli, Command};
+    use clap::Parser;
+
+    #[test]
+    fn context_accepts_named_coordinate_shortcuts() {
+        let cli = Cli::try_parse_from([
+            "equill",
+            "context",
+            "--store",
+            "store",
+            "--profile",
+            "worker",
+            "--query",
+            "retry",
+            "--project",
+            "finik",
+            "--role",
+            "backend",
+            "--phase",
+            "unit",
+            "--harness",
+            "codex",
+        ])
+        .expect("named coordinates");
+
+        let Command::Context {
+            project,
+            role,
+            phase,
+            harness,
+            ..
+        } = cli.command
+        else {
+            panic!("context command");
+        };
+        assert_eq!(project.as_deref(), Some("finik"));
+        assert_eq!(role.as_deref(), Some("backend"));
+        assert_eq!(phase.as_deref(), Some("unit"));
+        assert_eq!(harness.as_deref(), Some("codex"));
+    }
+}

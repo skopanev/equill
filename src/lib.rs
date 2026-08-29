@@ -70,19 +70,17 @@ where
             let report = command::doctor::report(store.as_deref(), full, deep)?;
             command::output::render(json, &report, command::output::doctor(&report))
         }
-        command::cli::Command::Schema { command } => {
-            let actor = kernel::identity::actor_from_env()?;
-            match command {
-                command::cli::SchemaCommand::List { store } => command::catalog::list(json, &store),
-                command::cli::SchemaCommand::Show { store, type_name } => {
-                    command::catalog::show(json, &store, &type_name)
-                }
-                command::cli::SchemaCommand::Register { store, file } => {
-                    let report = schema::register_file(&store, &file, &actor)?;
-                    command::output::render(json, &report, command::output::schema(&report))
-                }
+        command::cli::Command::Schema { command } => match command {
+            command::cli::SchemaCommand::List { store } => command::catalog::list(json, &store),
+            command::cli::SchemaCommand::Show { store, type_name } => {
+                command::catalog::show(json, &store, &type_name)
             }
-        }
+            command::cli::SchemaCommand::Register { store, file } => {
+                let actor = kernel::identity::actor_from_env()?;
+                let report = schema::register_file(&store, &file, &actor)?;
+                command::output::render(json, &report, command::output::schema(&report))
+            }
+        },
         command::cli::Command::Profile { command } => {
             let actor = kernel::identity::actor_from_env()?;
             match command {
@@ -115,6 +113,10 @@ where
             request,
             query,
             coordinates,
+            project,
+            role,
+            phase,
+            harness,
             tags,
             kinds,
             at,
@@ -130,6 +132,10 @@ where
             request,
             query,
             coordinates,
+            project,
+            role,
+            phase,
+            harness,
             tags,
             kinds,
             at,

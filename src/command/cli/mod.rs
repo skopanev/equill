@@ -119,7 +119,13 @@ pub enum Command {
         profile: String,
         /// Context request JSON file. Use it for scripted requests; for a
         /// one-off question `--query` and the coordinate flags are enough.
-        #[arg(long, conflicts_with_all = ["query", "at", "coordinates", "tags", "kinds"])]
+        #[arg(
+            long,
+            conflicts_with_all = [
+                "query", "at", "coordinates", "project", "role", "phase", "harness", "tags",
+                "kinds"
+            ]
+        )]
         request: Option<PathBuf>,
         /// Text to retrieve against, as an alternative to `--request`.
         #[arg(long)]
@@ -127,6 +133,18 @@ pub enum Command {
         /// Request coordinate as `key=value`. Repeatable.
         #[arg(long = "coordinate")]
         coordinates: Vec<String>,
+        /// Project coordinate shorthand for `--coordinate project=VALUE`.
+        #[arg(long, conflicts_with = "request")]
+        project: Option<String>,
+        /// Role coordinate shorthand for `--coordinate role=VALUE`.
+        #[arg(long, conflicts_with = "request")]
+        role: Option<String>,
+        /// Phase coordinate shorthand for `--coordinate phase=VALUE`.
+        #[arg(long, conflicts_with = "request")]
+        phase: Option<String>,
+        /// Harness coordinate shorthand for `--coordinate harness=VALUE`.
+        #[arg(long, conflicts_with = "request")]
+        harness: Option<String>,
         /// Request tag. Repeatable.
         #[arg(long = "tag")]
         tags: Vec<String>,
