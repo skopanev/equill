@@ -106,6 +106,15 @@ pub enum Command {
         /// Context request JSON file.
         #[arg(long)]
         request: PathBuf,
+        /// Filter by a schema field: `field=value`. Repeatable flags are ANDed,
+        /// comma-separated values inside one flag are ORed. `!` negates,
+        /// `null` and `!null` ask about presence, and dots address nested fields.
+        #[arg(long = "where")]
+        filters: Vec<String>,
+        /// Drop records whose filtered field is absent or null instead of
+        /// treating them as matching everything.
+        #[arg(long)]
+        strict: bool,
     },
     /// Show installed, configured, optional, and planned components.
     Status {
@@ -133,6 +142,15 @@ pub enum Command {
         /// Retrieval strategy. `hybrid` prefers semantics and falls back to text.
         #[arg(long, value_enum, default_value_t = StrategyArg::Fts)]
         strategy: StrategyArg,
+        /// Filter by a schema field: `field=value`. Repeatable flags are ANDed,
+        /// comma-separated values inside one flag are ORed. `!` negates,
+        /// `null` and `!null` ask about presence, and dots address nested fields.
+        #[arg(long = "where")]
+        filters: Vec<String>,
+        /// Drop records whose filtered field is absent or null instead of
+        /// treating them as matching everything.
+        #[arg(long)]
+        strict: bool,
     },
     /// Manage the optional Qdrant vector projection.
     Vector {

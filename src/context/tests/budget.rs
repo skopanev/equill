@@ -4,6 +4,7 @@ use super::records::append;
 use super::registries::{registry, registry_unbounded};
 use super::support::{request, store};
 use crate::command::doctor;
+use crate::filter::Filter;
 use std::fs;
 
 #[test]
@@ -17,8 +18,14 @@ fn required_overflow_fails_context_and_doctor() {
         None,
         "2026-01-01T00:00:00Z",
     );
-    let error = assemble(&root, "worker.v1", request(""), "test-owner")
-        .expect_err("required overflow must fail context");
+    let error = assemble(
+        &root,
+        "worker.v1",
+        request(""),
+        "test-owner",
+        &Filter::default(),
+    )
+    .expect_err("required overflow must fail context");
     let report = doctor::report(Some(&root), true, false).expect("doctor");
 
     assert!(
@@ -42,7 +49,14 @@ fn context_budget_counts_and_emits_payload_only() {
         None,
         "2026-01-01T00:00:00Z",
     );
-    let bundle = assemble(&root, "worker.v1", request(""), "test-owner").expect("context");
+    let bundle = assemble(
+        &root,
+        "worker.v1",
+        request(""),
+        "test-owner",
+        &Filter::default(),
+    )
+    .expect("context");
 
     assert_eq!(bundle.content, r#"{"rule":"Only payload enters context"}"#);
     assert_eq!(bundle.receipt.used, bundle.content.chars().count());
@@ -61,7 +75,14 @@ fn relevant_floor_preserves_request_evidence_before_core() {
         "2026-01-01T00:00:00Z",
     );
     let relevant = append(&root, "Needle evidence", &[], None, "2026-01-01T00:00:00Z");
-    let bundle = assemble(&root, "worker.v1", request("needle"), "test-owner").expect("context");
+    let bundle = assemble(
+        &root,
+        "worker.v1",
+        request("needle"),
+        "test-owner",
+        &Filter::default(),
+    )
+    .expect("context");
 
     assert_eq!(bundle.selected_record_ids, vec![relevant]);
     assert!(
@@ -87,8 +108,14 @@ fn absent_budget_returns_everything_and_never_overflows() {
             "2026-01-01T00:00:00Z",
         );
     }
-    let bundle = assemble(&root, "worker.v1", request(""), "test-owner")
-        .expect("a profile without caps must never fail on volume");
+    let bundle = assemble(
+        &root,
+        "worker.v1",
+        request(""),
+        "test-owner",
+        &Filter::default(),
+    )
+    .expect("a profile without caps must never fail on volume");
     let report = doctor::report(Some(&root), true, false).expect("doctor");
 
     assert_eq!(bundle.receipt.included.len(), 12);

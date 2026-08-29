@@ -3,6 +3,7 @@ use super::super::model::ExclusionReason;
 use super::records::{append, append_coordinate, append_scoped};
 use super::registries::{registry, registry_with_modes};
 use super::support::{request, store};
+use crate::filter::Filter;
 use serde_json::json;
 use std::fs;
 
@@ -54,10 +55,22 @@ fn unchanged_request_is_byte_stable_and_filters_lifecycle() {
         "2026-01-01T00:00:00Z",
     );
 
-    let first =
-        assemble(&root, "worker.v1", request("verification"), "test-owner").expect("context");
-    let second =
-        assemble(&root, "worker.v1", request("verification"), "test-owner").expect("repeat");
+    let first = assemble(
+        &root,
+        "worker.v1",
+        request("verification"),
+        "test-owner",
+        &Filter::default(),
+    )
+    .expect("context");
+    let second = assemble(
+        &root,
+        "worker.v1",
+        request("verification"),
+        "test-owner",
+        &Filter::default(),
+    )
+    .expect("repeat");
 
     assert_eq!(first.content, second.content);
     assert_eq!(first.bundle_digest, second.bundle_digest);
@@ -103,7 +116,8 @@ fn registered_coordinate_pointer_filters_without_domain_semantics() {
     );
     let mut input = request("verification");
     input.coordinates.insert("scope".into(), json!("scope-a"));
-    let bundle = assemble(&root, "worker.v1", input, "test-owner").expect("context");
+    let bundle =
+        assemble(&root, "worker.v1", input, "test-owner", &Filter::default()).expect("context");
 
     assert_eq!(bundle.selected_record_ids, vec![selected]);
     fs::remove_dir_all(root).expect("remove store");
@@ -154,7 +168,8 @@ fn opted_in_coordinate_mode_matches_sets_and_wildcards() {
     );
     let mut input = request("verification");
     input.coordinates.insert("scope".into(), json!("scope-a"));
-    let bundle = assemble(&root, "worker.v1", input, "test-owner").expect("context");
+    let bundle =
+        assemble(&root, "worker.v1", input, "test-owner", &Filter::default()).expect("context");
 
     for id in [array, wildcard, missing] {
         assert!(bundle.selected_record_ids.contains(&id));

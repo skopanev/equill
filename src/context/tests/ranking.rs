@@ -2,6 +2,7 @@ use super::super::assemble;
 use super::records::append_ranked;
 use super::registries::registry_with_rank;
 use super::support::{request, store};
+use crate::filter::Filter;
 use std::fs;
 
 #[test]
@@ -11,7 +12,14 @@ fn numeric_rank_precedes_strategy_score_and_observed_at() {
     let higher = append_ranked(&root, "General policy", 0.95, "2026-01-01T00:00:00Z");
     let lower = append_ranked(&root, "Needle-specific policy", 0.7, "2026-01-03T00:00:00Z");
 
-    let bundle = assemble(&root, "worker.v1", request("needle"), "test-owner").expect("context");
+    let bundle = assemble(
+        &root,
+        "worker.v1",
+        request("needle"),
+        "test-owner",
+        &Filter::default(),
+    )
+    .expect("context");
 
     assert_eq!(bundle.selected_record_ids, vec![higher, lower]);
     fs::remove_dir_all(root).expect("remove store");

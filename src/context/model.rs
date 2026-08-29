@@ -163,6 +163,7 @@ pub enum ExclusionReason {
     InvalidAtRequestTime,
     Expired,
     SelectorMismatch,
+    FilterMismatch,
     RequiredOverflow,
     CoreCap,
     TotalBudget,

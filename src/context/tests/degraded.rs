@@ -3,6 +3,7 @@ use super::super::model::{ExclusionReason, Strategy};
 use super::records::append;
 use super::registries::registry;
 use super::support::{request, store};
+use crate::filter::Filter;
 use crate::{projection, record};
 use std::fs;
 
@@ -19,8 +20,14 @@ fn degraded_fts_is_visible_and_no_match_is_explicit() {
     );
     let record = record::read_all(&root).expect("records").remove(0);
     projection::mark_degraded(&root, &record, "synthetic projection fault");
-    let bundle =
-        assemble(&root, "worker.v1", request("needle"), "test-owner").expect("degraded context");
+    let bundle = assemble(
+        &root,
+        "worker.v1",
+        request("needle"),
+        "test-owner",
+        &Filter::default(),
+    )
+    .expect("degraded context");
 
     assert!(bundle.receipt.degraded);
     assert!(bundle.receipt.empty);
@@ -40,7 +47,14 @@ fn unauthorized_records_are_named_in_the_receipt() {
         None,
         "2026-01-01T00:00:00Z",
     );
-    let bundle = assemble(&root, "worker.v1", request("private"), "test-owner").expect("context");
+    let bundle = assemble(
+        &root,
+        "worker.v1",
+        request("private"),
+        "test-owner",
+        &Filter::default(),
+    )
+    .expect("context");
 
     assert!(
         bundle

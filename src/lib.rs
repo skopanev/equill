@@ -2,6 +2,7 @@ pub mod command;
 pub mod compact;
 pub mod context;
 pub mod defense;
+pub mod filter;
 pub mod ingest;
 pub mod integrity;
 pub mod kernel;
@@ -102,9 +103,12 @@ where
             store,
             profile,
             request,
+            filters,
+            strict,
         } => {
             let actor = kernel::identity::actor_from_env()?;
-            let bundle = context::assemble_file(&store, &profile, &request, &actor)?;
+            let filter = filter::Filter::parse(&filters, strict)?;
+            let bundle = context::assemble_file(&store, &profile, &request, &actor, &filter)?;
             command::output::render(json, &bundle, bundle.content.clone())
         }
         command::cli::Command::Status { store } => {
@@ -118,19 +122,34 @@ where
             type_name,
             limit,
             strategy,
+            filters,
+            strict,
         } => {
+            let filter = filter::Filter::parse(&filters, strict)?;
+            filter::validate(&filter, &filter::in_scope(&store, type_name.as_deref())?)?;
+            // The projection caps its own result set, so a filter that runs
+            // afterwards must inspect the entire corpus or refuse explicitly.
+            let pool = if filter.is_empty() {
+                limit
+            } else {
+                filter::candidate_limit(record::read_all(&store)?.len(), limit)?
+            };
             let request = projection::SearchRequest {
                 query,
                 namespace,
                 type_name,
-                limit,
+                limit: pool,
             };
             let strategy = match strategy {
                 command::cli::StrategyArg::Fts => vector::SearchStrategy::Fts,
                 command::cli::StrategyArg::Vector => vector::SearchStrategy::Vector,
                 command::cli::StrategyArg::Hybrid => vector::SearchStrategy::Hybrid,
             };
-            let report = vector::search(&store, &request, strategy)?;
+            let mut report = vector::search(&store, &request, strategy)?;
+            report
+                .hits
+                .retain(|hit| filter::matches(&hit.record.payload, &filter));
+            report.hits.truncate(limit as usize);
             let text = match &report.fallback {
                 Some(reason) => format!(
                     "{} hits via {} (vector unavailable: {reason})",

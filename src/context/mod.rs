@@ -5,6 +5,7 @@ mod receipt;
 mod registry;
 mod retrieval;
 
+use crate::filter::Filter;
 use crate::kernel::digest::sha256_hex;
 use crate::kernel::error::Error;
 use crate::kernel::{identity, store};
@@ -26,9 +27,10 @@ pub fn assemble_file(
     profile_id: &str,
     request_file: &Path,
     actor: &str,
+    filter: &Filter,
 ) -> Result<ContextBundle, Error> {
     let request: model::ContextRequest = serde_json::from_slice(&fs::read(request_file)?)?;
-    assemble(store_root, profile_id, request, actor)
+    assemble(store_root, profile_id, request, actor, filter)
 }
 
 pub fn assemble(
@@ -36,6 +38,7 @@ pub fn assemble(
     profile_id: &str,
     request: model::ContextRequest,
     actor: &str,
+    filter: &Filter,
 ) -> Result<ContextBundle, Error> {
     let config = store::load(store_root)?;
     if actor != config.root_owner {
@@ -56,7 +59,14 @@ pub fn assemble(
     }
     selector_coordinates.sort_by(|left, right| left.id.cmp(&right.id));
     let request_digest = sha256_hex(&serde_json::to_vec(&request)?);
-    let retrieved = retrieval::retrieve(store_root, &profile, &selectors, &request)?;
+    // The filter is checked against the very types this profile can read, so a
+    // typo names itself instead of quietly returning nothing.
+    let scope = selectors
+        .iter()
+        .map(|selector| crate::schema::load(store_root, &selector.type_name))
+        .collect::<Result<Vec<_>, _>>()?;
+    crate::filter::validate(filter, &scope)?;
+    let retrieved = retrieval::retrieve(store_root, &profile, &selectors, &request, filter)?;
     let budgeted = budget::apply(retrieved.candidates, &profile.budget, retrieved.excluded)?;
     if budgeted.required_overflow > 0 {
         return Err(Error::Context(format!(
@@ -116,7 +126,13 @@ pub fn profile_faults(store_root: &Path) -> Result<usize, Error> {
             kinds: Vec::new(),
             coordinates: Default::default(),
         };
-        let retrieved = retrieval::retrieve(store_root, &profile, &selectors, &request)?;
+        let retrieved = retrieval::retrieve(
+            store_root,
+            &profile,
+            &selectors,
+            &request,
+            &Filter::default(),
+        )?;
         let budgeted = budget::apply(retrieved.candidates, &profile.budget, retrieved.excluded)?;
         if budgeted.required_overflow > 0 {
             faults += 1;

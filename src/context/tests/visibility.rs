@@ -1,6 +1,7 @@
 use super::super::model::ExclusionReason;
 use super::super::{ContextRequest, assemble, register_profile, register_selector};
 use crate::command::init;
+use crate::filter::Filter;
 use crate::record::{self, RecordDraft};
 use crate::schema::{self, LifecycleMode, LifecyclePolicy, TypeDefinition};
 use serde_json::json;
@@ -26,8 +27,14 @@ fn hidden_cross_type_successor_does_not_mask_visible_predecessor() {
         ("worker.v1-only", ExclusionReason::Unauthorized),
         ("worker.no-v2-selector", ExclusionReason::SelectorMismatch),
     ] {
-        let bundle =
-            assemble(&root, profile, request("visible predecessor"), "owner").expect("context");
+        let bundle = assemble(
+            &root,
+            profile,
+            request("visible predecessor"),
+            "owner",
+            &Filter::default(),
+        )
+        .expect("context");
         assert_eq!(bundle.selected_record_ids, vec![predecessor]);
         assert!(
             bundle
@@ -42,8 +49,14 @@ fn hidden_cross_type_successor_does_not_mask_visible_predecessor() {
             })
         );
     }
-    let visible = assemble(&root, "worker.all", request("hidden successor"), "owner")
-        .expect("fully visible successor");
+    let visible = assemble(
+        &root,
+        "worker.all",
+        request("hidden successor"),
+        "owner",
+        &Filter::default(),
+    )
+    .expect("fully visible successor");
     assert_eq!(visible.selected_record_ids, vec![successor]);
     assert!(
         visible

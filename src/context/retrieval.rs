@@ -1,5 +1,8 @@
 use super::matching;
-use super::model::{ContextProfile, ContextRequest, ExcludedCoordinate, Selector, Strategy, Tier};
+use super::model::{
+    ContextProfile, ContextRequest, ExcludedCoordinate, ExclusionReason, Selector, Strategy, Tier,
+};
+use crate::filter::Filter;
 use crate::kernel::error::Error;
 use crate::projection::{self, ProjectionState, SearchRequest};
 use crate::record::StoredRecord;
@@ -26,6 +29,7 @@ pub fn retrieve(
     profile: &ContextProfile,
     selectors: &[Selector],
     request: &ContextRequest,
+    filter: &Filter,
 ) -> Result<Retrieval, Error> {
     let at: jiff::Timestamp = request
         .at
@@ -60,6 +64,16 @@ pub fn retrieve(
     let mut candidates = Vec::new();
     let mut excluded = Vec::new();
     for record in records {
+        // Filtering here, before a candidate is ever built, keeps excluded
+        // records from consuming the budget that the caller asked to spend on
+        // what it actually wanted.
+        if !crate::filter::matches(&record.payload, filter) {
+            excluded.push(matching::exclusion(
+                &record,
+                ExclusionReason::FilterMismatch,
+            ));
+            continue;
+        }
         let reason = matching::gate(&record, profile, &selector_map, request, at, &superseded)?;
         if let Some(reason) = reason {
             excluded.push(matching::exclusion(&record, reason));
