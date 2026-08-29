@@ -25,8 +25,8 @@ pub use model::{
 pub(crate) use operator::corpus;
 pub use operator::{
     QueryEmbedder, RejectedHit, SearchStrategy, StrategySearchReport, VectorConfigReport,
-    VectorIndex, VectorRebuildReport, VerifiedHits, canonical, configure, disable, rebuild,
-    retrieve, search, verify,
+    VectorIndex, VectorRebuildReport, VectorSyncReport, VerifiedHits, canonical, configure,
+    disable, rebuild, retrieve, search, sync, verify,
 };
 pub use staleness::{mark_stale, note_stale};
 
@@ -64,6 +64,32 @@ impl VectorProjection {
 
     pub fn activate(&self, physical: &str) -> Result<(), Error> {
         activate_collection(&self.store, &self.config, &self.collection, physical)
+    }
+
+    pub(crate) fn active_collection(&self) -> Result<String, Error> {
+        self.collection.active()
+    }
+
+    pub(crate) fn metadata(
+        &self,
+        physical: &str,
+        record_ids: &[uuid::Uuid],
+    ) -> Result<Vec<model::VectorPointMetadata>, Error> {
+        self.collection.metadata(physical, record_ids)
+    }
+
+    pub(crate) fn ensure_active(&self, physical: &str) -> Result<(), Error> {
+        self.collection.require_active(physical)
+    }
+
+    pub(crate) fn mark_degraded(&self, physical: &str) -> Result<(), Error> {
+        self.collection.require_active(physical)?;
+        state::write_degraded(&self.store, &self.config, physical)
+    }
+
+    pub(crate) fn mark_ready(&self, physical: &str) -> Result<(), Error> {
+        self.collection.require_active(physical)?;
+        state::stage_ready(&self.store, &self.config, physical)?.commit()
     }
 }
 

@@ -21,7 +21,7 @@ struct StateFile {
     model_sha256: String,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 enum StoredState {
     Ready,
@@ -63,6 +63,23 @@ pub(crate) fn stage_ready(
     config: &VectorConfig,
     physical: &str,
 ) -> Result<StagedReady, Error> {
+    stage(store, config, physical, StoredState::Ready)
+}
+
+pub(crate) fn write_degraded(
+    store: &Path,
+    config: &VectorConfig,
+    physical: &str,
+) -> Result<(), Error> {
+    stage(store, config, physical, StoredState::Degraded)?.commit()
+}
+
+fn stage(
+    store: &Path,
+    config: &VectorConfig,
+    physical: &str,
+    state: StoredState,
+) -> Result<StagedReady, Error> {
     if !valid_collection_name(physical) {
         return Err(vector_error("invalid collection name"));
     }
@@ -74,7 +91,7 @@ pub(crate) fn stage_ready(
     let temporary = directory.join(format!(".state-{}.json", Uuid::now_v7()));
     let marker = StateFile {
         schema: SCHEMA.into(),
-        state: StoredState::Ready,
+        state,
         store_id: config.store_id,
         collection_alias: config.collection_alias.clone(),
         physical_collection: physical.into(),

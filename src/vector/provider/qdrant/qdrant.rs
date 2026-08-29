@@ -36,10 +36,24 @@ pub(crate) struct ProviderHit {
     pub input_sha256: String,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct ProviderMetadata {
+    pub store_id: Uuid,
+    pub model_sha256: String,
+    pub record_id: Uuid,
+    pub record_sha256: String,
+    pub input_sha256: String,
+}
+
 pub(crate) trait Transport {
     fn collection_schema(&self, name: &str) -> Result<Option<CollectionSchema>, Error>;
     fn create_collection(&self, name: &str, schema: CollectionSchema) -> Result<(), Error>;
     fn upsert(&self, collection: &str, points: &[ProviderPoint]) -> Result<(), Error>;
+    fn metadata(
+        &self,
+        collection: &str,
+        point_ids: &[Uuid],
+    ) -> Result<Vec<ProviderMetadata>, Error>;
     fn query(&self, query: Query) -> Result<Vec<ProviderHit>, Error>;
     fn alias_target(&self, alias: &str) -> Result<Option<String>, Error>;
     fn retarget_alias(
@@ -58,7 +72,7 @@ impl QdrantTransport {
     pub(crate) fn new(config: &VectorConfig) -> Result<Self, Error> {
         let mut builder = Qdrant::from_url(&config.endpoint)
             .skip_compatibility_check()
-            .timeout(Duration::from_secs(3))
+            .timeout(Duration::from_secs(10))
             .connect_timeout(Duration::from_secs(2));
         builder.set_pool_size(1);
         if let Some(api_key) = config.api_key()? {
@@ -115,6 +129,28 @@ impl Transport for QdrantTransport {
             client.upsert_points(request).await
         })?;
         Ok(())
+    }
+
+    fn metadata(
+        &self,
+        collection: &str,
+        point_ids: &[Uuid],
+    ) -> Result<Vec<ProviderMetadata>, Error> {
+        let ids = point_ids
+            .iter()
+            .copied()
+            .map(Into::into)
+            .collect::<Vec<_>>();
+        let request = api::GetPointsBuilder::new(collection, ids)
+            .with_payload(true)
+            .with_vectors(false);
+        self.run("retrieve point metadata", move |client| async move {
+            client.get_points(request).await
+        })?
+        .result
+        .into_iter()
+        .map(super::point::provider_metadata)
+        .collect()
     }
 
     fn query(&self, query: Query) -> Result<Vec<ProviderHit>, Error> {

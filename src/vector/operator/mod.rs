@@ -5,6 +5,7 @@ mod document;
 mod rebuild;
 mod search;
 mod strategy;
+mod sync;
 
 pub use configure::{VectorConfigReport, configure, disable};
 pub use document::canonical;
@@ -15,3 +16,6 @@ pub use search::{
     QueryEmbedder, RejectedHit, SearchStrategy, VectorIndex, VerifiedHits, retrieve, verify,
 };
 pub use strategy::{StrategySearchReport, search};
+#[cfg(test)]
+pub(crate) use sync::{SyncIndex, execute};
+pub use sync::{VectorSyncReport, sync};

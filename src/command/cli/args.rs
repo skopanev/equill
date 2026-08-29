@@ -79,6 +79,12 @@ pub enum VectorCommand {
         #[arg(long)]
         store: PathBuf,
     },
+    /// Incrementally embed records missing from the active collection.
+    Sync {
+        /// Initialized store directory.
+        #[arg(long)]
+        store: PathBuf,
+    },
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -101,8 +107,9 @@ pub enum FormatArg {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{Cli, Command};
+    use super::super::{Cli, Command, VectorCommand};
     use clap::Parser;
+    use std::path::PathBuf;
 
     #[test]
     fn context_accepts_named_coordinate_shortcuts() {
@@ -140,5 +147,19 @@ mod tests {
         assert_eq!(role.as_deref(), Some("backend"));
         assert_eq!(phase.as_deref(), Some("unit"));
         assert_eq!(harness.as_deref(), Some("codex"));
+    }
+
+    #[test]
+    fn vector_sync_accepts_an_explicit_store() {
+        let cli = Cli::try_parse_from(["equill", "vector", "sync", "--store", "store"])
+            .expect("vector sync");
+
+        let Command::Vector {
+            command: VectorCommand::Sync { store },
+        } = cli.command
+        else {
+            panic!("vector sync command");
+        };
+        assert_eq!(store, PathBuf::from("store"));
     }
 }

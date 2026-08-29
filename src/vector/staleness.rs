@@ -8,7 +8,7 @@ const STATE: &str = "projections/qdrant/state.json";
 
 /// A durable record write always wins. Once a record is on disk the vector
 /// index is behind by definition, so the marker is demoted from ready to
-/// degraded and readers fall back to full-text search until a rebuild.
+/// degraded and readers fall back to full-text search until a sync or rebuild.
 ///
 /// The marker is rewritten as opaque JSON rather than through the state
 /// structure: demoting must not depend on this module agreeing with the

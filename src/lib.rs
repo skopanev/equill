@@ -193,6 +193,14 @@ where
                     );
                     command::output::render(json, &report, text)
                 }
+                command::cli::VectorCommand::Sync { store } => {
+                    let report = vector::sync(&store, &actor)?;
+                    let text = format!(
+                        "Vector projection synced — {} embeddings, {} points upserted",
+                        report.embeddings, report.points_upserted
+                    );
+                    command::output::render(json, &report, text)
+                }
             }
         }
         command::cli::Command::Get {

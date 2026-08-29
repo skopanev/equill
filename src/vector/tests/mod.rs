@@ -2,6 +2,8 @@ mod config;
 mod document;
 mod embedding;
 mod endpoint;
+mod endpoint_consistency;
 mod hydration;
 mod search;
 mod support;
+mod sync;

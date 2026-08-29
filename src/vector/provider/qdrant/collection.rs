@@ -1,9 +1,11 @@
-use super::qdrant::{CollectionSchema, ProviderHit, ProviderPoint, Query, Transport};
+use super::qdrant::{
+    CollectionSchema, ProviderHit, ProviderMetadata, ProviderPoint, Query, Transport,
+};
 use crate::kernel::error::Error;
 use crate::vector::config::VectorConfig;
 use crate::vector::model::{
-    CollectionReport, VectorPoint, VectorSearchRequest, valid_collection_name, valid_sha256,
-    validate_point, validate_search, vector_error,
+    CollectionReport, VectorPoint, VectorPointMetadata, VectorSearchRequest, valid_collection_name,
+    valid_sha256, validate_point, validate_search, vector_error,
 };
 
 pub(crate) struct Collection<T> {
@@ -85,6 +87,51 @@ impl<T: Transport> Collection<T> {
         hits.into_iter().map(|hit| self.validate_hit(hit)).collect()
     }
 
+    pub(crate) fn active(&self) -> Result<String, Error> {
+        let physical = self
+            .transport
+            .alias_target(&self.config.collection_alias)?
+            .ok_or_else(rebuild_required)?;
+        self.ensure_compatible(
+            &physical,
+            "active compatible collection is missing; run vector rebuild",
+        )?;
+        Ok(physical)
+    }
+
+    pub(crate) fn metadata(
+        &self,
+        physical: &str,
+        record_ids: &[uuid::Uuid],
+    ) -> Result<Vec<VectorPointMetadata>, Error> {
+        validate_name(physical)?;
+        self.ensure_compatible(physical, "cannot read an incompatible collection")?;
+        let point_ids = record_ids
+            .iter()
+            .map(|record_id| super::point::physical_id(self.config.store_id, *record_id))
+            .collect::<Vec<_>>();
+        self.transport
+            .metadata(physical, &point_ids)?
+            .into_iter()
+            .map(|item| self.validate_metadata(item))
+            .collect()
+    }
+
+    pub(crate) fn require_active(&self, physical: &str) -> Result<(), Error> {
+        if self
+            .transport
+            .alias_target(&self.config.collection_alias)?
+            .as_deref()
+            != Some(physical)
+        {
+            return Err(rebuild_required());
+        }
+        self.ensure_compatible(
+            physical,
+            "active collection is incompatible; run vector rebuild",
+        )
+    }
+
     pub(crate) fn activate(&self, physical: &str) -> Result<AliasChange, Error> {
         validate_name(physical)?;
         let expected = self.expected_schema();
@@ -130,6 +177,22 @@ impl<T: Transport> Collection<T> {
         Ok(hit)
     }
 
+    fn validate_metadata(&self, item: ProviderMetadata) -> Result<VectorPointMetadata, Error> {
+        if item.store_id != self.config.store_id
+            || !valid_sha256(&item.model_sha256)
+            || !valid_sha256(&item.record_sha256)
+            || !valid_sha256(&item.input_sha256)
+        {
+            return Err(vector_error("retrieval returned invalid point metadata"));
+        }
+        Ok(VectorPointMetadata {
+            record_id: item.record_id,
+            record_sha256: item.record_sha256,
+            input_sha256: item.input_sha256,
+            model_sha256: item.model_sha256,
+        })
+    }
+
     fn expected_schema(&self) -> CollectionSchema {
         CollectionSchema {
             dimensions: self.config.dimensions,
@@ -145,6 +208,10 @@ impl<T: Transport> Collection<T> {
         }
         Ok(())
     }
+}
+
+fn rebuild_required() -> Error {
+    vector_error("active compatible collection is missing; run vector rebuild")
 }
 
 fn validate_name(name: &str) -> Result<(), Error> {

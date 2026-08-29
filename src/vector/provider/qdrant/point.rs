@@ -1,4 +1,4 @@
-use super::qdrant::{ProviderHit, ProviderPoint};
+use super::qdrant::{ProviderHit, ProviderMetadata, ProviderPoint};
 use crate::kernel::error::Error;
 use crate::vector::model::vector_error;
 use qdrant_client::Payload;
@@ -45,20 +45,7 @@ pub(super) fn qdrant_point(point: &ProviderPoint) -> Result<api::PointStruct, Er
 }
 
 pub(super) fn provider_hit(point: api::ScoredPoint) -> Result<ProviderHit, Error> {
-    let id = point
-        .id
-        .and_then(|id| id.point_id_options)
-        .and_then(|id| match id {
-            api::point_id::PointIdOptions::Uuid(value) => Uuid::parse_str(&value).ok(),
-            api::point_id::PointIdOptions::Num(_) => None,
-        })
-        .ok_or_else(|| vector_error("query returned an invalid point ID"))?;
-    let payload: PointPayload = Payload::from(point.payload)
-        .deserialize()
-        .map_err(|_| vector_error("query returned invalid point metadata"))?;
-    if payload.schema != POINT_SCHEMA || physical_id(payload.store_id, payload.record_id) != id {
-        return Err(vector_error("query returned mismatched point metadata"));
-    }
+    let payload = payload(point.id, point.payload, "query")?;
     Ok(ProviderHit {
         store_id: payload.store_id,
         model_sha256: payload.model_sha256,
@@ -67,6 +54,40 @@ pub(super) fn provider_hit(point: api::ScoredPoint) -> Result<ProviderHit, Error
         record_sha256: payload.record_sha256,
         input_sha256: payload.input_sha256,
     })
+}
+
+pub(super) fn provider_metadata(point: api::RetrievedPoint) -> Result<ProviderMetadata, Error> {
+    let payload = payload(point.id, point.payload, "retrieval")?;
+    Ok(ProviderMetadata {
+        store_id: payload.store_id,
+        model_sha256: payload.model_sha256,
+        record_id: payload.record_id,
+        record_sha256: payload.record_sha256,
+        input_sha256: payload.input_sha256,
+    })
+}
+
+fn payload(
+    id: Option<api::PointId>,
+    fields: std::collections::HashMap<String, api::Value>,
+    action: &str,
+) -> Result<PointPayload, Error> {
+    let id = id
+        .and_then(|id| id.point_id_options)
+        .and_then(|id| match id {
+            api::point_id::PointIdOptions::Uuid(value) => Uuid::parse_str(&value).ok(),
+            api::point_id::PointIdOptions::Num(_) => None,
+        })
+        .ok_or_else(|| vector_error(&format!("{action} returned an invalid point ID")))?;
+    let payload: PointPayload = Payload::from(fields)
+        .deserialize()
+        .map_err(|_| vector_error(&format!("{action} returned invalid point metadata")))?;
+    if payload.schema != POINT_SCHEMA || physical_id(payload.store_id, payload.record_id) != id {
+        return Err(vector_error(&format!(
+            "{action} returned mismatched point metadata"
+        )));
+    }
+    Ok(payload)
 }
 
 pub(super) fn physical_id(store_id: Uuid, record_id: Uuid) -> Uuid {

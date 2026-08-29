@@ -52,6 +52,14 @@ pub struct VectorPoint {
     pub vector: Vec<f32>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct VectorPointMetadata {
+    pub record_id: Uuid,
+    pub record_sha256: String,
+    pub input_sha256: String,
+    pub model_sha256: String,
+}
+
 #[derive(Clone, Debug)]
 pub struct VectorSearchRequest {
     pub vector: Vec<f32>,

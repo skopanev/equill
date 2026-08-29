@@ -1,11 +1,12 @@
 use super::collection::Collection;
 use super::point::{physical_id, qdrant_point};
-use super::qdrant::{CollectionSchema, ProviderHit, ProviderPoint, Query, Transport, sanitized};
+use super::qdrant::{
+    CollectionSchema, ProviderHit, ProviderMetadata, ProviderPoint, Query, Transport, sanitized,
+};
 use super::test_support::{config, point, schema, search};
 use crate::kernel::error::Error;
 use qdrant_client::{Payload, QdrantError};
 use std::collections::HashMap;
-use std::fs;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
@@ -43,6 +44,26 @@ impl Transport for FakeTransport {
     fn upsert(&self, _collection: &str, points: &[ProviderPoint]) -> Result<(), Error> {
         self.inner.lock().unwrap().points.extend_from_slice(points);
         Ok(())
+    }
+
+    fn metadata(
+        &self,
+        _collection: &str,
+        point_ids: &[Uuid],
+    ) -> Result<Vec<ProviderMetadata>, Error> {
+        let state = self.inner.lock().unwrap();
+        Ok(state
+            .points
+            .iter()
+            .filter(|item| point_ids.contains(&physical_id(item.store_id, item.point.record_id)))
+            .map(|item| ProviderMetadata {
+                store_id: item.store_id,
+                model_sha256: item.model_sha256.clone(),
+                record_id: item.point.record_id,
+                record_sha256: item.point.record_sha256.clone(),
+                input_sha256: item.point.input_sha256.clone(),
+            })
+            .collect())
     }
 
     fn query(&self, _query: Query) -> Result<Vec<ProviderHit>, Error> {
@@ -216,7 +237,7 @@ fn activation_writes_ready_only_after_alias_success() {
         crate::vector::state::read(&root, Some(&config)).expect("state"),
         crate::vector::VectorState::Ready
     );
-    fs::remove_dir_all(root).expect("cleanup");
+    std::fs::remove_dir_all(root).expect("cleanup");
 }
 
 #[test]

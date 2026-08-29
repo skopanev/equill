@@ -1,5 +1,7 @@
 use super::super::embedding::{EMBED_MODEL_ID, VECTOR_DIMENSIONS};
-use super::super::{SearchStrategy, configure, rebuild, search};
+use super::super::{
+    SearchStrategy, VectorProjection, VectorState, configure, corpus, rebuild, search, state, sync,
+};
 use crate::command::init;
 use crate::kernel::digest::sha256_hex;
 use crate::projection::SearchRequest;
@@ -10,8 +12,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
-/// The only test that needs a live Qdrant and real weights, so it is gated on
-/// both and skipped otherwise. It is the end-to-end claim in one place: a
+/// Live Qdrant and real weights are both required, so this is gated and skipped
+/// otherwise. It is the semantic end-to-end claim: a
 /// ledger becomes embeddings, the alias is activated, the store reports Ready,
 /// and a paraphrased question finds the record that answers it — through the
 /// same verification path an ordinary caller uses.
@@ -56,14 +58,56 @@ fn endpoint_gated_rebuild_then_semantic_answer() {
         Some(target),
         "the paraphrase must rank the matching lesson first"
     );
+    let projection = VectorProjection::open(&root).unwrap().unwrap();
+    let physical = projection.active_collection().unwrap();
+    let initial_ids = corpus(&root)
+        .unwrap()
+        .0
+        .into_iter()
+        .map(|(record, _)| record.id)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        projection.metadata(&physical, &initial_ids).unwrap().len(),
+        3
+    );
+
+    let appended = add(&root, "Batch vector updates after the writing session.");
+    assert_eq!(state(&root).unwrap(), VectorState::Degraded);
+    let first_sync = sync(&root, "owner").expect("incremental sync");
+    let all_ids = corpus(&root)
+        .unwrap()
+        .0
+        .into_iter()
+        .map(|(record, _)| record.id)
+        .collect::<Vec<_>>();
+    let metadata = projection.metadata(&physical, &all_ids).unwrap();
+    assert_eq!((first_sync.embeddings, first_sync.points_upserted), (1, 1));
+    assert_eq!(metadata.len(), 4);
+    assert!(metadata.iter().any(|item| item.record_id == appended));
+    assert_eq!(state(&root).unwrap(), VectorState::Ready);
+
+    let second_sync = sync(&root, "owner").expect("no-op sync");
+    assert_eq!(
+        (second_sync.embeddings, second_sync.points_upserted),
+        (0, 0)
+    );
+    for index in 0..10 {
+        add(&root, &format!("Synthetic batch lesson {index}."));
+    }
+    let ten_sync = sync(&root, "owner").expect("ten-record sync");
+    assert_eq!((ten_sync.embeddings, ten_sync.points_upserted), (10, 10));
+    eprintln!(
+        "incremental sync timing: one={}ms ten={}ms noop={}ms",
+        first_sync.duration_ms, ten_sync.duration_ms, second_sync.duration_ms
+    );
     fs::remove_dir_all(root).expect("cleanup");
 }
 
-fn endpoint() -> Option<String> {
+pub(super) fn endpoint() -> Option<String> {
     std::env::var("EQUILL_QDRANT_ENDPOINT").ok()
 }
 
-fn artifacts() -> Option<PathBuf> {
+pub(super) fn artifacts() -> Option<PathBuf> {
     let directory = PathBuf::from(std::env::var("EQUILL_VECTOR_ARTIFACTS").ok()?);
     directory
         .join("model.safetensors")
@@ -71,7 +115,7 @@ fn artifacts() -> Option<PathBuf> {
         .then_some(directory)
 }
 
-fn config(endpoint: &str, artifacts: &Path) -> Vec<u8> {
+pub(super) fn config(endpoint: &str, artifacts: &Path) -> Vec<u8> {
     let artifact = |name: &str| {
         json!({
             "path": artifacts.join(name),
@@ -97,7 +141,7 @@ fn config(endpoint: &str, artifacts: &Path) -> Vec<u8> {
     .expect("config json")
 }
 
-fn store(name: &str) -> PathBuf {
+pub(super) fn store(name: &str) -> PathBuf {
     let root = super::support::root(name);
     init::create(&root, "owner", "agent.memory").expect("initialize");
     schema::register(
@@ -121,7 +165,7 @@ fn store(name: &str) -> PathBuf {
     root
 }
 
-fn add(root: &Path, rule: &str) -> Uuid {
+pub(super) fn add(root: &Path, rule: &str) -> Uuid {
     append(
         root,
         RecordDraft {
