@@ -50,6 +50,8 @@ pub fn read_all(store_root: &Path) -> Result<Vec<StoredRecord>, Error> {
             records.push(record);
         }
     }
+    super::lifecycle::validate_graph(store_root, &records)
+        .map_err(|error| Error::Integrity(format!("record lifecycle: {error}")))?;
     Ok(records)
 }
 

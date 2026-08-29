@@ -1,5 +1,6 @@
 mod anchor;
 mod apply;
+mod lifecycle;
 mod model;
 mod planner;
 mod receipt;
@@ -20,7 +21,7 @@ pub fn run(
 ) -> Result<CompactReport, Error> {
     let config = store::load(store_root)?;
     identity::require_root(&config, actor)?;
-    let plan = planner::build(manifest, jiff::Timestamp::now())?;
+    let plan = planner::build(store_root, manifest, jiff::Timestamp::now())?;
     if apply_changes {
         return apply::execute(store_root, plan, actor);
     }

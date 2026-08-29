@@ -22,7 +22,7 @@ pub struct RecordDraft {
     pub supersedes: Option<Uuid>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct EvidenceRef {
     pub kind: String,
@@ -31,7 +31,7 @@ pub struct EvidenceRef {
     pub sha256: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct StoredRecord {
     pub id: Uuid,

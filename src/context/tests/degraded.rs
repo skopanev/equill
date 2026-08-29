@@ -1,6 +1,8 @@
 use super::super::assemble;
 use super::super::model::{ExclusionReason, Strategy};
-use super::support::{append, registry, request, store};
+use super::records::append;
+use super::registries::registry;
+use super::support::{request, store};
 use crate::{projection, record};
 use std::fs;
 

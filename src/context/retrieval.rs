@@ -33,14 +33,16 @@ pub fn retrieve(
         .map_err(|_| Error::Context("request at must be RFC3339".into()))?;
     let mut records = crate::record::read_all(store)?;
     records.sort_by_key(|record| record.id);
-    let superseded = records
-        .iter()
-        .filter_map(|record| record.supersedes)
-        .collect::<HashSet<_>>();
     let selector_map = selectors
         .iter()
         .map(|selector| (selector.type_name.as_str(), selector))
         .collect::<HashMap<_, _>>();
+    let superseded = records
+        .iter()
+        .filter(|record| matching::read_authorized(record, profile))
+        .filter(|record| selector_map.contains_key(record.type_name.as_str()))
+        .filter_map(|record| record.supersedes)
+        .collect::<HashSet<_>>();
     let projection = projection::state(store)?;
     let fts = fts_hits(store, selectors, request, projection)?;
     let strategies: Vec<Strategy> = selectors

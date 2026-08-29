@@ -26,7 +26,7 @@ pub fn append(
     actor: &str,
 ) -> Result<AppendReport, Error> {
     let config = store::load(store_root)?;
-    identity::require_writer(&config, actor)?;
+    identity::require_type_writer(&config, actor, &draft.namespace, &draft.type_name)?;
     let recorded_at = Timestamp::now().to_string();
     let month = month(&recorded_at)?;
     let defense = defense::apply(store_root, &mut draft)?;
@@ -72,6 +72,8 @@ pub fn append(
     };
 
     let _lock = StoreLock::exclusive(store_root)?;
+    let records = super::read_all(store_root)?;
+    super::lifecycle::validate_append(store_root, records, &record, &definition)?;
     ensure_clean_tail(&path)?;
     let staged = receipt::stage(store_root, &month, &receipt)?;
     let receipt_path = staged.relative().to_owned();

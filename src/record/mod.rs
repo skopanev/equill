@@ -1,9 +1,12 @@
+pub(crate) mod lifecycle;
 mod model;
 mod receipt;
 mod validation;
 mod verify;
 mod writer;
 
+#[cfg(test)]
+mod lifecycle_tests;
 #[cfg(test)]
 mod tests;
 

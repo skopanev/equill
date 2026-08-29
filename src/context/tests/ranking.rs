@@ -1,5 +1,7 @@
 use super::super::assemble;
-use super::support::{append_ranked, registry_with_rank, request, store};
+use super::records::append_ranked;
+use super::registries::registry_with_rank;
+use super::support::{request, store};
 use std::fs;
 
 #[test]

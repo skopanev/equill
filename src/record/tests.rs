@@ -27,6 +27,7 @@ fn store() -> PathBuf {
                 "required": ["rule"],
                 "additionalProperties": false
             }),
+            lifecycle: Default::default(),
         },
         "writer",
     )
@@ -118,6 +119,7 @@ fn invalid_payload_names_the_field_and_the_constraint() {
                 "required": ["rule", "source"],
                 "additionalProperties": false
             }),
+            lifecycle: Default::default(),
         },
         "writer",
     )

@@ -39,6 +39,45 @@ Records never change in place. A new record may supersede or revoke an earlier r
 Objects too large for the envelope are stored by digest and referenced from evidence or
 payload fields defined by the type.
 
+### Lifecycle policy
+
+Lifecycle semantics belong to the registered type definition:
+
+- `dag` is the backward-compatible default and permits multiple descendants;
+- `append_only` rejects every `supersedes` edge;
+- `linear` requires a `key_pointer`, equal keys, and one current head;
+- `allowed_predecessor_types` explicitly permits named cross-type migrations.
+
+Every target must exist. Edges cannot cross namespaces, cross-type edges are denied
+unless the successor type names the predecessor, and a record whose own type is
+`append_only` cannot be superseded by any type. The writer acquires the exclusive store
+lock, then validates the prospective graph — the stored records plus the candidate —
+so competing linear updates cannot both commit and no append can leave behind a graph
+that a read would reject.
+
+Every canonical read applies the same rules and fails closed: dangling targets,
+self-edges, cycles, invalid boundaries, and ambiguous linear heads are rejected by
+`doctor --full`, by context assembly, by import, and by compaction planning alike. An
+invalid graph yields an integrity error, never a partial answer.
+
+A tombstone is not a special envelope or command. It is a schema-valid successor with
+the `equill:revoked` tag and a `supersedes` link to the current head:
+
+```json
+{
+  "namespace": "agent.memory",
+  "type": "agent.lesson.v2",
+  "observed_at": "2026-01-02T00:00:00Z",
+  "payload": { "key": "build-check", "rule": "Withdraw this rule." },
+  "tags": ["equill:revoked"],
+  "supersedes": "01941f29-7c00-7000-8000-000000000001"
+}
+```
+
+Context excludes both the superseded ancestor and the revoked tombstone. A later
+schema-valid correction can supersede the tombstone; physical history remains immutable
+until governed compaction.
+
 ## Store placement
 
 The executable is installed globally; stores are not. A caller opens an explicit store
@@ -95,6 +134,15 @@ project, phase, or harness.
 Orchestrators select registered profiles. Agents receive assembled context and do not
 choose their own grants. Direct callers are subject to the same namespace, type, and
 operation grant table for every transport.
+
+The store root owner can write every registered type. Legacy `writers` remain
+store-wide for compatibility. `write_grants` add least-privilege append access scoped
+by actor, namespace, and type; each dimension supports `*`. They are additive: an actor
+already present in `writers` is not narrowed by a scoped grant. Store metadata without
+`write_grants` continues to load with an empty scoped grant list.
+
+Selector coordinates are not ACLs. They narrow records only after a profile's read
+grant succeeds and never authorize reads, writes, schema changes, or governance.
 
 CLI and MCP call the same core operations. In particular, MCP `record` uses the same
 schema registry, grants, and immutable writer as CLI `record`.

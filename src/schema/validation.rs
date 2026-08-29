@@ -1,4 +1,4 @@
-use super::TypeDefinition;
+use super::{LifecycleMode, TypeDefinition};
 use crate::kernel::error::Error;
 
 pub fn validate(definition: &TypeDefinition) -> Result<(), Error> {
@@ -20,7 +20,53 @@ pub fn validate(definition: &TypeDefinition) -> Result<(), Error> {
     }
     jsonschema::draft202012::meta::validate(&definition.payload_schema)
         .map_err(|error| Error::InvalidSchema(error.to_string()))?;
-    Ok(())
+    validate_lifecycle(definition)
+}
+
+fn validate_lifecycle(definition: &TypeDefinition) -> Result<(), Error> {
+    let lifecycle = &definition.lifecycle;
+    for predecessor in &lifecycle.allowed_predecessor_types {
+        validate_type_name(predecessor)?;
+        if predecessor == &definition.type_name {
+            return Err(Error::InvalidSchema(
+                "allowed_predecessor_types contains the current type".into(),
+            ));
+        }
+    }
+    let mut predecessors = lifecycle.allowed_predecessor_types.clone();
+    predecessors.sort();
+    predecessors.dedup();
+    if predecessors.len() != lifecycle.allowed_predecessor_types.len() {
+        return Err(Error::InvalidSchema(
+            "allowed_predecessor_types contains duplicates".into(),
+        ));
+    }
+    match lifecycle.mode {
+        LifecycleMode::Linear => match lifecycle.key_pointer.as_deref() {
+            Some(pointer) if pointer.starts_with('/') && pointer.len() <= 500 => Ok(()),
+            _ => Err(Error::InvalidSchema(
+                "linear lifecycle requires a JSON key_pointer".into(),
+            )),
+        },
+        LifecycleMode::AppendOnly => {
+            if lifecycle.key_pointer.is_some() || !lifecycle.allowed_predecessor_types.is_empty() {
+                Err(Error::InvalidSchema(
+                    "append_only lifecycle cannot declare replacement options".into(),
+                ))
+            } else {
+                Ok(())
+            }
+        }
+        LifecycleMode::Dag => {
+            if lifecycle.key_pointer.is_some() {
+                Err(Error::InvalidSchema(
+                    "key_pointer is only valid for linear lifecycle".into(),
+                ))
+            } else {
+                Ok(())
+            }
+        }
+    }
 }
 
 pub fn validate_type_name(type_name: &str) -> Result<(), Error> {

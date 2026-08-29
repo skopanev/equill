@@ -1,27 +1,36 @@
 use super::anchor::{self, ManifestResolver};
+use super::lifecycle;
 use super::model::{AnchorState, CompactReason, Decision, Decisions, Plan};
 use super::rewrite;
 use crate::ingest::manifest::{parse_manifest, resolve};
+use crate::ingest::model::LegacyEvidence;
 use crate::ingest::parse_source;
 use crate::kernel::digest::sha256_hex;
 use crate::kernel::error::Error;
 use jiff::Timestamp;
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
-struct SourceRecord {
+pub(super) struct SourceRecord {
     input: usize,
     line: usize,
-    id: String,
-    supersedes: Option<String>,
-    payload: Value,
-    tags: Vec<String>,
+    pub(super) id: String,
+    pub(super) namespace: String,
+    pub(super) type_name: String,
+    pub(super) actor: String,
+    pub(super) recorded_at: String,
+    pub(super) observed_at: String,
+    pub(super) valid_at: Option<String>,
+    pub(super) payload: Value,
+    pub(super) evidence: Vec<LegacyEvidence>,
+    pub(super) tags: Vec<String>,
+    pub(super) supersedes: Option<String>,
     flattened: Vec<u8>,
 }
 
-pub fn build(manifest: &Path, at: Timestamp) -> Result<Plan, Error> {
+pub fn build(store_root: &Path, manifest: &Path, at: Timestamp) -> Result<Plan, Error> {
     let manifest_bytes = fs::read(manifest)?;
     let entries = parse_manifest(&manifest_bytes).map_err(compact_error)?;
     let base = manifest.parent().unwrap_or_else(|| Path::new("."));
@@ -58,15 +67,22 @@ pub fn build(manifest: &Path, at: Timestamp) -> Result<Plan, Error> {
                 input,
                 line: parsed.number,
                 id,
-                supersedes,
+                namespace: record.namespace,
+                type_name: record.type_name,
+                actor: record.legacy_actor,
+                recorded_at: record.legacy_recorded_at,
+                observed_at: record.observed_at,
+                valid_at: record.valid_at,
                 payload: record.payload,
+                evidence: record.evidence,
                 tags: record.tags,
+                supersedes,
                 flattened,
             });
         }
         sources.push((source, bytes));
     }
-    validate_supersedes(&records, &ids)?;
+    lifecycle::validate(store_root, &records)?;
     let superseded = records
         .iter()
         .filter_map(|record| {
@@ -176,52 +192,6 @@ fn expiry(
     } else {
         Ok(Some((true, Some(CompactReason::Expired))))
     }
-}
-
-fn validate_supersedes(records: &[SourceRecord], ids: &HashSet<String>) -> Result<(), Error> {
-    for record in records {
-        if let Some(target) = &record.supersedes {
-            if target == &record.id {
-                return Err(Error::Compact(format!(
-                    "record {} supersedes itself",
-                    record.id
-                )));
-            }
-            if !ids.contains(target) && uuid::Uuid::parse_str(target).is_err() {
-                return Err(Error::Compact(format!(
-                    "record {} has unknown supersedes target {target}",
-                    record.id
-                )));
-            }
-        }
-    }
-    reject_cycles(records, ids)
-}
-
-fn reject_cycles(records: &[SourceRecord], ids: &HashSet<String>) -> Result<(), Error> {
-    let parents = records
-        .iter()
-        .filter_map(|record| {
-            record
-                .supersedes
-                .as_deref()
-                .filter(|target| ids.contains(*target))
-                .map(|target| (record.id.as_str(), target))
-        })
-        .collect::<HashMap<_, _>>();
-    for origin in parents.keys() {
-        let mut seen = HashSet::new();
-        let mut current = *origin;
-        while let Some(next) = parents.get(current) {
-            if !seen.insert(current) {
-                return Err(Error::Compact(format!(
-                    "supersedes cycle contains record {current}"
-                )));
-            }
-            current = next;
-        }
-    }
-    Ok(())
 }
 
 fn compact_error(error: Error) -> Error {

@@ -54,6 +54,7 @@ fn portable_definition(
         uri,
         owner: actor.to_owned(),
         payload_schema,
+        lifecycle: Default::default(),
     })
 }
 
@@ -151,6 +152,7 @@ mod tests {
                 "required": ["rule"],
                 "additionalProperties": false
             }),
+            lifecycle: Default::default(),
         }
     }
 

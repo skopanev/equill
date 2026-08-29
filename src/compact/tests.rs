@@ -54,8 +54,12 @@ fn dry_run_is_read_only_and_apply_rebuilds_the_manifest() {
     ingest::import_manifest(&root, &manifest, "test-owner").expect("initial import");
     let before = snapshot(&root, &[&one, &two]);
 
-    let dry =
-        planner::build(&manifest, "2026-08-27T00:00:00Z".parse().expect("time")).expect("dry plan");
+    let dry = planner::build(
+        &root,
+        &manifest,
+        "2026-08-27T00:00:00Z".parse().expect("time"),
+    )
+    .expect("dry plan");
     assert_eq!(
         dry.inputs
             .iter()

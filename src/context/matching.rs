@@ -15,11 +15,7 @@ pub(super) fn gate(
     at: Timestamp,
     superseded: &HashSet<uuid::Uuid>,
 ) -> Result<Option<ExclusionReason>, Error> {
-    let granted = profile.grants.iter().any(|grant| {
-        grant.namespace == record.namespace
-            && grant.types.iter().any(|item| item == &record.type_name)
-    });
-    if !granted {
+    if !read_authorized(record, profile) {
         return Ok(Some(ExclusionReason::Unauthorized));
     }
     if superseded.contains(&record.id) {
@@ -52,6 +48,13 @@ pub(super) fn gate(
         return Ok(Some(ExclusionReason::SelectorMismatch));
     }
     Ok(None)
+}
+
+pub(super) fn read_authorized(record: &StoredRecord, profile: &ContextProfile) -> bool {
+    profile.grants.iter().any(|grant| {
+        grant.namespace == record.namespace
+            && grant.types.iter().any(|item| item == &record.type_name)
+    })
 }
 
 pub(super) fn classify(

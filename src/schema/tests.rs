@@ -29,7 +29,34 @@ fn definition(owner: &str) -> TypeDefinition {
             "required": ["rule"],
             "additionalProperties": false
         }),
+        lifecycle: Default::default(),
     }
+}
+
+#[test]
+fn old_definitions_default_to_dag_lifecycle() {
+    let definition: TypeDefinition = serde_json::from_value(json!({
+        "type": "agent.lesson.v1",
+        "uri": "equill://agent.lesson/v1",
+        "owner": "schema-owner",
+        "payload_schema": { "type": "object" }
+    }))
+    .expect("legacy definition");
+
+    assert_eq!(definition.lifecycle.mode, super::LifecycleMode::Dag);
+    assert!(definition.lifecycle.allowed_predecessor_types.is_empty());
+}
+
+#[test]
+fn linear_lifecycle_requires_key_pointer() {
+    let path = store("linear-key");
+    let mut item = definition("schema-owner");
+    item.lifecycle.mode = super::LifecycleMode::Linear;
+
+    let error = register(&path, item, "test-owner").expect_err("missing key pointer");
+
+    assert!(error.to_string().contains("requires a JSON key_pointer"));
+    fs::remove_dir_all(path).expect("remove test store");
 }
 
 #[test]

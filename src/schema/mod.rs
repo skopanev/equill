@@ -7,5 +7,5 @@ mod validation;
 mod tests;
 
 pub use lookup::{load, verify_all};
-pub use model::TypeDefinition;
+pub use model::{LifecycleMode, LifecyclePolicy, TypeDefinition};
 pub use registry::{RegisterReport, register, register_file};

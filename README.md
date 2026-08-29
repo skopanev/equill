@@ -102,6 +102,66 @@ and every source-line digest. `equill doctor --full` proves those lines still ex
 the immutable ledger. Duplicate paths and partially imported sets never produce a set
 receipt; rerunning after a fix is safe because each completed line is idempotent.
 
+## Record lifecycle and write scope
+
+Each type may declare a lifecycle policy. Omitting `lifecycle` preserves the
+backward-compatible `dag` mode. `append_only` forbids replacement. `linear` requires a
+`key_pointer`; a replacement must carry the same key and supersede the unique current
+head. Cross-type migration is denied unless the new type explicitly lists the old type
+in `allowed_predecessor_types`.
+
+```json
+{
+  "type": "agent.lesson.v2",
+  "uri": "equill://agent.lesson/v2",
+  "owner": "knowledge-owner",
+  "payload_schema": {
+    "type": "object",
+    "properties": { "key": { "type": "string" }, "rule": { "type": "string" } },
+    "required": ["key", "rule"]
+  },
+  "lifecycle": {
+    "mode": "linear",
+    "key_pointer": "/key",
+    "allowed_predecessor_types": ["agent.lesson.v1"]
+  }
+}
+```
+
+Existence, namespace, predecessor type, key, and current-head checks run under the store
+writer lock, and the writer judges the graph the append would create rather than the
+record alone. Two concurrent replacements of one linear head therefore produce one
+success and one stale-head error, and the writer never stores a graph its own reader
+would reject. An `append_only` record cannot be superseded even by a type that names it
+as an allowed predecessor: the mode describes the record, not its successor.
+
+Validation is fail-closed on every canonical read, not only under `doctor --full`.
+Reading records — assembling context, importing, planning compaction, appending — fails
+with an integrity error while the stored graph is invalid, instead of returning a
+partial answer.
+
+Revocation uses an ordinary schema-valid replacement tagged `equill:revoked`; there is
+no separate revoke command. It supersedes the previous head while context excludes the
+tagged tombstone. A later correction may supersede that tombstone under the same
+lifecycle rules. Immutable history remains until owner-governed compaction.
+
+The relevant store metadata fields can grant narrow append access without making an
+actor a store-wide writer:
+
+```json
+{
+  "writers": [],
+  "write_grants": [
+    { "actors": ["finding-agent"], "namespace": "agent.memory", "types": ["agent.finding.v1"] }
+  ]
+}
+```
+
+The root owner always retains write access. Existing `writers` entries remain
+store-wide for compatibility; `write_grants` add actor/namespace/type scope. No separate
+grant-management CLI is exposed. Request coordinates are retrieval filters, not read or
+write permissions.
+
 ## Context assembly
 
 A selector owns generic retrieval policy for one type. JSON pointers connect request
@@ -153,6 +213,7 @@ Coordinate matching is exact by default. A selector may opt individual keys
 into `set_or_wildcard`: record arrays then match a requested scalar by
 membership, while a missing or `null` record coordinate applies to every
 request. The mode is explicit because widening a scope must never be implicit.
+Coordinates are evaluated only after profile read grants and never act as ACLs.
 
 The receipt names every included and excluded coordinate, strategy degradation, budget
 use, and the bundle digest without copying payloads into the receipt. `search` remains a
