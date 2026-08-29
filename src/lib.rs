@@ -220,7 +220,13 @@ where
         command::cli::Command::Mcp { store } => {
             let actor = kernel::identity::actor_from_env()?;
             let input = std::io::stdin().lock();
-            mcp::serve(&store, &actor, input, std::io::stdout().lock())?;
+            mcp::serve(
+                &store,
+                &actor,
+                telemetry::enabled(),
+                input,
+                std::io::stdout().lock(),
+            )?;
             Ok(String::new())
         }
         command::cli::Command::Rebuild { store } => {

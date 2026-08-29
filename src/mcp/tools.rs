@@ -1,5 +1,5 @@
 use crate::kernel::error::Error;
-use crate::{context, filter, projection, record, schema, vector};
+use crate::{context, filter, projection, record, schema, telemetry, vector};
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -39,11 +39,25 @@ pub fn catalog() -> Value {
     ]})
 }
 
+/// Whether the server advertises this tool. Asking for anything else is a
+/// malformed call rather than a failed one.
+pub fn exists(name: &str) -> bool {
+    catalog()["tools"]
+        .as_array()
+        .is_some_and(|tools| tools.iter().any(|tool| tool["name"] == name))
+}
+
 fn tool(name: &str, description: &str, schema: Value) -> Value {
     json!({ "name": name, "description": description, "inputSchema": schema })
 }
 
-pub fn call(store: &Path, actor: &str, name: &str, arguments: &Value) -> Result<Value, Error> {
+pub fn call(
+    store: &Path,
+    actor: &str,
+    log_queries: bool,
+    name: &str,
+    arguments: &Value,
+) -> Result<Value, Error> {
     match name {
         "status" => value(&crate::command::status::report(Some(store))?),
         "schema_list" => value(&schema::list(store)?),
@@ -58,8 +72,8 @@ pub fn call(store: &Path, actor: &str, name: &str, arguments: &Value) -> Result<
                 .ok_or_else(|| Error::InvalidRecord(format!("no record with id {id}")))?;
             value(&found)
         }
-        "search" => search(store, arguments),
-        "context" => assemble(store, actor, arguments),
+        "search" => search(store, log_queries, arguments),
+        "context" => assemble(store, actor, log_queries, arguments),
         "record" => {
             let draft = arguments
                 .get("draft")
@@ -71,7 +85,7 @@ pub fn call(store: &Path, actor: &str, name: &str, arguments: &Value) -> Result<
     }
 }
 
-fn search(store: &Path, arguments: &Value) -> Result<Value, Error> {
+fn search(store: &Path, log_queries: bool, arguments: &Value) -> Result<Value, Error> {
     let filter = filter::Filter::parse(&strings(arguments, "where"), flag(arguments, "strict"))?;
     let type_name = optional(arguments, "type");
     filter::validate(&filter, &filter::in_scope(store, type_name.as_deref())?)?;
@@ -87,10 +101,25 @@ fn search(store: &Path, arguments: &Value) -> Result<Value, Error> {
         .hits
         .retain(|hit| filter::matches(&hit.record, &filter));
     report.hits.truncate(limit as usize);
+    // The same opt-in log the CLI writes: a miss rate that counted only the CLI
+    // would measure the surface nobody uses once this becomes the main one.
+    telemetry::record_query(
+        store,
+        "mcp.search",
+        &request.query,
+        Vec::new(),
+        report.hits.len(),
+        log_queries,
+    );
     value(&report)
 }
 
-fn assemble(store: &Path, actor: &str, arguments: &Value) -> Result<Value, Error> {
+fn assemble(
+    store: &Path,
+    actor: &str,
+    log_queries: bool,
+    arguments: &Value,
+) -> Result<Value, Error> {
     let filter = filter::Filter::parse(&strings(arguments, "where"), flag(arguments, "strict"))?;
     let request = context::inline_request(
         optional(arguments, "query"),
@@ -100,13 +129,21 @@ fn assemble(store: &Path, actor: &str, arguments: &Value) -> Result<Value, Error
         optional(arguments, "at"),
         flag(arguments, "include_superseded"),
     )?;
-    value(&context::assemble(
+    let bundle = context::assemble(store, text(arguments, "profile")?, request, actor, &filter)?;
+    telemetry::record_query(
         store,
-        text(arguments, "profile")?,
-        request,
-        actor,
-        &filter,
-    )?)
+        "mcp.context",
+        &bundle.receipt.request_digest,
+        bundle
+            .receipt
+            .unmatched_coordinates
+            .iter()
+            .map(|item| item.key.as_str())
+            .collect(),
+        bundle.selected_record_ids.len(),
+        log_queries,
+    );
+    value(&bundle)
 }
 
 fn value<T: serde::Serialize>(report: &T) -> Result<Value, Error> {

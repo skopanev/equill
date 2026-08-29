@@ -36,8 +36,9 @@ pub fn record_query(
     query: &str,
     coordinates: Vec<&str>,
     results: usize,
+    enabled: bool,
 ) {
-    if !enabled() {
+    if !enabled {
         return;
     }
     let _ = write(store_root, surface, query, coordinates, results);
@@ -47,7 +48,10 @@ pub fn record_query(
 /// — the log is a file inside the store the caller already owns — but a query is
 /// still the caller's own words, and writing those down is the operator's
 /// decision rather than one this executable makes for them.
-fn enabled() -> bool {
+///
+/// Read once at the edge and passed down, so the decision is visible at the
+/// call site instead of hidden in a function that reads the environment.
+pub fn enabled() -> bool {
     std::env::var(ENABLE_ENV).is_ok_and(|value| value == "1" || value.eq_ignore_ascii_case("true"))
 }
 

@@ -66,6 +66,7 @@ pub fn context(
             .map(|item| item.key.as_str())
             .collect(),
         bundle.selected_record_ids.len(),
+        telemetry::enabled(),
     );
     command::output::render(json, &bundle, text)
 }
@@ -134,6 +135,7 @@ pub fn search(
         &report_query,
         Vec::new(),
         report.hits.len(),
+        telemetry::enabled(),
     );
     command::output::render(json, &report, text)
 }

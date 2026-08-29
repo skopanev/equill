@@ -4,13 +4,13 @@ mod schema;
 mod tests;
 
 use crate::kernel::error::Error;
-pub use apply::matches;
+pub use apply::{address, matches};
 
 /// Envelope names a caller may filter on, with the sub-names each one allows.
 /// These are the coordinates every record carries whatever its type, so no
 /// schema declares them — but a typo inside one still has to be caught, which
 /// is why the nested names are listed rather than waved through.
-pub const ENVELOPE_FIELDS: [(&str, &[&str]); 9] = [
+pub const ENVELOPE_FIELDS: [(&str, &[&str]); 10] = [
     ("id", &[]),
     ("namespace", &[]),
     ("type", &[]),
@@ -20,6 +20,7 @@ pub const ENVELOPE_FIELDS: [(&str, &[&str]); 9] = [
     ("valid_at", &[]),
     ("tags", &[]),
     ("evidence", &["kind", "reference", "sha256"]),
+    ("supersedes", &[]),
 ];
 
 /// Whether a path addresses the envelope, and if so whether it names something
@@ -123,9 +124,14 @@ fn condition(flag: &str) -> Result<Condition, Error> {
     {
         return Err(invalid(format!("filter {flag} has an empty value")));
     }
-    if values.len() > 1 && values.contains(&Term::Null) {
+    // `role=backend,null` reads as "backend, or nothing said about role" — one
+    // question, not two. Negating that mixture is the ambiguous case: it is
+    // unclear whether the absent records are being excluded or kept, so it is
+    // refused by name rather than guessed at.
+    if negated && values.len() > 1 && values.contains(&Term::Null) {
         return Err(invalid(format!(
-            "filter {flag} mixes null with other values; ask for them separately"
+            "filter {flag} negates a list containing null; ask for the values and \
+             the absence separately so the intent is explicit"
         )));
     }
     Ok(Condition {
@@ -139,8 +145,20 @@ pub(crate) fn invalid(reason: impl Into<String>) -> Error {
     Error::Filter(reason.into())
 }
 
+/// A filtered search must look at the whole in-scope corpus, not at the
+/// caller's page: a match that sits past the page boundary is still a match.
+/// The scan is bounded, and hitting that bound says so precisely instead of
+/// silently returning less.
 pub(crate) fn candidate_limit(records: usize, requested: u16) -> Result<u16, Error> {
-    u16::try_from(records.max(usize::from(requested))).map_err(|_| {
-        invalid("filtered search supports at most 65535 records; narrow the type or namespace")
-    })
+    let wanted = records.max(usize::from(requested));
+    u16::try_from(wanted)
+        .ok()
+        .filter(|scan| *scan <= crate::projection::MAX_SCAN)
+        .ok_or_else(|| {
+            invalid(format!(
+                "a filtered search scans the whole corpus, and this one holds {records} records, \
+                 past the {} the engine will scan; narrow it with --type or --namespace",
+                crate::projection::MAX_SCAN
+            ))
+        })
 }

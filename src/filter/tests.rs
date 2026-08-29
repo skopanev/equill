@@ -37,7 +37,7 @@ fn record() -> StoredRecord {
         "severity": "must",
         "project": ["alpha", "beta"],
         "revoked_at": null,
-        "evidence": [{ "kind": "commit", "digest": "abc" }],
+        "evidence": [{ "kind": "commit", "digest": "abc", "at": { "repo": { "sha": "deadbeef" } } }],
         "weight": 3,
         "active": true
         }),
@@ -139,7 +139,7 @@ fn malformed_flags_are_refused_at_parse_time() {
         "source",
         "=owner",
         "source=",
-        "revoked_at=null,owner",
+        "revoked_at=!null,owner",
         ".source=owner",
     ] {
         Filter::parse(&[flag.to_string()], false).expect_err(&format!("{flag} must be refused"));
@@ -227,4 +227,117 @@ fn a_payload_field_shadows_an_envelope_name() {
 
     assert!(matches(&item, &filter(&["actor=payload-actor"], false)));
     assert!(!matches(&item, &filter(&["actor=owner"], false)));
+}
+
+/// supersedes is part of the envelope a caller may ask about — it is how a
+/// retraction is found — so it must both validate and match. It was missing
+/// from the list, which made `--where supersedes=null` pass in code and fail
+/// at the command line: two answers to one question.
+#[test]
+fn supersedes_is_filterable_like_the_rest_of_the_envelope() {
+    let mut replaced = record();
+    let target = Uuid::now_v7();
+    replaced.supersedes = Some(target);
+    let original = record();
+
+    validate(&filter(&["supersedes=null"], false), &[definition()])
+        .expect("supersedes is a known envelope name");
+    assert!(matches(&original, &filter(&["supersedes=null"], false)));
+    assert!(!matches(&original, &filter(&["supersedes=!null"], false)));
+    assert!(matches(&replaced, &filter(&["supersedes=!null"], false)));
+    assert!(matches(
+        &replaced,
+        &filter(&[&format!("supersedes={target}")], false)
+    ));
+    assert!(!matches(
+        &replaced,
+        &filter(&[&format!("supersedes={}", Uuid::now_v7())], false)
+    ));
+}
+
+/// A path that meets a list has to keep walking the rest of itself. Passing
+/// only the current segment answered a different, shorter question and quietly
+/// returned the wrong records for anything nested below a list.
+#[test]
+fn a_dotted_path_survives_a_list_in_the_middle() {
+    let item = record();
+
+    assert!(matches(
+        &item,
+        &filter(&["evidence.at.repo.sha=deadbeef"], false)
+    ));
+    assert!(!matches(
+        &item,
+        &filter(&["evidence.at.repo.sha=other"], false)
+    ));
+    // The shallower path still works, and a name that exists nowhere does not.
+    assert!(matches(&item, &filter(&["evidence.kind=commit"], false)));
+    assert!(!matches(
+        &item,
+        &filter(&["evidence.at.repo.branch=main"], true)
+    ));
+}
+
+/// `role=backend,null` is one question — "backend, or nothing said about role"
+/// — and answering it must not need two searches. Negating that mixture is the
+/// ambiguous case and is refused by name rather than guessed at.
+#[test]
+fn null_can_be_one_alternative_among_others() {
+    let mut scalar = record();
+    scalar.payload = json!({ "role": "backend" });
+    let mut listed = record();
+    listed.payload = json!({ "role": ["backend", "frontend"] });
+    let mut other = record();
+    other.payload = json!({ "role": "design" });
+    let mut explicit_null = record();
+    explicit_null.payload = json!({ "role": null });
+    let mut absent = record();
+    absent.payload = json!({ "rule": "no role at all" });
+
+    let asked = filter(&["role=backend,null"], false);
+    for matching in [&scalar, &listed, &explicit_null, &absent] {
+        assert!(matches(matching, &asked), "{:?}", matching.payload);
+    }
+    assert!(!matches(&other, &asked));
+    // Under --strict the presence half keeps its meaning: an absent field is
+    // still the null the caller explicitly asked for.
+    let strict = filter(&["role=backend,null"], true);
+    assert!(matches(&absent, &strict) && matches(&explicit_null, &strict));
+    assert!(!matches(&other, &strict));
+    Filter::parse(&["role=!backend,null".to_string()], false)
+        .expect_err("negating a list with null is ambiguous");
+}
+
+/// A bare name means the payload, and the explicit halves reach either side.
+/// Printing and filtering resolve the same way, or one word means two things.
+#[test]
+fn explicit_halves_address_payload_and_envelope_apart() {
+    let mut item = record();
+    item.actor = "envelope-actor".into();
+    item.payload = json!({ "actor": "payload-actor", "rule": "Run" });
+
+    assert!(matches(&item, &filter(&["actor=payload-actor"], false)));
+    assert!(matches(
+        &item,
+        &filter(&["payload.actor=payload-actor"], false)
+    ));
+    assert!(matches(
+        &item,
+        &filter(&["record.actor=envelope-actor"], false)
+    ));
+    assert!(!matches(
+        &item,
+        &filter(&["record.actor=payload-actor"], false)
+    ));
+    validate(
+        &filter(&["record.actor=x", "payload.rule=y"], false),
+        &[definition()],
+    )
+    .expect("both halves are addressable");
+    let unknown = validate(&filter(&["record.nonsense=x"], false), &[definition()])
+        .expect_err("a prefixed path that names nothing must fail")
+        .to_string();
+    assert!(unknown.contains("record.nonsense"), "{unknown}");
+    validate(&filter(&["payload.nonsense=x"], false), &[definition()])
+        .expect_err("an undeclared payload field must fail");
 }

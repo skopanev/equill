@@ -18,20 +18,38 @@ pub fn matches(record: &StoredRecord, filter: &Filter) -> bool {
         .all(|condition| holds(&record.payload, &envelope, condition, filter.absent()))
 }
 
+/// A bare name means the payload first, because that is what the caller was
+/// reading in the schema when they typed it. `payload.x` and `record.x` say
+/// which half explicitly, which is the only way to reach a payload field that
+/// an envelope name shadows — or the reverse.
+pub fn address<'a>(payload: &'a Value, envelope: &'a Value, path: &[String]) -> Option<&'a Value> {
+    match path[0].as_str() {
+        "payload" => resolve(payload, &path[1..]),
+        "record" => resolve(envelope, &path[1..]),
+        _ => resolve(payload, path).or_else(|| {
+            envelope_path(path)
+                .unwrap_or(false)
+                .then(|| resolve(envelope, path))
+                .flatten()
+        }),
+    }
+}
+
 fn holds(payload: &Value, envelope: &Value, condition: &Condition, absent: Absent) -> bool {
-    let actual = resolve(payload, &condition.path).or_else(|| {
-        envelope_path(&condition.path)
-            .unwrap_or(false)
-            .then(|| resolve(envelope, &condition.path))
-            .flatten()
-    });
+    let actual = address(payload, envelope, &condition.path);
     let missing = matches!(actual, None | Some(Value::Null));
-    // `field=null` and `field=!null` are questions about presence itself, so
-    // they answer directly instead of going through the absence policy.
+    // Presence is asked about directly rather than through the absence policy:
+    // `field=null` and `field=!null` are questions about presence itself, and a
+    // list that offers null as one alternative keeps that meaning for the
+    // records that have nothing there.
+    let asks_for_null = condition.values.contains(&Term::Null);
     if condition.values == [Term::Null] {
         return missing != condition.negated;
     }
     if missing {
+        if asks_for_null {
+            return !condition.negated;
+        }
         return match absent {
             // An absent field is the record saying "this does not narrow me",
             // which is the same reading a selector gives a null coordinate.
@@ -61,20 +79,19 @@ fn contains(actual: &Value, term: &Term) -> bool {
 }
 
 /// Dotted paths address nested objects. A segment that meets an array descends
-/// into every element, so `evidence.kind=x` works whether evidence is one
-/// object or a list of them.
+/// into every element and keeps walking the rest of the path, so
+/// `evidence.kind` works whether evidence is one object or a list of them, and
+/// so does a deeper path through a list.
 fn resolve<'a>(payload: &'a Value, path: &[String]) -> Option<&'a Value> {
-    let mut current = payload;
-    for segment in path {
-        current = match current {
-            Value::Object(fields) => fields.get(segment)?,
-            Value::Array(items) => {
-                return items
-                    .iter()
-                    .find_map(|item| resolve(item, std::slice::from_ref(segment)));
-            }
-            _ => return None,
-        };
+    let Some((segment, rest)) = path.split_first() else {
+        return Some(payload);
+    };
+    match payload {
+        Value::Object(fields) => resolve(fields.get(segment)?, rest),
+        // Every element is tried against the whole remaining path, not just the
+        // current segment: truncating it here silently answered the wrong
+        // question for anything nested below a list.
+        Value::Array(items) => items.iter().find_map(|item| resolve(item, path)),
+        _ => None,
     }
-    Some(current)
 }

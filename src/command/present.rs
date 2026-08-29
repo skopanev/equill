@@ -63,22 +63,13 @@ fn payload_values(payload: &Value) -> Vec<String> {
     }
 }
 
-/// Envelope coordinates are addressable by name so a caller can ask for `id`
-/// or `type` beside a payload field; dots reach into the payload.
+/// Names resolve exactly as they do in a filter: a bare name is the payload
+/// first, `payload.x` and `record.x` name a half outright. Printing and
+/// filtering must agree, or the same word means two things in one command.
 fn lookup(record: &StoredRecord, field: &str) -> Option<Value> {
-    match field {
-        "id" => Some(Value::String(record.id.to_string())),
-        "namespace" => Some(Value::String(record.namespace.clone())),
-        "type" => Some(Value::String(record.type_name.clone())),
-        "actor" => Some(Value::String(record.actor.clone())),
-        "observed_at" => Some(Value::String(record.observed_at.clone())),
-        "valid_at" => Some(Value::String(record.valid_at.clone())),
-        "tags" => Some(serde_json::to_value(&record.tags).ok()?),
-        _ => {
-            let pointer = format!("/{}", field.replace('.', "/"));
-            record.payload.pointer(&pointer).cloned()
-        }
-    }
+    let path = field.split('.').map(str::to_owned).collect::<Vec<_>>();
+    let envelope = serde_json::to_value(record).ok()?;
+    crate::filter::address(&record.payload, &envelope, &path).cloned()
 }
 
 fn flatten(value: Value) -> String {

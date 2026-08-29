@@ -32,13 +32,17 @@ fn store() -> PathBuf {
 }
 
 fn exchange(root: &Path, actor: &str, requests: &[Value]) -> Vec<Value> {
+    exchange_logging(root, actor, false, requests)
+}
+
+fn exchange_logging(root: &Path, actor: &str, log_queries: bool, requests: &[Value]) -> Vec<Value> {
     let input = requests
         .iter()
         .map(|request| request.to_string())
         .collect::<Vec<_>>()
         .join("\n");
     let mut output = Vec::new();
-    serve(root, actor, input.as_bytes(), &mut output).expect("serve");
+    serve(root, actor, log_queries, input.as_bytes(), &mut output).expect("serve");
     String::from_utf8(output)
         .expect("utf8")
         .lines()
@@ -63,7 +67,8 @@ fn the_handshake_advertises_every_tool_and_answers_ping() {
         &root,
         "owner",
         &[
-            json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize" }),
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                    "params": { "protocolVersion": "2025-06-18" } }),
             json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
             json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" }),
             json!({ "jsonrpc": "2.0", "id": 3, "method": "ping" }),
@@ -74,6 +79,8 @@ fn the_handshake_advertises_every_tool_and_answers_ping() {
     // The notification is acted on but never answered, so four ids come back.
     assert_eq!(replies.len(), 4);
     assert_eq!(replies[0]["result"]["serverInfo"]["name"], "equill");
+    // The version a client asked for comes back when we speak it.
+    assert_eq!(replies[0]["result"]["protocolVersion"], "2025-06-18");
     let names = replies[1]["result"]["tools"]
         .as_array()
         .expect("tools")
@@ -223,5 +230,81 @@ fn reading_tools_answer_over_the_same_core_operations() {
             .expect("text")
             .contains("sorce")
     );
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+/// A server that answers with a fixed version regardless of the request looks
+/// compatible without being it, and a malformed frame is not a question this
+/// server can answer at all.
+#[test]
+fn the_protocol_is_negotiated_and_malformed_frames_are_refused() {
+    let root = store();
+
+    let replies = exchange(
+        &root,
+        "owner",
+        &[
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                    "params": { "protocolVersion": "2025-11-25" } }),
+            json!({ "jsonrpc": "2.0", "id": 2, "method": "initialize",
+                    "params": { "protocolVersion": "1999-01-01" } }),
+            json!({ "jsonrpc": "2.0", "id": 3, "method": "initialize" }),
+            json!({ "id": 4, "method": "ping" }),
+            json!({ "jsonrpc": "2.0", "id": 5, "method": "tools/call",
+                    "params": { "name": "no_such_tool", "arguments": {} } }),
+            json!({ "jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {} }),
+        ],
+    );
+
+    assert_eq!(replies[0]["result"]["protocolVersion"], "2025-11-25");
+    // A version we do not speak gets our newest, not a pretence.
+    assert_eq!(replies[1]["result"]["protocolVersion"], "2025-11-25");
+    assert_eq!(replies[2]["result"]["protocolVersion"], "2025-11-25");
+    assert_eq!(replies[3]["error"]["code"], -32600);
+    // An unadvertised tool is a malformed call, not a tool that failed.
+    assert_eq!(replies[4]["error"]["code"], -32602);
+    assert!(
+        replies[4]["error"]["message"]
+            .as_str()
+            .expect("text")
+            .contains("no_such_tool")
+    );
+    assert_eq!(replies[5]["error"]["code"], -32602);
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+/// If the adapter becomes the main way people ask questions, a miss rate that
+/// counted only the CLI would measure the surface nobody uses.
+#[test]
+fn queries_through_the_adapter_reach_the_same_opt_in_log() {
+    let root = store();
+
+    // The same query twice: once with the log off, once on. Only the second
+    // may leave a row, or the adapter would be writing without being asked.
+    exchange(
+        &root,
+        "owner",
+        &[call(
+            "search",
+            json!({ "query": "nothing-matches-this" }),
+            1,
+        )],
+    );
+
+    let replies = exchange_logging(
+        &root,
+        "owner",
+        true,
+        &[call(
+            "search",
+            json!({ "query": "nothing-matches-this" }),
+            2,
+        )],
+    );
+    let (total, missed) = crate::telemetry::misses(&root).expect("log");
+    assert_eq!((total, missed), (1, 1));
+    assert_eq!(replies[0]["result"]["isError"], false);
+    let log = fs::read_to_string(root.join("diagnostics/queries.jsonl")).expect("log file");
+    assert!(log.contains("mcp.search"), "{log}");
     fs::remove_dir_all(root).expect("cleanup");
 }

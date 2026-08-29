@@ -4,7 +4,7 @@ mod tests;
 mod tools;
 
 use crate::kernel::error::Error;
-use protocol::{INVALID_PARAMS, METHOD_NOT_FOUND, PROTOCOL_VERSION, Request, Response};
+use protocol::{INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, Request, Response, negotiate};
 use serde_json::{Value, json};
 use std::io::{BufRead, Write};
 use std::path::Path;
@@ -16,6 +16,7 @@ use std::path::Path;
 pub fn serve(
     store: &Path,
     actor: &str,
+    log_queries: bool,
     input: impl BufRead,
     mut output: impl Write,
 ) -> Result<(), Error> {
@@ -24,7 +25,7 @@ pub fn serve(
         if line.trim().is_empty() {
             continue;
         }
-        let Some(response) = handle(store, actor, &line) else {
+        let Some(response) = handle(store, actor, log_queries, &line) else {
             continue;
         };
         output.write_all(&serde_json::to_vec(&response)?)?;
@@ -35,7 +36,7 @@ pub fn serve(
 }
 
 /// Returns `None` for a notification, which by protocol gets no answer.
-fn handle(store: &Path, actor: &str, line: &str) -> Option<Response> {
+fn handle(store: &Path, actor: &str, log_queries: bool, line: &str) -> Option<Response> {
     let request: Request = match serde_json::from_str(line) {
         Ok(request) => request,
         Err(error) => {
@@ -47,17 +48,34 @@ fn handle(store: &Path, actor: &str, line: &str) -> Option<Response> {
         }
     };
     let id = request.id?;
+    if request.jsonrpc.as_deref() != Some("2.0") {
+        return Some(Response::failed(
+            id,
+            INVALID_REQUEST,
+            "jsonrpc must be \"2.0\"",
+        ));
+    }
     Some(match request.method.as_str() {
         "initialize" => Response::ok(
             id,
             json!({
-                "protocolVersion": PROTOCOL_VERSION,
+                "protocolVersion": negotiate(
+                    request.params.get("protocolVersion").and_then(Value::as_str)
+                ),
                 "capabilities": { "tools": {} },
                 "serverInfo": { "name": "equill", "version": env!("CARGO_PKG_VERSION") }
             }),
         ),
         "tools/list" => Response::ok(id, tools::catalog()),
-        "tools/call" => Response::ok(id, invoke(store, actor, &request.params)),
+        "tools/call" => match request.params.get("name").and_then(Value::as_str) {
+            // An unknown tool name is a malformed call, not a failed one: the
+            // client asked for something this server never advertised.
+            None => Response::failed(id, INVALID_PARAMS, "tools/call needs a tool name"),
+            Some(name) if !tools::exists(name) => {
+                Response::failed(id, INVALID_PARAMS, format!("unknown tool {name}"))
+            }
+            Some(_) => Response::ok(id, invoke(store, actor, log_queries, &request.params)),
+        },
         "ping" => Response::ok(id, json!({})),
         other => Response::failed(id, METHOD_NOT_FOUND, format!("unknown method {other}")),
     })
@@ -66,13 +84,13 @@ fn handle(store: &Path, actor: &str, line: &str) -> Option<Response> {
 /// A refused write is a real answer to a valid question, so it comes back as
 /// tool content with `isError`, not as a transport failure. Errors carry
 /// coordinates and reasons, never record payloads.
-fn invoke(store: &Path, actor: &str, params: &Value) -> Value {
+fn invoke(store: &Path, actor: &str, log_queries: bool, params: &Value) -> Value {
     let name = params
         .get("name")
         .and_then(Value::as_str)
         .unwrap_or_default();
     let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
-    match tools::call(store, actor, name, &arguments) {
+    match tools::call(store, actor, log_queries, name, &arguments) {
         Ok(result) => json!({
             "content": [{ "type": "text", "text": result.to_string() }],
             "structuredContent": result,

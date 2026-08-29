@@ -17,12 +17,31 @@ pub fn validate(filter: &Filter, definitions: &[TypeDefinition]) -> Result<(), E
         ));
     }
     for condition in filter.conditions() {
+        // An explicit half is checked against that half only, so a prefixed
+        // path that names nothing fails loudly instead of quietly matching.
+        let path = match condition.path[0].as_str() {
+            "payload" => &condition.path[1..],
+            "record" => {
+                let rest = &condition.path[1..];
+                if rest.is_empty() || super::envelope_path(rest) != Some(true) {
+                    let field = condition.path.join(".");
+                    return Err(invalid(format!(
+                        "unknown field {field}: the record envelope has no such name"
+                    )));
+                }
+                continue;
+            }
+            _ => &condition.path[..],
+        };
+        if path.is_empty() {
+            return Err(invalid("filter needs a field after payload."));
+        }
         // An envelope name needs no schema, but a typo inside one is still a
         // typo: `evidence.sha` names nothing and must say so.
-        match super::envelope_path(&condition.path) {
+        match super::envelope_path(path) {
             Some(true) => continue,
             Some(false) => {
-                let field = condition.path.join(".");
+                let field = path.join(".");
                 return Err(invalid(format!(
                     "unknown field {field}: the record envelope has no such name"
                 )));
@@ -31,9 +50,9 @@ pub fn validate(filter: &Filter, definitions: &[TypeDefinition]) -> Result<(), E
         }
         let known = definitions
             .iter()
-            .any(|definition| declared(&definition.payload_schema, &condition.path));
+            .any(|definition| declared(&definition.payload_schema, path));
         if !known {
-            let field = condition.path.join(".");
+            let field = path.join(".");
             let types = definitions
                 .iter()
                 .map(|definition| definition.type_name.as_str())

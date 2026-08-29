@@ -1,12 +1,36 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub const PROTOCOL_VERSION: &str = "2024-11-05";
+/// Versions this adapter speaks, newest first. Checked against the official
+/// SDK's own list rather than taken on trust: answering with a version no
+/// client speaks looks like compatibility and is not — a real client
+/// disconnects on it.
+///
+/// Versions this adapter speaks, newest first. A client names the one it wants
+/// and gets it back when we know it; otherwise it gets our newest and decides
+/// whether to continue. Answering with a hardcoded version regardless of what
+/// was asked is how a server looks compatible while not being it.
+pub const SUPPORTED_VERSIONS: [&str; 4] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
+
+pub fn negotiate(requested: Option<&str>) -> &'static str {
+    requested
+        .and_then(|wanted| {
+            SUPPORTED_VERSIONS
+                .iter()
+                .find(|known| **known == wanted)
+                .copied()
+        })
+        .unwrap_or(SUPPORTED_VERSIONS[0])
+}
 
 /// One JSON-RPC request as it arrives on stdin. `id` is absent for
 /// notifications, which are acted on but never answered.
 #[derive(Debug, Deserialize)]
 pub struct Request {
+    /// Present and equal to "2.0" in a well-formed call. A missing or wrong
+    /// value is a malformed frame, not a question we can answer.
+    #[serde(default)]
+    pub jsonrpc: Option<String>,
     pub method: String,
     #[serde(default)]
     pub id: Option<Value>,
@@ -59,3 +83,4 @@ impl Response {
 
 pub const METHOD_NOT_FOUND: i32 = -32601;
 pub const INVALID_PARAMS: i32 = -32602;
+pub const INVALID_REQUEST: i32 = -32600;

@@ -14,13 +14,12 @@ fn root() -> PathBuf {
 fn empty_results_are_the_rows_worth_counting() {
     let root = root();
     // Off until the operator turns it on: nothing is written by default.
-    record_query(&root, "search", "unlogged", Vec::new(), 0);
+    record_query(&root, "search", "unlogged", Vec::new(), 0, false);
     assert!(!root.join("diagnostics/queries.jsonl").exists());
-    unsafe { std::env::set_var("EQUILL_QUERY_LOG", "1") };
 
-    record_query(&root, "search", "worktree", Vec::new(), 2);
-    record_query(&root, "search", "worktrees", Vec::new(), 0);
-    record_query(&root, "context", "sweep", vec!["scope"], 0);
+    record_query(&root, "search", "worktree", Vec::new(), 2, true);
+    record_query(&root, "search", "worktrees", Vec::new(), 0, true);
+    record_query(&root, "context", "sweep", vec!["scope"], 0, true);
 
     let (total, missed) = misses(&root).expect("read log");
     assert_eq!(total, 3);
@@ -29,7 +28,6 @@ fn empty_results_are_the_rows_worth_counting() {
     assert_eq!(log.lines().count(), 3);
     // Coordinates are recorded by name; their values are the caller's business.
     assert!(log.contains("\"coordinates\":[\"scope\"]"));
-    unsafe { std::env::remove_var("EQUILL_QUERY_LOG") };
     fs::remove_dir_all(root).expect("cleanup");
 }
 
@@ -39,6 +37,13 @@ fn empty_results_are_the_rows_worth_counting() {
 fn an_absent_log_is_not_an_error() {
     let root = root();
     assert_eq!(misses(&root).expect("absent log"), (0, 0));
-    record_query(&root.join("missing-store"), "search", "x", Vec::new(), 1);
+    record_query(
+        &root.join("missing-store"),
+        "search",
+        "x",
+        Vec::new(),
+        1,
+        true,
+    );
     fs::remove_dir_all(root).expect("cleanup");
 }

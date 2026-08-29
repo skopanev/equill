@@ -4,6 +4,10 @@ use crate::projection::{ProjectionState, SearchHit, SearchReport, SearchRequest}
 use rusqlite::params;
 use std::path::Path;
 
+/// The largest candidate pool one search may scan. A filter needs to look past
+/// the caller's page size, but not without a bound.
+pub const MAX_SCAN: u16 = 10_000;
+
 pub fn search(store_root: &Path, request: &SearchRequest) -> Result<SearchReport, Error> {
     let projection_state = sqlite::state(store_root)?;
     if projection_state == ProjectionState::Missing {
@@ -11,10 +15,21 @@ pub fn search(store_root: &Path, request: &SearchRequest) -> Result<SearchReport
             "sqlite projection is missing; run `equill rebuild --store <path>`".into(),
         ));
     }
-    if request.query.trim().is_empty() || !(1..=100).contains(&request.limit) {
+    // The page a caller asks for and the pool a filter has to look through are
+    // different numbers. Conflating them made an ordinary filtered search fail
+    // with a message about a limit the caller never set.
+    if request.query.trim().is_empty() {
+        return Err(Error::Projection("search requires a query".into()));
+    }
+    if request.limit == 0 {
         return Err(Error::Projection(
-            "search requires a query and a limit between 1 and 100".into(),
+            "search requires a limit above zero".into(),
         ));
+    }
+    if request.limit > MAX_SCAN {
+        return Err(Error::Projection(format!(
+            "search can scan at most {MAX_SCAN} candidates; narrow the namespace or type"
+        )));
     }
     let connection = sqlite::open(&sqlite::database(store_root))?;
     let query = fts_query(&request.query);
