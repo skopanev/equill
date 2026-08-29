@@ -200,6 +200,21 @@ pub enum Command {
         #[command(subcommand)]
         command: VectorCommand,
     },
+    /// Read one record by the id every result set prints.
+    Get {
+        /// Initialized store directory.
+        #[arg(long)]
+        store: PathBuf,
+        /// Record identifier.
+        #[arg(long)]
+        id: String,
+        /// Output shape for the record.
+        #[arg(long, value_enum, default_value_t = FormatArg::Jsonl)]
+        format: FormatArg,
+        /// Print only these fields, in this order.
+        #[arg(long, value_delimiter = ',')]
+        fields: Vec<String>,
+    },
     /// Rebuild disposable projections from immutable records.
     Rebuild {
         /// Initialized store directory.
@@ -210,6 +225,22 @@ pub enum Command {
 
 #[derive(Debug, Subcommand)]
 pub enum SchemaCommand {
+    /// List the types this store has registered.
+    List {
+        /// Initialized store directory.
+        #[arg(long)]
+        store: PathBuf,
+    },
+    /// Show one type: its fields, which are required, and the legal values of
+    /// any constrained field.
+    Show {
+        /// Initialized store directory.
+        #[arg(long)]
+        store: PathBuf,
+        /// Registered type name.
+        #[arg(long = "type")]
+        type_name: String,
+    },
     /// Register one immutable versioned type definition.
     Register {
         /// Initialized store directory.

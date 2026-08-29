@@ -67,6 +67,49 @@ where
         command::cli::Command::Schema { command } => {
             let actor = kernel::identity::actor_from_env()?;
             match command {
+                command::cli::SchemaCommand::List { store } => {
+                    let report = schema::list(&store)?;
+                    let text = report
+                        .types
+                        .iter()
+                        .map(|item| {
+                            format!(
+                                "{} ({}) required: {}",
+                                item.type_name,
+                                item.lifecycle,
+                                if item.required.is_empty() {
+                                    "none".to_string()
+                                } else {
+                                    item.required.join(", ")
+                                }
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    command::output::render(json, &report, text)
+                }
+                command::cli::SchemaCommand::Show { store, type_name } => {
+                    let report = schema::show(&store, &type_name)?;
+                    let text = report
+                        .fields
+                        .iter()
+                        .map(|field| {
+                            let mark = if field.required {
+                                "required"
+                            } else {
+                                "optional"
+                            };
+                            let allowed = if field.allowed.is_empty() {
+                                String::new()
+                            } else {
+                                format!(" one of: {}", field.allowed.join(", "))
+                            };
+                            format!("{} {} {}{}", field.name, field.kind, mark, allowed)
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    command::output::render(json, &report, text)
+                }
                 command::cli::SchemaCommand::Register { store, file } => {
                     let report = schema::register_file(&store, &file, &actor)?;
                     command::output::render(json, &report, command::output::schema(&report))
@@ -223,6 +266,24 @@ where
                     command::output::render(json, &report, text)
                 }
             }
+        }
+        command::cli::Command::Get {
+            store,
+            id,
+            format,
+            fields,
+        } => {
+            let id: uuid::Uuid = id.parse().map_err(|_| {
+                kernel::error::Error::InvalidRecord(format!("{id} is not a record id"))
+            })?;
+            let found = record::read_all(&store)?
+                .into_iter()
+                .find(|record| record.id == id)
+                .ok_or_else(|| {
+                    kernel::error::Error::InvalidRecord(format!("no record with id {id}"))
+                })?;
+            let text = command::present::records(&[found.clone()], shape(format), &fields)?;
+            command::output::render(json, &found, text)
         }
         command::cli::Command::Rebuild { store } => {
             let report = projection::rebuild(&store)?;

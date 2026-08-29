@@ -83,3 +83,45 @@ fn rejects_invalid_json_schema() {
     assert!(error.to_string().contains("invalid schema"));
     fs::remove_dir_all(path).expect("remove test store");
 }
+
+/// A lane cannot ask a store what it holds without this, and the enum values
+/// matter most: the constrained vocabulary is the search key, and today it was
+/// only discoverable by reading the registry file.
+#[test]
+fn the_catalog_lists_types_and_shows_required_fields_and_vocabulary() {
+    let path = store("catalog");
+    let mut item = definition("schema-owner");
+    item.payload_schema = json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+            "rule": { "type": "string" },
+            "severity": { "type": "string", "enum": ["must", "should"] },
+            "surface": { "type": "array", "items": { "type": "string", "enum": ["cli", "core"] } }
+        },
+        "required": ["rule"],
+        "additionalProperties": false
+    });
+    register(&path, item, "test-owner").expect("register");
+
+    let listed = super::list(&path).expect("list");
+    let shown = super::show(&path, "agent.lesson.v1").expect("show");
+    let field = |name: &str| {
+        shown
+            .fields
+            .iter()
+            .find(|field| field.name == name)
+            .unwrap_or_else(|| panic!("{name} is described"))
+    };
+
+    assert_eq!(listed.types.len(), 1);
+    assert_eq!(listed.types[0].required, vec!["rule".to_string()]);
+    assert_eq!(listed.types[0].lifecycle, "dag");
+    assert!(field("rule").required);
+    assert!(!field("severity").required);
+    assert_eq!(field("severity").allowed, vec!["must", "should"]);
+    // A list field's vocabulary is read through items, not only on scalars.
+    assert_eq!(field("surface").kind, "array");
+    assert_eq!(field("surface").allowed, vec!["cli", "core"]);
+    fs::remove_dir_all(path).expect("remove test store");
+}
