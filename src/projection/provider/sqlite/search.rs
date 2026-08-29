@@ -32,6 +32,9 @@ pub fn search(store_root: &Path, request: &SearchRequest) -> Result<SearchReport
         )));
     }
     let connection = sqlite::open(&sqlite::database(store_root))?;
+    if query.is_empty() {
+        return scan(&connection, request, projection_state);
+    }
     let query = if query.is_empty() {
         String::new()
     } else {
@@ -71,6 +74,61 @@ pub fn search(store_root: &Path, request: &SearchRequest) -> Result<SearchReport
 /// surface a record. Every term stays a quoted literal, so a user-typed quote
 /// cannot open a phrase or an operator, and bm25 still orders the top-k rows —
 /// a record matching more terms keeps ranking above one matching fewer.
+/// The filter decides, so the projection returns everything in scope up to the
+/// bound the caller already accepted. Same boundary, same types, no ledger read.
+/// The ids of records a later record replaced.
+pub fn superseded(store_root: &Path) -> Result<std::collections::HashSet<uuid::Uuid>, Error> {
+    let connection = sqlite::open(&sqlite::database(store_root))?;
+    let mut statement = connection
+        .prepare(queries::SUPERSEDED)
+        .map_err(|error| sqlite::projection_error("prepare supersedes", error))?;
+    let rows = statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|error| sqlite::projection_error("run supersedes", error))?;
+    let mut ids = std::collections::HashSet::new();
+    for row in rows {
+        let value = row.map_err(|error| sqlite::projection_error("read supersedes", error))?;
+        if let Ok(id) = value.parse() {
+            ids.insert(id);
+        }
+    }
+    Ok(ids)
+}
+
+fn scan(
+    connection: &rusqlite::Connection,
+    request: &SearchRequest,
+    projection_state: ProjectionState,
+) -> Result<SearchReport, Error> {
+    let mut statement = connection
+        .prepare(queries::SCAN)
+        .map_err(|error| sqlite::projection_error("prepare scan", error))?;
+    let rows = statement
+        .query_map(
+            params![
+                request.namespace.as_deref(),
+                request.type_name.as_deref(),
+                i64::from(request.limit)
+            ],
+            ProjectedRow::read,
+        )
+        .map_err(|error| sqlite::projection_error("run scan", error))?;
+    let mut hits = Vec::new();
+    for row in rows {
+        hits.push(SearchHit {
+            record: row
+                .map_err(|error| sqlite::projection_error("read scan result", error))?
+                .record()?,
+        });
+    }
+    Ok(SearchReport {
+        ok: projection_state == ProjectionState::Ready,
+        projection: "sqlite-scan",
+        state: projection_state,
+        hits,
+    })
+}
+
 fn fts_query(query: &str) -> String {
     query
         .split_whitespace()

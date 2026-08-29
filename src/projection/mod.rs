@@ -8,7 +8,7 @@ use crate::record::StoredRecord;
 use std::path::Path;
 
 pub use model::{ProjectionState, RebuildReport, SearchHit, SearchReport, SearchRequest};
-pub use provider::sqlite::MAX_SCAN;
+pub use provider::sqlite::{MAX_SCAN, superseded};
 
 pub fn initialize(store_root: &Path) -> Result<(), Error> {
     provider::sqlite::initialize(store_root)

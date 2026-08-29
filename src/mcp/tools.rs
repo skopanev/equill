@@ -12,8 +12,8 @@ pub fn catalog() -> Value {
         tool("schema_list", "List the record types this store has registered.", json!({ "type": "object", "properties": {} })),
         tool("schema_show", "Describe one type: fields, which are required, and any constrained vocabulary.",
             json!({ "type": "object", "required": ["type"], "properties": { "type": { "type": "string" } } })),
-        tool("search", "Full-text search, optionally narrowed by schema-aware filters.",
-            json!({ "type": "object", "required": ["query"], "properties": {
+        tool("search", "Search by text, by filter, or by both. Returns what is current.",
+            json!({ "type": "object", "properties": {
                 "query": { "type": "string" },
                 "namespace": { "type": "string" },
                 "type": { "type": "string" },
@@ -106,9 +106,17 @@ fn search(store: &Path, log_queries: bool, arguments: &Value) -> Result<Value, E
     let type_name = optional(arguments, "type");
     filter::validate(&filter, &filter::in_scope(store, type_name.as_deref())?)?;
     let limit = arguments.get("limit").and_then(Value::as_u64).unwrap_or(20) as u16;
+    let query = optional(arguments, "query")
+        .map(|text| text.trim().to_owned())
+        .filter(|text| !text.is_empty());
+    if query.is_none() && filter.is_empty() {
+        return Err(Error::Projection(
+            "search needs a query, a where filter, or both".into(),
+        ));
+    }
     let namespace = optional(arguments, "namespace");
     let request = projection::SearchRequest {
-        query: optional(arguments, "query"),
+        query: query.clone(),
         namespace: namespace.clone(),
         type_name: type_name.clone(),
         // An unfiltered search has no reason to read past the page it was

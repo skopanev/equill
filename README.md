@@ -29,20 +29,36 @@ joins stores automatically.
 
 ```text
 equill init      create a store, root owner, and first namespace
-equill schema    register an immutable versioned type
-equill record    append one validated record
+equill schema    register a type, or list and describe what a store holds
+equill record    append one validated record, or a JSONL batch of them
 equill import    migrate a legacy JSONL batch through the writer
 equill compact   preview or apply governed JSONL compaction
 equill profile   register a context budget and grants
 equill selector  register canonical per-type selection
 equill context   assemble bounded deterministic context
-equill search    inspect matching records
+equill get       read one record by the id every result prints
+equill revoke    withdraw a record by writing a tombstone that supersedes it
+equill search    find current records by text, by field filter, or by both
+equill vector    configure, disable, or rebuild the optional Qdrant projection
+equill mcp       serve the local stdio MCP adapter over the caller's own pipe
 equill rebuild   rebuild disposable projections
 equill doctor    validate a store and its policies
 equill status    show installed, optional, and planned components
 ```
 
-Direct `get` and the stdio MCP adapter remain planned.
+`search` and `context` take repeatable `--where field=value` filters — repeated
+flags are ANDed, commas inside one are ORed, `!` negates, and `null`/`!null` ask
+about presence. A filter alone can answer, so `--query` is optional when one is
+given. `--format text|jsonl` and `--fields` choose how a result set is printed;
+`--json` still returns the whole report.
+
+`search` answers with what is current: a record a later one replaced, and the
+tombstone that withdrew it, are history. `get` and `context --include-superseded`
+still show them, because that is what auditing a disappearance means.
+
+The MCP adapter speaks the 2025 line of the protocol on the pipe its caller
+hands it. It opens no socket and is an adapter, never a second way in: writes go
+through the same grant-checked immutable writer as the CLI.
 
 Commands print concise human-readable output by default. Pass the global `--json` flag
 for the stable machine-readable response, for example `equill status --json` or

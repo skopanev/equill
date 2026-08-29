@@ -29,6 +29,23 @@ pub struct StrategySearchReport {
 /// the caller asked for semantics it gets an error rather than quietly worse
 /// answers. `hybrid` is the forgiving one — it prefers semantics, falls back to
 /// text, and says so in the report.
+/// An ordinary search answers with what is current. A record a later one
+/// replaced, and the tombstone that withdrew it, are both history: returning
+/// them here would hand a caller a claim its author has already taken back.
+/// `get` and a chain read keep showing them, because that is what auditing is.
+fn current_only(store_root: &Path, hits: &mut Vec<SearchHit>) -> Result<(), Error> {
+    let replaced = projection::superseded(store_root)?;
+    hits.retain(|hit| {
+        !replaced.contains(&hit.record.id)
+            && !hit
+                .record
+                .tags
+                .iter()
+                .any(|tag| tag == crate::record::REVOKED_TAG || tag == "status:revoked")
+    });
+    Ok(())
+}
+
 pub fn search(
     store_root: &Path,
     request: &SearchRequest,
@@ -39,18 +56,22 @@ pub fn search(
         return text_only(store_root, request, strategy, state, None);
     }
     match semantic(store_root, request) {
-        Ok((records, rejected)) => Ok(StrategySearchReport {
-            ok: true,
-            strategy,
-            answered_by: "vector",
-            vector_state: state,
-            fallback: None,
-            rejected,
-            hits: records
+        Ok((records, rejected)) => {
+            let mut hits = records
                 .into_iter()
                 .map(|record| SearchHit { record })
-                .collect(),
-        }),
+                .collect::<Vec<_>>();
+            current_only(store_root, &mut hits)?;
+            Ok(StrategySearchReport {
+                ok: true,
+                strategy,
+                answered_by: "vector",
+                vector_state: state,
+                fallback: None,
+                rejected,
+                hits,
+            })
+        }
         Err(error) if strategy == SearchStrategy::Hybrid => text_only(
             store_root,
             request,
@@ -96,7 +117,8 @@ fn text_only(
     state: VectorState,
     fallback: Option<String>,
 ) -> Result<StrategySearchReport, Error> {
-    let report = projection::search(store_root, request)?;
+    let mut report = projection::search(store_root, request)?;
+    current_only(store_root, &mut report.hits)?;
     Ok(StrategySearchReport {
         ok: report.ok,
         strategy,

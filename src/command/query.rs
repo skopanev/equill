@@ -116,49 +116,6 @@ pub fn search(
         type_name,
         limit: pool,
     };
-    // With no text there is nothing for full text to match, and handing the
-    // projection an empty expression is a syntax error, not a wildcard. The
-    // ledger answers instead: the filter alone decides, ordered by record id so
-    // the same question gives the same page every time.
-    if request.query.is_none() {
-        let mut records = record::read_all(&store)?
-            .into_iter()
-            .filter(|item| {
-                request
-                    .namespace
-                    .as_ref()
-                    .is_none_or(|ns| &item.namespace == ns)
-            })
-            .filter(|item| {
-                request
-                    .type_name
-                    .as_ref()
-                    .is_none_or(|ty| &item.type_name == ty)
-            })
-            .filter(|item| filter::matches(item, &filter))
-            .collect::<Vec<_>>();
-        records.sort_by_key(|item| item.id);
-        records.truncate(limit as usize);
-        telemetry::record_query(
-            &store,
-            "search",
-            "",
-            Vec::new(),
-            records.len(),
-            telemetry::enabled(),
-        );
-        let text = command::present::records(&records, shape(format), &fields)?;
-        let report = projection::SearchReport {
-            ok: true,
-            projection: "ledger",
-            state: projection::state(&store)?,
-            hits: records
-                .into_iter()
-                .map(|record| projection::SearchHit { record })
-                .collect(),
-        };
-        return command::output::render(json, &report, text);
-    }
     let strategy = match strategy {
         command::cli::StrategyArg::Fts => vector::SearchStrategy::Fts,
         command::cli::StrategyArg::Vector => vector::SearchStrategy::Vector,
