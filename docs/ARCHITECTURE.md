@@ -78,6 +78,28 @@ Context excludes both the superseded ancestor and the revoked tombstone. A later
 schema-valid correction can supersede the tombstone; physical history remains immutable
 until governed compaction.
 
+### Type evolution
+
+A registered type is immutable, and understanding is not. The answer is
+explicit rather than discovered by deleting a file:
+
+- While a type has no records, deleting its registry entry is a legitimate
+  correction. `schema list` shows what a store holds; a type with no records is
+  a draft nobody depends on yet.
+- Once records exist, the type is permanent. There is no in-place edit, because
+  every stored record was validated against the definition as it was, and a
+  retroactive change would make the ledger disagree with its own receipts.
+- Moving forward means a new version — `agent.lesson.v2` beside `v1` — and the
+  new type names the old one in `allowed_predecessor_types`. Readers then see a
+  chain rather than two unrelated types, and a record can be migrated by
+  superseding its predecessor across the version boundary.
+- Nothing rewrites old records. A reader that wants both versions selects both;
+  a reader that wants only current state gets it, because a superseded record is
+  hidden by default.
+
+Design types so the project or tenant is a field rather than part of the type
+name: a name is forever, a field is a filter.
+
 ## Store placement
 
 The executable is installed globally; stores are not. A caller opens an explicit store
