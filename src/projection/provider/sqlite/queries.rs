@@ -40,13 +40,6 @@ ORDER BY id
 LIMIT ?3
 "#;
 
-/// Which records a later one replaced. Answering "is this still current" from
-/// the projection keeps the question inside the boundary instead of re-reading
-/// the ledger for every search.
-pub const SUPERSEDED: &str = r#"
-SELECT DISTINCT supersedes FROM records WHERE supersedes IS NOT NULL
-"#;
-
 pub const RECORD_BY_ID: &str = r#"
 SELECT id, namespace, type_name, actor, recorded_at, observed_at, valid_at,
        payload_json, evidence_json, tags_json, supersedes

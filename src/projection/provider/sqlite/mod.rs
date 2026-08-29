@@ -10,6 +10,6 @@ mod search;
 mod stemming_tests;
 mod writer;
 
-pub use search::{MAX_SCAN, search, superseded};
+pub use search::{MAX_SCAN, search};
 pub use sqlite::{initialize, mark_degraded, state, verify};
 pub use writer::{index, rebuild};

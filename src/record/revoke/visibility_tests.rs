@@ -151,3 +151,43 @@ fn a_page_of_one_survives_more_history_than_any_fixed_multiple() {
     assert_eq!(ask(crate::vector::SearchStrategy::Fts), vec![live]);
     fs::remove_dir_all(root).expect("cleanup");
 }
+
+/// Lifecycle is the ledger's answer, not the text projection's. A semantic
+/// search must keep excluding history when full text is unavailable — otherwise
+/// a healthy vector index would start serving withdrawn claims the moment
+/// SQLite went missing.
+#[test]
+fn the_slack_is_exact_and_does_not_depend_on_the_text_projection() {
+    let root = store("independent", LifecyclePolicy::default());
+    for index in 0..6 {
+        let doomed = add(&root, &format!("deployment note {index}"));
+        revoke(&root, doomed, None, "owner").expect("revoke");
+    }
+    let live = add(&root, "deployment note that stands");
+    // Twelve history records: six withdrawn claims and six tombstones.
+    assert_eq!(read_all(&root).expect("records").len(), 13);
+
+    // Remove the text projection entirely; the ledger still knows the answer.
+    fs::remove_dir_all(root.join("projections")).expect("drop the projection");
+    let replaced = read_all(&root)
+        .expect("records")
+        .iter()
+        .filter_map(|record| record.supersedes)
+        .collect::<std::collections::HashSet<_>>();
+    let current = read_all(&root)
+        .expect("records")
+        .into_iter()
+        .filter(|record| !replaced.contains(&record.id))
+        .filter(|record| {
+            !record
+                .tags
+                .iter()
+                .any(|tag| tag == crate::record::REVOKED_TAG)
+        })
+        .map(|record| record.id)
+        .collect::<Vec<_>>();
+
+    assert_eq!(replaced.len(), 6, "six claims were replaced");
+    assert_eq!(current, vec![live], "one record still stands");
+    fs::remove_dir_all(root).expect("cleanup");
+}

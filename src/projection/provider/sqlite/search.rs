@@ -76,25 +76,6 @@ pub fn search(store_root: &Path, request: &SearchRequest) -> Result<SearchReport
 /// a record matching more terms keeps ranking above one matching fewer.
 /// The filter decides, so the projection returns everything in scope up to the
 /// bound the caller already accepted. Same boundary, same types, no ledger read.
-/// The ids of records a later record replaced.
-pub fn superseded(store_root: &Path) -> Result<std::collections::HashSet<uuid::Uuid>, Error> {
-    let connection = sqlite::open(&sqlite::database(store_root))?;
-    let mut statement = connection
-        .prepare(queries::SUPERSEDED)
-        .map_err(|error| sqlite::projection_error("prepare supersedes", error))?;
-    let rows = statement
-        .query_map([], |row| row.get::<_, String>(0))
-        .map_err(|error| sqlite::projection_error("run supersedes", error))?;
-    let mut ids = std::collections::HashSet::new();
-    for row in rows {
-        let value = row.map_err(|error| sqlite::projection_error("read supersedes", error))?;
-        if let Ok(id) = value.parse() {
-            ids.insert(id);
-        }
-    }
-    Ok(ids)
-}
-
 fn scan(
     connection: &rusqlite::Connection,
     request: &SearchRequest,

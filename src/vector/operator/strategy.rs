@@ -37,6 +37,17 @@ pub struct StrategySearchReport {
 /// later record replaced, and the tombstones that withdrew them. Read from the
 /// canonical ledger rather than the projection, because lifecycle is the
 /// ledger's answer to give.
+/// Which records a later one replaced, read from the ledger. Asking the SQLite
+/// projection would make a semantic search fail whenever full text is missing
+/// or degraded, even with a healthy vector index — and lifecycle is not the
+/// text projection's fact to own.
+fn replaced_ids(store_root: &Path) -> Result<std::collections::HashSet<uuid::Uuid>, Error> {
+    Ok(crate::record::read_all(store_root)?
+        .iter()
+        .filter_map(|record| record.supersedes)
+        .collect())
+}
+
 fn history_slack(store_root: &Path, request: &SearchRequest) -> Result<u16, Error> {
     let records = crate::record::read_all(store_root)?;
     let replaced = records
@@ -83,7 +94,7 @@ fn history_slack(store_root: &Path, request: &SearchRequest) -> Result<u16, Erro
 }
 
 fn current_only(store_root: &Path, hits: &mut Vec<SearchHit>) -> Result<(), Error> {
-    let replaced = projection::superseded(store_root)?;
+    let replaced = replaced_ids(store_root)?;
     hits.retain(|hit| {
         !replaced.contains(&hit.record.id)
             && !hit
@@ -173,8 +184,9 @@ fn text_only(
     state: VectorState,
     fallback: Option<String>,
 ) -> Result<StrategySearchReport, Error> {
-    let mut report = projection::search(store_root, request)?;
-    current_only(store_root, &mut report.hits)?;
+    // Full text and the filter-only scan exclude history in the query itself,
+    // so there is nothing left here to filter out.
+    let report = projection::search(store_root, request)?;
     Ok(StrategySearchReport {
         ok: report.ok,
         strategy,
