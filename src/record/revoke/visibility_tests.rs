@@ -115,3 +115,39 @@ fn a_page_of_one_returns_the_live_match_not_an_empty_page() {
     assert_eq!(scanned[0].record.id, live);
     fs::remove_dir_all(root).expect("cleanup");
 }
+
+/// Five withdrawn records ahead of one live match is exactly the case a guessed
+/// overfetch multiple gets wrong. The slack has to be counted, not assumed.
+#[test]
+fn a_page_of_one_survives_more_history_than_any_fixed_multiple() {
+    let root = store("slack", LifecyclePolicy::default());
+    for index in 0..6 {
+        let doomed = add(&root, &format!("deployment note {index}"));
+        revoke(&root, doomed, None, "owner").expect("revoke");
+    }
+    let live = add(&root, "deployment note that stands");
+
+    let ask = |strategy| {
+        crate::vector::search(
+            &root,
+            &crate::projection::SearchRequest {
+                query: Some("deployment".into()),
+                namespace: None,
+                type_name: None,
+                limit: 1,
+            },
+            strategy,
+        )
+        .expect("search")
+        .hits
+        .into_iter()
+        .map(|hit| hit.record.id)
+        .collect::<Vec<_>>()
+    };
+
+    // Twelve history records — six withdrawn claims and six tombstones — sit
+    // between the query and the one record that still stands.
+    assert_eq!(read_all(&root).expect("records").len(), 13);
+    assert_eq!(ask(crate::vector::SearchStrategy::Fts), vec![live]);
+    fs::remove_dir_all(root).expect("cleanup");
+}

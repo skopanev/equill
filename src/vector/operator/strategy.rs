@@ -33,6 +33,55 @@ pub struct StrategySearchReport {
 /// replaced, and the tombstone that withdrew it, are both history: returning
 /// them here would hand a caller a claim its author has already taken back.
 /// `get` and a chain read keep showing them, because that is what auditing is.
+/// How many records in this scope a search must be prepared to skip: those a
+/// later record replaced, and the tombstones that withdrew them. Read from the
+/// canonical ledger rather than the projection, because lifecycle is the
+/// ledger's answer to give.
+fn history_slack(store_root: &Path, request: &SearchRequest) -> Result<u16, Error> {
+    let records = crate::record::read_all(store_root)?;
+    let replaced = records
+        .iter()
+        .filter_map(|record| record.supersedes)
+        .collect::<std::collections::HashSet<_>>();
+    let history = records
+        .iter()
+        .filter(|record| {
+            request
+                .namespace
+                .as_ref()
+                .is_none_or(|value| &record.namespace == value)
+        })
+        .filter(|record| {
+            request
+                .type_name
+                .as_ref()
+                .is_none_or(|value| &record.type_name == value)
+        })
+        .filter(|record| {
+            replaced.contains(&record.id)
+                || record
+                    .tags
+                    .iter()
+                    .any(|tag| tag == crate::record::REVOKED_TAG || tag == "status:revoked")
+        })
+        .count();
+    let needed = usize::from(request.limit).saturating_add(history);
+    u16::try_from(needed)
+        .ok()
+        .filter(|pool| *pool <= crate::projection::MAX_SCAN)
+        .ok_or_else(|| {
+            // Silently returning a short page here would look like "no more
+            // matches" when the truth is "more history than we can scan past".
+            vector_error(&format!(
+                "this scope holds {history} superseded or withdrawn records, so a page of {} \
+                 would need to scan {needed}, past the {} the engine will scan; narrow it by \
+                 namespace or type",
+                request.limit,
+                crate::projection::MAX_SCAN
+            ))
+        })
+}
+
 fn current_only(store_root: &Path, hits: &mut Vec<SearchHit>) -> Result<(), Error> {
     let replaced = projection::superseded(store_root)?;
     hits.retain(|hit| {
@@ -97,12 +146,12 @@ fn semantic(
     let projection = VectorProjection::open(store_root)?
         .ok_or_else(|| vector_error("vector projection is not configured"))?;
     let embedder = EmbeddingRuntime::load(store_root, &config)?;
-    // The index ranks history alongside current records, so ask for more than
-    // the page and cut afterwards — bounded, never past what the engine scans.
-    let overfetch = request
-        .limit
-        .saturating_mul(4)
-        .clamp(request.limit, crate::projection::MAX_SCAN);
+    // The index ranks history alongside current records, so the page must be
+    // asked for with room for however much history could precede it. A guessed
+    // multiple is not that: five withdrawn records ahead of one live match
+    // would empty a page of one again. The slack is counted, from the ledger —
+    // the index itself is not the authority on what a record's lifecycle says.
+    let overfetch = history_slack(store_root, request)?;
     let verified = retrieval::retrieve(
         &projection,
         &embedder,
