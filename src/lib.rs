@@ -32,6 +32,11 @@ where
         }
         command::cli::Command::Record { store, input } => {
             let actor = kernel::identity::actor_from_env()?;
+            if record::is_batch(&input)? {
+                let report = record::append_batch(&store, &input, &actor)?;
+                let text = format!("{} stored, {} rejected", report.stored, report.rejected);
+                return command::output::render(json, &report, text);
+            }
             let report = record::append_file(&store, &input, &actor)?;
             command::output::render(json, &report, command::output::record(&report))
         }
@@ -151,6 +156,7 @@ where
             tags,
             kinds,
             at,
+            include_superseded,
             filters,
             strict,
             format,
@@ -161,7 +167,14 @@ where
             let bundle = match request {
                 Some(path) => context::assemble_file(&store, &profile, &path, &actor, &filter)?,
                 None => {
-                    let request = context::inline_request(query, coordinates, tags, kinds, at)?;
+                    let request = context::inline_request(
+                        query,
+                        coordinates,
+                        tags,
+                        kinds,
+                        at,
+                        include_superseded,
+                    )?;
                     context::assemble(&store, &profile, request, &actor, &filter)?
                 }
             };

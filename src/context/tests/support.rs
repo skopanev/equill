@@ -28,6 +28,7 @@ pub fn request(query: &str) -> ContextRequest {
         tags: vec![],
         kinds: vec![],
         coordinates: BTreeMap::new(),
+        include_superseded: false,
     }
 }
 

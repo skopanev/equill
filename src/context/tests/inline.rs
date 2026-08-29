@@ -16,6 +16,7 @@ fn an_inline_request_defaults_to_now_and_parses_coordinates() {
         vec!["must".into()],
         Vec::new(),
         None,
+        false,
     )
     .expect("inline request");
 
@@ -34,8 +35,15 @@ fn an_inline_request_defaults_to_now_and_parses_coordinates() {
 #[test]
 fn a_malformed_coordinate_is_refused_with_its_own_text() {
     for entry in ["scope", "=alpha", "scope="] {
-        let error = inline_request(None, vec![entry.into()], Vec::new(), Vec::new(), None)
-            .expect_err("malformed coordinate");
+        let error = inline_request(
+            None,
+            vec![entry.into()],
+            Vec::new(),
+            Vec::new(),
+            None,
+            false,
+        )
+        .expect_err("malformed coordinate");
         assert!(error.to_string().contains(entry), "{error}");
     }
 }
@@ -60,6 +68,7 @@ fn the_receipt_names_a_coordinate_that_matched_nothing() {
         Vec::new(),
         Vec::new(),
         Some("2026-01-05T00:00:00Z".into()),
+        false,
     )
     .expect("request");
 

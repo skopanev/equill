@@ -42,12 +42,16 @@ pub fn retrieve(
         .iter()
         .map(|selector| (selector.type_name.as_str(), selector))
         .collect::<HashMap<_, _>>();
-    let superseded = records
-        .iter()
-        .filter(|record| matching::read_authorized(record, profile))
-        .filter(|record| selector_map.contains_key(record.type_name.as_str()))
-        .filter_map(|record| record.supersedes)
-        .collect::<HashSet<_>>();
+    let superseded = if request.include_superseded {
+        HashSet::new()
+    } else {
+        records
+            .iter()
+            .filter(|record| matching::read_authorized(record, profile))
+            .filter(|record| selector_map.contains_key(record.type_name.as_str()))
+            .filter_map(|record| record.supersedes)
+            .collect::<HashSet<_>>()
+    };
     let projection = projection::state(store)?;
     let fts = fts_hits(store, selectors, request, projection)?;
     let strategies: Vec<Strategy> = selectors

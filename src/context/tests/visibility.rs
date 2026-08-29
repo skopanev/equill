@@ -184,5 +184,6 @@ fn request(query: &str) -> ContextRequest {
         tags: Vec::new(),
         kinds: Vec::new(),
         coordinates: BTreeMap::new(),
+        include_superseded: false,
     }
 }

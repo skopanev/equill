@@ -16,6 +16,11 @@ pub struct ContextRequest {
     pub kinds: Vec<String>,
     #[serde(default)]
     pub coordinates: BTreeMap<String, Value>,
+    /// A superseded record is hidden because a later one replaced it. Reading
+    /// the chain is a different question from reading current state, so it is
+    /// asked for explicitly rather than inferred.
+    #[serde(default)]
+    pub include_superseded: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

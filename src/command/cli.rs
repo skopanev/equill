@@ -133,6 +133,9 @@ pub enum Command {
         /// Point in time the request is evaluated at. Defaults to now.
         #[arg(long)]
         at: Option<String>,
+        /// Also return records a later one superseded, to read the chain.
+        #[arg(long, conflicts_with = "request")]
+        include_superseded: bool,
         /// Filter by a schema field: `field=value`. Repeatable flags are ANDed,
         /// comma-separated values inside one flag are ORed. `!` negates,
         /// `null` and `!null` ask about presence, and dots address nested fields.

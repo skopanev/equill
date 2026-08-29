@@ -126,6 +126,7 @@ pub fn profile_faults(store_root: &Path) -> Result<usize, Error> {
             tags: Vec::new(),
             kinds: Vec::new(),
             coordinates: Default::default(),
+            include_superseded: false,
         };
         let retrieved = retrieval::retrieve(
             store_root,
@@ -155,6 +156,7 @@ pub fn inline_request(
     tags: Vec<String>,
     kinds: Vec<String>,
     at: Option<String>,
+    include_superseded: bool,
 ) -> Result<model::ContextRequest, Error> {
     let mut parsed = std::collections::BTreeMap::new();
     for entry in &coordinates {
@@ -185,5 +187,6 @@ pub fn inline_request(
         tags,
         kinds,
         coordinates: parsed,
+        include_superseded,
     })
 }
