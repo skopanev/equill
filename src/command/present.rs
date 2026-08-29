@@ -51,7 +51,10 @@ fn text(record: &StoredRecord, fields: &[String]) -> String {
             .collect::<Vec<_>>()
             .join("\t");
     }
-    let mut parts = payload_values(&record.payload);
+    // Without an explicit selection the id leads: every other command takes one,
+    // and a line a reader cannot act on is half an answer.
+    let mut parts = vec![record.id.to_string()];
+    parts.extend(payload_values(&record.payload));
     parts.push(format!("[{} {}]", record.namespace, record.type_name));
     parts.join("\t")
 }

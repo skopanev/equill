@@ -151,7 +151,7 @@ fn fts_hits(
         let report = projection::search(
             store,
             &SearchRequest {
-                query: request.query.clone(),
+                query: Some(request.query.clone()),
                 namespace: None,
                 type_name: Some(selector.type_name.clone()),
                 limit: 100,

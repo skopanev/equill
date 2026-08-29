@@ -40,7 +40,7 @@ fn endpoint_gated_rebuild_then_semantic_answer() {
     let answer = search(
         &root,
         &SearchRequest {
-            query: "how do I check a change before merging".into(),
+            query: Some("how do I check a change before merging".into()),
             namespace: None,
             type_name: None,
             limit: 3,

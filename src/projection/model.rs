@@ -22,7 +22,8 @@ impl Display for ProjectionState {
 
 #[derive(Debug)]
 pub struct SearchRequest {
-    pub query: String,
+    /// Absent when a filter alone decides the result set.
+    pub query: Option<String>,
     pub namespace: Option<String>,
     pub type_name: Option<String>,
     pub limit: u16,

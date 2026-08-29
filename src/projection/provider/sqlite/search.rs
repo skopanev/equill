@@ -18,9 +18,9 @@ pub fn search(store_root: &Path, request: &SearchRequest) -> Result<SearchReport
     // The page a caller asks for and the pool a filter has to look through are
     // different numbers. Conflating them made an ordinary filtered search fail
     // with a message about a limit the caller never set.
-    if request.query.trim().is_empty() {
-        return Err(Error::Projection("search requires a query".into()));
-    }
+    // An absent query means the caller is selecting by filter alone: every
+    // record in scope is a candidate, and the filter decides.
+    let query = request.query.as_deref().map(str::trim).unwrap_or_default();
     if request.limit == 0 {
         return Err(Error::Projection(
             "search requires a limit above zero".into(),
@@ -32,7 +32,11 @@ pub fn search(store_root: &Path, request: &SearchRequest) -> Result<SearchReport
         )));
     }
     let connection = sqlite::open(&sqlite::database(store_root))?;
-    let query = fts_query(&request.query);
+    let query = if query.is_empty() {
+        String::new()
+    } else {
+        fts_query(query)
+    };
     let mut statement = connection
         .prepare(queries::SEARCH)
         .map_err(|error| sqlite::projection_error("prepare search", error))?;
@@ -132,7 +136,7 @@ mod tests {
         projection::search(
             root,
             &SearchRequest {
-                query: query.into(),
+                query: Some(query.into()),
                 namespace: None,
                 type_name: None,
                 limit: 10,

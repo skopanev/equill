@@ -78,7 +78,7 @@ fn semantic(
     let verified = retrieval::retrieve(
         &projection,
         &embedder,
-        &request.query,
+        request.query.as_deref().unwrap_or_default(),
         VectorSearchRequest {
             vector: Vec::new(),
             namespaces: request.namespace.clone().into_iter().collect(),

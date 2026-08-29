@@ -208,22 +208,18 @@ where
             id,
             format,
             fields,
-        } => {
+        } => command::query::get(json, &store, &id, format, &fields),
+        command::cli::Command::Revoke { store, id, comment } => {
+            let actor = kernel::identity::actor_from_env()?;
             let id: uuid::Uuid = id
                 .parse()
                 .map_err(|_| kernel::error::Error::InvalidRecord(format!("{id} is not an id")))?;
-            let found = record::read_all(&store)?
-                .into_iter()
-                .find(|record| record.id == id)
-                .ok_or_else(|| {
-                    kernel::error::Error::InvalidRecord(format!("no record with id {id}"))
-                })?;
-            let text = command::present::records(
-                std::slice::from_ref(&found),
-                command::query::shape(format),
-                &fields,
-            )?;
-            command::output::render(json, &found, text)
+            let report = record::revoke(&store, id, comment.as_deref(), &actor)?;
+            let text = format!(
+                "Revoked {} — tombstone {}",
+                report.revoked, report.tombstone
+            );
+            command::output::render(json, &report, text)
         }
         command::cli::Command::Mcp { store } => {
             let actor = kernel::identity::actor_from_env()?;

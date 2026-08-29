@@ -37,6 +37,7 @@ fn the_handshake_advertises_every_tool_and_answers_ping() {
         "context",
         "get",
         "record",
+        "revoke",
     ] {
         assert!(
             names.contains(&expected.to_string()),

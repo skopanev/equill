@@ -105,7 +105,7 @@ fn search(
     projection::search(
         root,
         &SearchRequest {
-            query: query.into(),
+            query: Some(query.into()),
             namespace: None,
             type_name: None,
             limit: 10,

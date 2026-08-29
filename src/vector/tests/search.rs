@@ -81,7 +81,7 @@ fn hybrid_falls_back_to_text_and_says_so_while_vector_refuses() {
     let root = store("fallback");
     add(&root, "Always run the build checks before merging.");
     let request = SearchRequest {
-        query: "build checks".into(),
+        query: Some("build checks".into()),
         namespace: None,
         type_name: None,
         limit: 10,

@@ -58,7 +58,7 @@ fn appends_valid_record_without_payload_in_receipt() {
     let search = projection::search(
         &path,
         &SearchRequest {
-            query: "Run checks".into(),
+            query: Some("Run checks".into()),
             namespace: Some("agent.memory".into()),
             type_name: Some("agent.lesson.v1".into()),
             limit: 10,

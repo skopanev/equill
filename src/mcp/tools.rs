@@ -34,6 +34,11 @@ pub fn catalog() -> Value {
             }})),
         tool("get", "Read one record by id.",
             json!({ "type": "object", "required": ["id"], "properties": { "id": { "type": "string" } } })),
+        tool("revoke", "Withdraw a record by writing a tombstone that supersedes it. Nothing is deleted.",
+            json!({ "type": "object", "required": ["id"], "properties": {
+                "id": { "type": "string" },
+                "comment": { "type": "string" }
+            }})),
         tool("record", "Append one schema-validated immutable record through the canonical writer.",
             json!({ "type": "object", "required": ["draft"], "properties": { "draft": { "type": "object" } } })),
     ]})
@@ -72,6 +77,17 @@ pub fn call(
                 .ok_or_else(|| Error::InvalidRecord(format!("no record with id {id}")))?;
             value(&found)
         }
+        "revoke" => {
+            let id: uuid::Uuid = text(arguments, "id")?
+                .parse()
+                .map_err(|_| Error::InvalidRecord("id is not a record identifier".into()))?;
+            value(&record::revoke(
+                store,
+                id,
+                optional(arguments, "comment").as_deref(),
+                actor,
+            )?)
+        }
         "search" => search(store, log_queries, arguments),
         "context" => assemble(store, actor, log_queries, arguments),
         "record" => {
@@ -92,7 +108,7 @@ fn search(store: &Path, log_queries: bool, arguments: &Value) -> Result<Value, E
     let limit = arguments.get("limit").and_then(Value::as_u64).unwrap_or(20) as u16;
     let namespace = optional(arguments, "namespace");
     let request = projection::SearchRequest {
-        query: text(arguments, "query")?.to_owned(),
+        query: optional(arguments, "query"),
         namespace: namespace.clone(),
         type_name: type_name.clone(),
         // An unfiltered search has no reason to read past the page it was
@@ -116,7 +132,7 @@ fn search(store: &Path, log_queries: bool, arguments: &Value) -> Result<Value, E
     telemetry::record_query(
         store,
         "mcp.search",
-        &request.query,
+        request.query.as_deref().unwrap_or_default(),
         Vec::new(),
         report.hits.len(),
         log_queries,

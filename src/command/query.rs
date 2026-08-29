@@ -75,7 +75,7 @@ pub fn context(
 pub fn search(
     json: bool,
     store: PathBuf,
-    query: String,
+    query: Option<String>,
     namespace: Option<String>,
     type_name: Option<String>,
     limit: u16,
@@ -87,6 +87,18 @@ pub fn search(
 ) -> Result<String, Error> {
     let filter = filter::Filter::parse(&filters, strict)?;
     filter::validate(&filter, &filter::in_scope(&store, type_name.as_deref())?)?;
+    // A filter can fully determine a result set, so text is optional when one
+    // is given. With neither, there is no question to answer — and answering
+    // an empty query with everything would be a wildcard nobody asked for.
+    let query = match query.as_deref().map(str::trim) {
+        Some(text) if !text.is_empty() => Some(text.to_owned()),
+        _ if !filter.is_empty() => None,
+        _ => {
+            return Err(Error::Projection(
+                "search needs a --query, a --where filter, or both".into(),
+            ));
+        }
+    };
     // The projection caps its own result set, so a filter that runs
     // afterwards must inspect the entire corpus or refuse explicitly.
     let pool = if filter.is_empty() {
@@ -97,13 +109,56 @@ pub fn search(
             limit,
         )?
     };
-    let report_query = query.clone();
+    let report_query = query.clone().unwrap_or_default();
     let request = projection::SearchRequest {
         query,
         namespace,
         type_name,
         limit: pool,
     };
+    // With no text there is nothing for full text to match, and handing the
+    // projection an empty expression is a syntax error, not a wildcard. The
+    // ledger answers instead: the filter alone decides, ordered by record id so
+    // the same question gives the same page every time.
+    if request.query.is_none() {
+        let mut records = record::read_all(&store)?
+            .into_iter()
+            .filter(|item| {
+                request
+                    .namespace
+                    .as_ref()
+                    .is_none_or(|ns| &item.namespace == ns)
+            })
+            .filter(|item| {
+                request
+                    .type_name
+                    .as_ref()
+                    .is_none_or(|ty| &item.type_name == ty)
+            })
+            .filter(|item| filter::matches(item, &filter))
+            .collect::<Vec<_>>();
+        records.sort_by_key(|item| item.id);
+        records.truncate(limit as usize);
+        telemetry::record_query(
+            &store,
+            "search",
+            "",
+            Vec::new(),
+            records.len(),
+            telemetry::enabled(),
+        );
+        let text = command::present::records(&records, shape(format), &fields)?;
+        let report = projection::SearchReport {
+            ok: true,
+            projection: "ledger",
+            state: projection::state(&store)?,
+            hits: records
+                .into_iter()
+                .map(|record| projection::SearchHit { record })
+                .collect(),
+        };
+        return command::output::render(json, &report, text);
+    }
     let strategy = match strategy {
         command::cli::StrategyArg::Fts => vector::SearchStrategy::Fts,
         command::cli::StrategyArg::Vector => vector::SearchStrategy::Vector,
@@ -114,17 +169,12 @@ pub fn search(
         .hits
         .retain(|hit| filter::matches(&hit.record, &filter));
     report.hits.truncate(limit as usize);
-    let text = match &report.fallback {
-        Some(reason) => format!(
-            "{} hits via {} (vector unavailable: {reason})",
-            report.hits.len(),
-            report.answered_by
-        ),
-        None => format!("{} hits via {}", report.hits.len(), report.answered_by),
-    };
-    let text = if fields.is_empty() && matches!(format, command::cli::FormatArg::Jsonl) {
-        text
-    } else {
+    // The fallback reason is not lost: it stays in the report, which --json
+    // prints in full. What a result set must not carry is a summary sentence
+    // mixed into the records themselves.
+    // jsonl is a record stream, never a sentence: a caller piping it should not
+    // have to strip a summary line first.
+    let text = {
         let hits = report
             .hits
             .iter()
@@ -148,4 +198,42 @@ pub fn shape(format: crate::command::cli::FormatArg) -> crate::command::present:
         crate::command::cli::FormatArg::Jsonl => crate::command::present::Format::Jsonl,
         crate::command::cli::FormatArg::Text => crate::command::present::Format::Text,
     }
+}
+
+/// Withdrawing a record is a write, so it reads the actor the same way every
+/// other write does.
+pub fn revoke(
+    json: bool,
+    store: &std::path::Path,
+    id: &str,
+    comment: Option<&str>,
+) -> Result<String, Error> {
+    let actor = crate::kernel::identity::actor_from_env()?;
+    let id: uuid::Uuid = id
+        .parse()
+        .map_err(|_| Error::InvalidRecord(format!("{id} is not an id")))?;
+    let report = record::revoke(store, id, comment, &actor)?;
+    let text = format!(
+        "Revoked {} — tombstone {}",
+        report.revoked, report.tombstone
+    );
+    command::output::render(json, &report, text)
+}
+
+pub fn get(
+    json: bool,
+    store: &std::path::Path,
+    id: &str,
+    format: command::cli::FormatArg,
+    fields: &[String],
+) -> Result<String, Error> {
+    let id: uuid::Uuid = id
+        .parse()
+        .map_err(|_| Error::InvalidRecord(format!("{id} is not an id")))?;
+    let found = record::read_all(store)?
+        .into_iter()
+        .find(|record| record.id == id)
+        .ok_or_else(|| Error::InvalidRecord(format!("no record with id {id}")))?;
+    let text = command::present::records(std::slice::from_ref(&found), shape(format), fields)?;
+    command::output::render(json, &found, text)
 }
