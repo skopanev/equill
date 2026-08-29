@@ -282,7 +282,8 @@ where
                 .ok_or_else(|| {
                     kernel::error::Error::InvalidRecord(format!("no record with id {id}"))
                 })?;
-            let text = command::present::records(&[found.clone()], shape(format), &fields)?;
+            let text =
+                command::present::records(std::slice::from_ref(&found), shape(format), &fields)?;
             command::output::render(json, &found, text)
         }
         command::cli::Command::Rebuild { store } => {
