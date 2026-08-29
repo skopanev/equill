@@ -142,6 +142,14 @@ pub enum Command {
         /// treating them as matching everything.
         #[arg(long)]
         strict: bool,
+        /// Output shape for the result set: one JSON object per line, or one
+        /// readable line per record.
+        #[arg(long, value_enum, default_value_t = FormatArg::Jsonl)]
+        format: FormatArg,
+        /// Print only these fields, in this order. Comma separated; envelope
+        /// names like id or type work beside payload fields.
+        #[arg(long, value_delimiter = ',')]
+        fields: Vec<String>,
     },
     /// Show installed, configured, optional, and planned components.
     Status {
@@ -178,6 +186,14 @@ pub enum Command {
         /// treating them as matching everything.
         #[arg(long)]
         strict: bool,
+        /// Output shape for the result set: one JSON object per line, or one
+        /// readable line per record.
+        #[arg(long, value_enum, default_value_t = FormatArg::Jsonl)]
+        format: FormatArg,
+        /// Print only these fields, in this order. Comma separated; envelope
+        /// names like id or type work beside payload fields.
+        #[arg(long, value_delimiter = ',')]
+        fields: Vec<String>,
     },
     /// Manage the optional Qdrant vector projection.
     Vector {
@@ -251,4 +267,12 @@ pub enum StrategyArg {
     Vector,
     /// Semantic search with a reported fall back to full text.
     Hybrid,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum FormatArg {
+    /// One JSON object per line: today's shape, and the one scripts expect.
+    Jsonl,
+    /// One readable line per record.
+    Text,
 }

@@ -110,6 +110,8 @@ where
             at,
             filters,
             strict,
+            format,
+            fields,
         } => {
             let actor = kernel::identity::actor_from_env()?;
             let filter = filter::Filter::parse(&filters, strict)?;
@@ -120,7 +122,16 @@ where
                     context::assemble(&store, &profile, request, &actor, &filter)?
                 }
             };
-            command::output::render(json, &bundle, bundle.content.clone())
+            let text = if fields.is_empty() && matches!(format, command::cli::FormatArg::Jsonl) {
+                bundle.content.clone()
+            } else {
+                let selected = record::read_all(&store)?
+                    .into_iter()
+                    .filter(|item| bundle.selected_record_ids.contains(&item.id))
+                    .collect::<Vec<_>>();
+                command::present::records(&selected, shape(format), &fields)?
+            };
+            command::output::render(json, &bundle, text)
         }
         command::cli::Command::Status { store } => {
             let report = command::status::report(store.as_deref())?;
@@ -135,6 +146,8 @@ where
             strategy,
             filters,
             strict,
+            format,
+            fields,
         } => {
             let filter = filter::Filter::parse(&filters, strict)?;
             filter::validate(&filter, &filter::in_scope(&store, type_name.as_deref())?)?;
@@ -168,6 +181,16 @@ where
                     report.answered_by
                 ),
                 None => format!("{} hits via {}", report.hits.len(), report.answered_by),
+            };
+            let text = if fields.is_empty() && matches!(format, command::cli::FormatArg::Jsonl) {
+                text
+            } else {
+                let hits = report
+                    .hits
+                    .iter()
+                    .map(|hit| hit.record.clone())
+                    .collect::<Vec<_>>();
+                command::present::records(&hits, shape(format), &fields)?
             };
             command::output::render(json, &report, text)
         }
@@ -220,5 +243,12 @@ mod tests {
 
         let human = super::run(["equill", "doctor"]).expect("human doctor output");
         assert!(human.starts_with("Equill doctor (quick) — OK"));
+    }
+}
+
+fn shape(format: command::cli::FormatArg) -> command::present::Format {
+    match format {
+        command::cli::FormatArg::Jsonl => command::present::Format::Jsonl,
+        command::cli::FormatArg::Text => command::present::Format::Text,
     }
 }
