@@ -9,6 +9,7 @@ pub mod kernel;
 pub mod projection;
 pub mod record;
 pub mod schema;
+pub mod telemetry;
 pub mod vector;
 
 pub fn run<I, T>(args: I) -> Result<String, kernel::error::Error>
@@ -187,6 +188,18 @@ where
                     .collect::<Vec<_>>();
                 command::present::records(&selected, shape(format), &fields)?
             };
+            telemetry::record_query(
+                &store,
+                "context",
+                &bundle.receipt.request_digest,
+                bundle
+                    .receipt
+                    .unmatched_coordinates
+                    .iter()
+                    .map(|item| item.key.as_str())
+                    .collect(),
+                bundle.selected_record_ids.len(),
+            );
             command::output::render(json, &bundle, text)
         }
         command::cli::Command::Status { store } => {
@@ -214,6 +227,7 @@ where
             } else {
                 filter::candidate_limit(record::read_all(&store)?.len(), limit)?
             };
+            let report_query = query.clone();
             let request = projection::SearchRequest {
                 query,
                 namespace,
@@ -248,6 +262,13 @@ where
                     .collect::<Vec<_>>();
                 command::present::records(&hits, shape(format), &fields)?
             };
+            telemetry::record_query(
+                &store,
+                "search",
+                &report_query,
+                Vec::new(),
+                report.hits.len(),
+            );
             command::output::render(json, &report, text)
         }
         command::cli::Command::Vector { command } => {

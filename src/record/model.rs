@@ -52,6 +52,10 @@ pub struct StoredRecord {
 #[derive(Debug, Serialize)]
 pub struct AppendReport {
     pub ok: bool,
+    /// Records the store already holds that look like this one. Advisory: the
+    /// write succeeded, and the author decides what to do about it.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub similar: Vec<super::SimilarRecord>,
     pub id: Uuid,
     pub sha256: String,
     pub ledger: String,

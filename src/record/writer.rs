@@ -101,8 +101,12 @@ pub fn append(
         projection = ProjectionState::Degraded;
     }
 
+    // Advisory only, and computed after the record is durable: a similarity
+    // check that could fail a write would be a worse trade than a missed hint.
+    let similar = super::find_similar(store_root, &record).unwrap_or_default();
     Ok(AppendReport {
         ok: true,
+        similar,
         id: record.id,
         sha256: digest,
         ledger,
