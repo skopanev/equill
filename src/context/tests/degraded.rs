@@ -1,8 +1,8 @@
 use super::super::assemble;
 use super::super::model::{ExclusionReason, Strategy};
-use super::records::append;
-use super::registries::registry;
-use super::support::{request, store};
+use super::fixtures::records::append;
+use super::fixtures::registries::registry;
+use super::fixtures::support::{request, store};
 use crate::filter::Filter;
 use crate::{projection, record};
 use std::fs;

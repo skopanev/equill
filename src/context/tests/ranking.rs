@@ -1,7 +1,7 @@
 use super::super::assemble;
-use super::records::append_ranked;
-use super::registries::registry_with_rank;
-use super::support::{request, store};
+use super::fixtures::records::append_ranked;
+use super::fixtures::registries::registry_with_rank;
+use super::fixtures::support::{request, store};
 use crate::filter::Filter;
 use std::fs;
 

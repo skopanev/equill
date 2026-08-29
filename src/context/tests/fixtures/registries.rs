@@ -1,6 +1,6 @@
 //! Selector and profile registration for context tests: what a worker is
 //! allowed to see and how much of it fits.
-use super::super::{register_profile, register_selector};
+use super::super::super::{register_profile, register_selector};
 use serde_json::json;
 use std::fs;
 use std::path::Path;

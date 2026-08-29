@@ -1,7 +1,7 @@
 use super::super::{assemble, inline_request};
-use super::records::append;
-use super::registries::registry_with_modes;
-use super::support::store;
+use super::fixtures::records::append;
+use super::fixtures::registries::registry_with_modes;
+use super::fixtures::support::store;
 use crate::filter::Filter;
 use serde_json::json;
 use std::fs;

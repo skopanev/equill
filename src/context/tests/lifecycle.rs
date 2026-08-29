@@ -1,8 +1,8 @@
 use super::super::assemble;
 use super::super::model::ExclusionReason;
-use super::records::{append, append_coordinate, append_scoped};
-use super::registries::{registry, registry_with_modes};
-use super::support::{request, store};
+use super::fixtures::records::{append, append_coordinate, append_scoped};
+use super::fixtures::registries::{registry, registry_with_modes};
+use super::fixtures::support::{request, store};
 use crate::filter::Filter;
 use serde_json::json;
 use std::fs;
