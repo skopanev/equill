@@ -1,5 +1,5 @@
 fn main() {
-    match equill::run(std::env::args_os()) {
+    match equill::run_cli(std::env::args_os()) {
         // A command that speaks its own protocol on stdout — the MCP adapter —
         // returns nothing to print. Adding a newline there would inject a stray
         // frame into a stream a client is parsing.

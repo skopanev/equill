@@ -1,9 +1,11 @@
 mod args;
 mod commands;
+mod progress;
 
 pub use args::*;
 use clap::Parser;
 pub use commands::*;
+pub(crate) use progress::HumanVectorProgress;
 
 #[derive(Debug, Parser)]
 #[command(name = "equill", version, about)]

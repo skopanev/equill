@@ -4,6 +4,7 @@ mod embedding;
 mod hydrate;
 mod model;
 mod operator;
+mod progress;
 mod provider;
 mod staleness;
 mod state;
@@ -26,8 +27,9 @@ pub(crate) use operator::corpus;
 pub use operator::{
     QueryEmbedder, RejectedHit, SearchStrategy, StrategySearchReport, VectorConfigReport,
     VectorIndex, VectorRebuildReport, VectorSyncReport, VerifiedHits, canonical, configure,
-    disable, rebuild, retrieve, search, sync, verify,
+    disable, rebuild, rebuild_with_progress, retrieve, search, sync, sync_with_progress, verify,
 };
+pub use progress::{VectorProgress, VectorProgressSink};
 pub use staleness::{mark_stale, note_stale};
 
 pub struct VectorProjection {

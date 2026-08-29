@@ -18,10 +18,33 @@ where
     I: IntoIterator<Item = T>,
     T: Into<std::ffi::OsString> + Clone,
 {
+    run_with_progress(args, None)
+}
+
+pub fn run_cli<I, T>(args: I) -> Result<String, kernel::error::Error>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
+    let mut progress = command::cli::HumanVectorProgress::stderr();
+    run_with_progress(args, Some(&mut progress))
+}
+
+fn run_with_progress<I, T>(
+    args: I,
+    mut progress: Option<&mut dyn vector::VectorProgressSink>,
+) -> Result<String, kernel::error::Error>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
     use clap::Parser;
 
     let cli = command::cli::Cli::parse_from(args);
     let json = cli.json;
+    if json {
+        progress = None;
+    }
     match cli.command {
         command::cli::Command::Init {
             store,
@@ -167,41 +190,7 @@ where
         ),
         command::cli::Command::Vector { command } => {
             let actor = kernel::identity::actor_from_env()?;
-            match command {
-                command::cli::VectorCommand::Configure { store, file } => {
-                    let report = vector::configure(&store, &file, &actor)?;
-                    let text = format!(
-                        "Vector projection configured — alias {} ({})",
-                        report.collection_alias,
-                        if report.enabled {
-                            "enabled"
-                        } else {
-                            "disabled"
-                        }
-                    );
-                    command::output::render(json, &report, text)
-                }
-                command::cli::VectorCommand::Disable { store } => {
-                    let report = vector::disable(&store, &actor)?;
-                    command::output::render(json, &report, "Vector projection disabled".into())
-                }
-                command::cli::VectorCommand::Rebuild { store } => {
-                    let report = vector::rebuild(&store, &actor)?;
-                    let text = format!(
-                        "Vector projection rebuilt — {} records into {}",
-                        report.records, report.collection
-                    );
-                    command::output::render(json, &report, text)
-                }
-                command::cli::VectorCommand::Sync { store } => {
-                    let report = vector::sync(&store, &actor)?;
-                    let text = format!(
-                        "Vector projection synced — {} embeddings, {} points upserted",
-                        report.embeddings, report.points_upserted
-                    );
-                    command::output::render(json, &report, text)
-                }
-            }
+            command::vector::run(json, command, &actor, progress)
         }
         command::cli::Command::Get {
             store,

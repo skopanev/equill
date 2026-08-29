@@ -1,4 +1,5 @@
 use crate::kernel::digest::sha256_hex;
+use crate::vector::VectorProgress;
 use serde_json::{Value, json};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -57,4 +58,31 @@ pub fn write(root: &Path, value: &Value) {
         serde_json::to_vec(value).expect("config JSON"),
     )
     .expect("write config");
+}
+
+pub fn sync_events(physical: &str, digest: &str, pending: usize) -> Vec<VectorProgress> {
+    let mut events = vec![VectorProgress::Scanned {
+        collection: physical.into(),
+        records: 1,
+        pending,
+        corpus_sha256: digest.into(),
+    }];
+    if pending > 0 {
+        events.extend([
+            VectorProgress::LoadingModel,
+            VectorProgress::Embedded {
+                completed: 1,
+                total: 1,
+            },
+            VectorProgress::Upserted {
+                completed: 1,
+                total: 1,
+            },
+        ]);
+    }
+    events.push(VectorProgress::Ready {
+        collection: physical.into(),
+        corpus_sha256: digest.into(),
+    });
+    events
 }

@@ -6,6 +6,7 @@ pub mod output;
 pub mod present;
 pub mod query;
 pub mod status;
+pub(crate) mod vector;
 
 #[cfg(test)]
 mod present_tests;

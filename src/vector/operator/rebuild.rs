@@ -1,6 +1,7 @@
 use super::super::config::VectorConfig;
 use super::super::embedding::EmbeddingRuntime;
 use super::super::model::vector_error;
+use super::super::progress::{VectorProgress, VectorProgressSink, emit};
 use super::super::{VectorProjection, embed_batch};
 use super::document::canonical;
 use crate::kernel::digest::sha256_hex;
@@ -32,25 +33,65 @@ pub struct VectorRebuildReport {
 /// landed while we worked, the digest no longer matches and we refuse to
 /// activate a snapshot that is already behind.
 pub fn rebuild(store_root: &Path, actor: &str) -> Result<VectorRebuildReport, Error> {
+    rebuild_with_progress(store_root, actor, None)
+}
+
+pub fn rebuild_with_progress(
+    store_root: &Path,
+    actor: &str,
+    mut progress: Option<&mut dyn VectorProgressSink>,
+) -> Result<VectorRebuildReport, Error> {
     let config = store::load(store_root)?;
     identity::require_root(&config, actor)?;
     let vector_config = super::super::config::load(store_root)?
         .filter(|config| config.enabled)
         .ok_or_else(|| vector_error("vector projection is not configured"))?;
+    emit(
+        &mut progress,
+        VectorProgress::Connecting {
+            collection: vector_config.collection_alias.clone(),
+        },
+    );
     let projection = VectorProjection::open(store_root)?
         .ok_or_else(|| vector_error("vector projection is not configured"))?;
+    emit(&mut progress, VectorProgress::LoadingModel);
     let embedder = EmbeddingRuntime::load(store_root, &vector_config)?;
 
     let (records, digest) = corpus(store_root)?;
     let physical = physical_name(&vector_config);
+    emit(
+        &mut progress,
+        VectorProgress::Scanned {
+            collection: physical.clone(),
+            records: records.len(),
+            pending: records.len(),
+            corpus_sha256: digest.clone(),
+        },
+    );
     projection.prepare_collection(&physical)?;
+    let mut completed = 0;
     for chunk in records.chunks(BATCH) {
         let documents = chunk
             .iter()
             .map(|(record, digest)| canonical(record, digest))
             .collect::<Result<Vec<_>, _>>()?;
         let points = embed_batch(&embedder, &documents)?;
+        completed += points.len();
+        emit(
+            &mut progress,
+            VectorProgress::Embedded {
+                completed,
+                total: records.len(),
+            },
+        );
         projection.upsert(&physical, &points)?;
+        emit(
+            &mut progress,
+            VectorProgress::Upserted {
+                completed,
+                total: records.len(),
+            },
+        );
     }
 
     let _lock = StoreLock::exclusive(store_root)?;
@@ -61,6 +102,14 @@ pub fn rebuild(store_root: &Path, actor: &str) -> Result<VectorRebuildReport, Er
         ));
     }
     projection.activate(&physical)?;
+    drop(_lock);
+    emit(
+        &mut progress,
+        VectorProgress::Ready {
+            collection: physical.clone(),
+            corpus_sha256: digest.clone(),
+        },
+    );
     Ok(VectorRebuildReport {
         ok: true,
         projection: "vector-qdrant",
