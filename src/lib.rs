@@ -209,9 +209,9 @@ where
             format,
             fields,
         } => {
-            let id: uuid::Uuid = id.parse().map_err(|_| {
-                kernel::error::Error::InvalidRecord(format!("{id} is not a record id"))
-            })?;
+            let id: uuid::Uuid = id
+                .parse()
+                .map_err(|_| kernel::error::Error::InvalidRecord(format!("{id} is not an id")))?;
             let found = record::read_all(&store)?
                 .into_iter()
                 .find(|record| record.id == id)
@@ -240,16 +240,5 @@ where
 }
 
 #[cfg(test)]
-mod tests {
-    #[test]
-    fn doctor_is_machine_readable() {
-        let output = super::run(["equill", "doctor", "--json"]).expect("doctor output");
-        let value: serde_json::Value = serde_json::from_str(&output).expect("valid json");
-
-        assert_eq!(value["ok"], true);
-        assert_eq!(value["version"], env!("CARGO_PKG_VERSION"));
-
-        let human = super::run(["equill", "doctor"]).expect("human doctor output");
-        assert!(human.starts_with("Equill doctor (quick) — OK"));
-    }
-}
+#[path = "lib_tests.rs"]
+mod tests;

@@ -78,6 +78,22 @@ Context excludes both the superseded ancestor and the revoked tombstone. A later
 schema-valid correction can supersede the tombstone; physical history remains immutable
 until governed compaction.
 
+### MCP adapter
+
+`equill mcp --store <path>` speaks JSON-RPC on the pipe its caller handed it. No
+socket is opened and nothing is listened on, so running it exposes no more than
+the caller already had.
+
+It negotiates the **2025 line** of the protocol — 2025-11-25 back to 2024-11-05,
+the range the official SDK publishes as supported. That is the era current
+clients speak; this adapter does not claim a later one, and the list was checked
+by connecting a real SDK client rather than by asserting a version string.
+
+It is an adapter, never a second way in. `record` goes through the same
+grant-checked immutable writer as the CLI, so an actor the store refuses is
+refused here too — and that refusal arrives as tool content, because a denied
+write is a real answer to a valid question, not a broken transport.
+
 ### Vocabulary ownership
 
 The engine stores and retrieves a domain's fields without knowing what they

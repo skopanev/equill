@@ -65,7 +65,9 @@ pub fn definition() -> TypeDefinition {
                         "type": "object",
                         "properties": {
                             "kind": { "type": "string" },
-                            "digest": { "type": "string" }
+                            "digest": { "type": "string" },
+                            "repo_sha": { "type": "string" },
+                            "at": { "type": "object" }
                         }
                     }
                 }

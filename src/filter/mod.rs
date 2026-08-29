@@ -149,6 +149,21 @@ pub(crate) fn invalid(reason: impl Into<String>) -> Error {
 /// caller's page: a match that sits past the page boundary is still a match.
 /// The scan is bounded, and hitting that bound says so precisely instead of
 /// silently returning less.
+/// How many records a filtered search must be able to look at. Counted inside
+/// the namespace and type the caller narrowed to, because advising them to
+/// narrow is useless if narrowing does not change the number.
+pub(crate) fn scope_size(
+    store: &std::path::Path,
+    namespace: Option<&str>,
+    type_name: Option<&str>,
+) -> Result<usize, Error> {
+    Ok(crate::record::read_all(store)?
+        .iter()
+        .filter(|record| namespace.is_none_or(|value| record.namespace == value))
+        .filter(|record| type_name.is_none_or(|value| record.type_name == value))
+        .count())
+}
+
 pub(crate) fn candidate_limit(records: usize, requested: u16) -> Result<u16, Error> {
     let wanted = records.max(usize::from(requested));
     u16::try_from(wanted)
@@ -156,8 +171,8 @@ pub(crate) fn candidate_limit(records: usize, requested: u16) -> Result<u16, Err
         .filter(|scan| *scan <= crate::projection::MAX_SCAN)
         .ok_or_else(|| {
             invalid(format!(
-                "a filtered search scans the whole corpus, and this one holds {records} records, \
-                 past the {} the engine will scan; narrow it with --type or --namespace",
+                "a filtered search scans everything in scope, and this scope holds {records} \
+                 records, past the {} the engine will scan; narrow it with --type or --namespace",
                 crate::projection::MAX_SCAN
             ))
         })

@@ -90,11 +90,21 @@ fn search(store: &Path, log_queries: bool, arguments: &Value) -> Result<Value, E
     let type_name = optional(arguments, "type");
     filter::validate(&filter, &filter::in_scope(store, type_name.as_deref())?)?;
     let limit = arguments.get("limit").and_then(Value::as_u64).unwrap_or(20) as u16;
+    let namespace = optional(arguments, "namespace");
     let request = projection::SearchRequest {
         query: text(arguments, "query")?.to_owned(),
-        namespace: optional(arguments, "namespace"),
-        type_name,
-        limit: filter::candidate_limit(record::read_all(store)?.len(), limit)?,
+        namespace: namespace.clone(),
+        type_name: type_name.clone(),
+        // An unfiltered search has no reason to read past the page it was
+        // asked for, so it does not pay for a full scan.
+        limit: if filter.is_empty() {
+            limit
+        } else {
+            filter::candidate_limit(
+                filter::scope_size(store, namespace.as_deref(), type_name.as_deref())?,
+                limit,
+            )?
+        },
     };
     let mut report = vector::search(store, &request, vector::SearchStrategy::Fts)?;
     report

@@ -104,8 +104,9 @@ pub(crate) fn validate_descriptor(descriptor: &EmbeddingDescriptor) -> Result<()
 }
 
 pub(crate) fn validate_search(request: &VectorSearchRequest, dimensions: u64) -> Result<(), Error> {
-    if !(1..=100).contains(&request.limit) {
-        return Err(vector_error("search limit must be between 1 and 100"));
+    // The same split the projection makes: a filter looks past the page.
+    if !(1..=crate::projection::MAX_SCAN).contains(&request.limit) {
+        return Err(vector_error("search limit is outside the scannable range"));
     }
     validate_vector(&request.vector, dimensions)
 }

@@ -132,9 +132,9 @@ fn components(store_root: Option<&Path>, store_initialized: bool) -> Result<Vec<
             installable: false,
         },
         Component {
-            id: "transport.mcp",
+            id: "transport.mcp.stdio.2025",
             kind: "transport",
-            state: "planned",
+            state: "built-in",
             installable: false,
         },
     ])

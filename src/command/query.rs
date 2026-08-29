@@ -92,7 +92,10 @@ pub fn search(
     let pool = if filter.is_empty() {
         limit
     } else {
-        filter::candidate_limit(record::read_all(&store)?.len(), limit)?
+        filter::candidate_limit(
+            filter::scope_size(&store, namespace.as_deref(), type_name.as_deref())?,
+            limit,
+        )?
     };
     let report_query = query.clone();
     let request = projection::SearchRequest {

@@ -17,36 +17,41 @@ pub fn validate(filter: &Filter, definitions: &[TypeDefinition]) -> Result<(), E
         ));
     }
     for condition in filter.conditions() {
-        // An explicit half is checked against that half only, so a prefixed
-        // path that names nothing fails loudly instead of quietly matching.
+        // An explicit half is checked against that half alone, so a prefixed
+        // path that names nothing fails loudly instead of quietly matching the
+        // other side.
         let path = match condition.path[0].as_str() {
             "payload" => &condition.path[1..],
             "record" => {
                 let rest = &condition.path[1..];
                 if rest.is_empty() || super::envelope_path(rest) != Some(true) {
-                    let field = condition.path.join(".");
-                    return Err(invalid(format!(
-                        "unknown field {field}: the record envelope has no such name"
-                    )));
+                    return Err(unknown_envelope(&condition.path));
                 }
                 continue;
             }
-            _ => &condition.path[..],
+            _ => {
+                // A bare name is the payload's first, exactly as matching
+                // resolves it. Checking the envelope first would reject
+                // `evidence.repo_sha` — a perfectly ordinary payload field —
+                // merely because the envelope also happens to have `evidence`.
+                let path = &condition.path[..];
+                if definitions
+                    .iter()
+                    .any(|definition| declared(&definition.payload_schema, path))
+                {
+                    continue;
+                }
+                match super::envelope_path(path) {
+                    Some(true) => continue,
+                    // The envelope owns the name but not this sub-name, and the
+                    // payload never declared it either: nothing can answer it.
+                    Some(false) => return Err(unknown_envelope(path)),
+                    None => path,
+                }
+            }
         };
         if path.is_empty() {
             return Err(invalid("filter needs a field after payload."));
-        }
-        // An envelope name needs no schema, but a typo inside one is still a
-        // typo: `evidence.sha` names nothing and must say so.
-        match super::envelope_path(path) {
-            Some(true) => continue,
-            Some(false) => {
-                let field = path.join(".");
-                return Err(invalid(format!(
-                    "unknown field {field}: the record envelope has no such name"
-                )));
-            }
-            None => {}
         }
         let known = definitions
             .iter()
@@ -68,6 +73,13 @@ pub fn validate(filter: &Filter, definitions: &[TypeDefinition]) -> Result<(), E
 
 /// Walks a JSON Schema the way the payload will be walked: through `properties`,
 /// and through `items` wherever the schema describes a list of objects.
+fn unknown_envelope(path: &[String]) -> Error {
+    let field = path.join(".");
+    invalid(format!(
+        "unknown field {field}: the record envelope has no such name"
+    ))
+}
+
 fn declared(schema: &Value, path: &[String]) -> bool {
     let mut current = schema;
     for segment in path {

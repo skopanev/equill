@@ -1,15 +1,11 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// Versions this adapter speaks, newest first. Checked against the official
-/// SDK's own list rather than taken on trust: answering with a version no
-/// client speaks looks like compatibility and is not — a real client
-/// disconnects on it.
-///
-/// Versions this adapter speaks, newest first. A client names the one it wants
-/// and gets it back when we know it; otherwise it gets our newest and decides
-/// whether to continue. Answering with a hardcoded version regardless of what
-/// was asked is how a server looks compatible while not being it.
+/// Versions this adapter speaks, newest first. This is the 2025 line of the
+/// protocol, not a later one: the list is taken from the official TypeScript
+/// SDK's own SUPPORTED_PROTOCOL_VERSIONS, whose latest is 2025-11-25. Naming a
+/// version no released client knows looks like compatibility and is not — a
+/// real client disconnects on it, which is how this list was checked.
 pub const SUPPORTED_VERSIONS: [&str; 4] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
 pub fn negotiate(requested: Option<&str>) -> &'static str {
