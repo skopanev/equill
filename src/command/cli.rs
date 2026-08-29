@@ -1,8 +1,19 @@
 use clap::{Parser, Subcommand, ValueEnum};
+
+/// The first thing a new caller trips over, so it belongs in `--help` rather
+/// than in an error message they have to provoke.
+const ACTOR_HELP: &str = concat!(
+    "Actor:\n",
+    "  Every write and every context assembly reads EQUILL_ACTOR from the\n",
+    "  environment. Set it to an identity the store knows: its root owner, an\n",
+    "  actor listed in the store's writers, or one covered by a write grant.\n",
+    "  An unset or unknown actor fails the call before anything is read."
+);
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
 #[command(name = "equill", version, about)]
+#[command(after_help = ACTOR_HELP)]
 pub struct Cli {
     /// Emit stable machine-readable JSON.
     #[arg(long, global = true)]
@@ -103,9 +114,25 @@ pub enum Command {
         /// Registered context profile identifier.
         #[arg(long)]
         profile: String,
-        /// Context request JSON file.
+        /// Context request JSON file. Use it for scripted requests; for a
+        /// one-off question `--query` and the coordinate flags are enough.
+        #[arg(long, conflicts_with_all = ["query", "at", "coordinates", "tags", "kinds"])]
+        request: Option<PathBuf>,
+        /// Text to retrieve against, as an alternative to `--request`.
         #[arg(long)]
-        request: PathBuf,
+        query: Option<String>,
+        /// Request coordinate as `key=value`. Repeatable.
+        #[arg(long = "coordinate")]
+        coordinates: Vec<String>,
+        /// Request tag. Repeatable.
+        #[arg(long = "tag")]
+        tags: Vec<String>,
+        /// Request kind. Repeatable.
+        #[arg(long = "kind")]
+        kinds: Vec<String>,
+        /// Point in time the request is evaluated at. Defaults to now.
+        #[arg(long)]
+        at: Option<String>,
         /// Filter by a schema field: `field=value`. Repeatable flags are ANDed,
         /// comma-separated values inside one flag are ORed. `!` negates,
         /// `null` and `!null` ask about presence, and dots address nested fields.

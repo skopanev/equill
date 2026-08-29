@@ -92,6 +92,7 @@ pub fn assemble(
         degraded_strategies: retrieved.degraded_strategies,
         degraded,
         empty,
+        unmatched_coordinates: retrieved.unmatched_coordinates,
     };
     let receipt_path = receipt::persist(store_root, &receipt)?;
     let selected_record_ids = receipt.included.iter().map(|item| item.id).collect();
@@ -143,3 +144,46 @@ pub fn profile_faults(store_root: &Path) -> Result<usize, Error> {
 
 #[cfg(test)]
 mod tests;
+
+/// Builds a request from flags instead of a file. `at` defaults to now, which
+/// is what a person asking a question means, and coordinates arrive as
+/// `key=value` because the coordinate names belong to the domain, not to this
+/// executable — a fixed flag per name would have to be invented for every store.
+pub fn inline_request(
+    query: Option<String>,
+    coordinates: Vec<String>,
+    tags: Vec<String>,
+    kinds: Vec<String>,
+    at: Option<String>,
+) -> Result<model::ContextRequest, Error> {
+    let mut parsed = std::collections::BTreeMap::new();
+    for entry in &coordinates {
+        let (key, value) = entry.split_once('=').ok_or_else(|| {
+            Error::Context(format!("coordinate {entry} must be written as key=value"))
+        })?;
+        if key.trim().is_empty() || value.is_empty() {
+            return Err(Error::Context(format!(
+                "coordinate {entry} needs a name and a value"
+            )));
+        }
+        // A comma lists alternatives, matching how a record holds several
+        // values for one coordinate.
+        let value = match value.split_once(',') {
+            None => serde_json::Value::String(value.to_owned()),
+            Some(_) => serde_json::Value::Array(
+                value
+                    .split(',')
+                    .map(|item| serde_json::Value::String(item.to_owned()))
+                    .collect(),
+            ),
+        };
+        parsed.insert(key.to_owned(), value);
+    }
+    Ok(model::ContextRequest {
+        at: at.unwrap_or_else(|| jiff::Timestamp::now().to_string()),
+        query: query.unwrap_or_default(),
+        tags,
+        kinds,
+        coordinates: parsed,
+    })
+}

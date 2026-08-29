@@ -169,6 +169,17 @@ pub enum ExclusionReason {
     TotalBudget,
 }
 
+/// A coordinate the request carried that narrowed the result to nothing.
+/// `declared` false means no selector in this profile knows the name at all;
+/// `exact_only` means the name is known but compared exactly, so records
+/// holding null for it were not treated as universal.
+#[derive(Clone, Debug, Serialize)]
+pub struct UnmatchedCoordinate {
+    pub key: String,
+    pub declared: bool,
+    pub exact_only: bool,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct ContextReceipt {
     pub schema: &'static str,
@@ -177,6 +188,8 @@ pub struct ContextReceipt {
     pub request_digest: String,
     pub included: Vec<SelectedCoordinate>,
     pub excluded: Vec<ExcludedCoordinate>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unmatched_coordinates: Vec<UnmatchedCoordinate>,
     pub strategies: Vec<Strategy>,
     pub budget: ContextBudget,
     pub used: usize,

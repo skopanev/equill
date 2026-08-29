@@ -1,5 +1,6 @@
 mod budget;
 mod degraded;
+mod inline;
 mod lifecycle;
 mod ranking;
 mod records;

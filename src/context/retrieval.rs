@@ -17,6 +17,7 @@ pub struct Candidate {
 }
 
 pub struct Retrieval {
+    pub unmatched_coordinates: Vec<super::model::UnmatchedCoordinate>,
     pub candidates: Vec<Candidate>,
     pub excluded: Vec<ExcludedCoordinate>,
     pub strategies: Vec<Strategy>,
@@ -61,6 +62,14 @@ pub fn retrieve(
         } else {
             vec![Strategy::Fts]
         };
+    let readable = records
+        .iter()
+        .filter(|record| matching::read_authorized(record, profile))
+        .filter(|record| selector_map.contains_key(record.type_name.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    let unmatched_coordinates =
+        matching::coordinate_diagnosis(&readable, &selectors.iter().collect::<Vec<_>>(), request);
     let mut candidates = Vec::new();
     let mut excluded = Vec::new();
     for record in records {
@@ -114,6 +123,7 @@ pub fn retrieve(
     Ok(Retrieval {
         candidates,
         excluded,
+        unmatched_coordinates,
         strategies,
         degraded_strategies,
         projection,

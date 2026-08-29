@@ -103,12 +103,23 @@ where
             store,
             profile,
             request,
+            query,
+            coordinates,
+            tags,
+            kinds,
+            at,
             filters,
             strict,
         } => {
             let actor = kernel::identity::actor_from_env()?;
             let filter = filter::Filter::parse(&filters, strict)?;
-            let bundle = context::assemble_file(&store, &profile, &request, &actor, &filter)?;
+            let bundle = match request {
+                Some(path) => context::assemble_file(&store, &profile, &path, &actor, &filter)?,
+                None => {
+                    let request = context::inline_request(query, coordinates, tags, kinds, at)?;
+                    context::assemble(&store, &profile, request, &actor, &filter)?
+                }
+            };
             command::output::render(json, &bundle, bundle.content.clone())
         }
         command::cli::Command::Status { store } => {

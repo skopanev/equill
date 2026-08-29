@@ -159,3 +159,49 @@ fn expired(record: &StoredRecord, selector: &Selector, at: Timestamp) -> Result<
         .map_err(|_| Error::Context(format!("record {} has invalid expiry", record.id)))?;
     Ok(expiry < at)
 }
+
+/// Why a requested coordinate matched nothing. An empty bundle and a
+/// misunderstood coordinate look identical to a caller, and only one of them is
+/// worth retrying — so the receipt says which happened.
+pub(super) fn coordinate_diagnosis(
+    records: &[StoredRecord],
+    selectors: &[&Selector],
+    request: &ContextRequest,
+) -> Vec<super::model::UnmatchedCoordinate> {
+    let mut unmatched = Vec::new();
+    for (key, expected) in &request.coordinates {
+        let mut declared = false;
+        let mut matched = false;
+        let mut exact_only = true;
+        for selector in selectors {
+            let Some(pointer) = selector.coordinate_pointers.get(key) else {
+                continue;
+            };
+            declared = true;
+            let wildcard = matches!(
+                selector.coordinate_modes.get(key),
+                Some(CoordinateMode::SetOrWildcard)
+            );
+            if wildcard {
+                exact_only = false;
+            }
+            matched = matched
+                || records.iter().any(|record| {
+                    let actual = record.payload.pointer(pointer);
+                    if wildcard {
+                        set_or_wildcard(actual, expected)
+                    } else {
+                        actual == Some(expected)
+                    }
+                });
+        }
+        if !matched {
+            unmatched.push(super::model::UnmatchedCoordinate {
+                key: key.clone(),
+                declared,
+                exact_only: declared && exact_only,
+            });
+        }
+    }
+    unmatched
+}
