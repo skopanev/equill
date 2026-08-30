@@ -18,12 +18,12 @@ fn a_long_lived_mcp_session_restarts_a_dead_worker() {
     let root = store_against("mcp", &provider.endpoint());
     record(&root, 0);
     assert!(
-        reaches_provider(&provider, Duration::from_secs(30)),
+        reaches_provider(&provider, harness::WORKER_PATIENCE / 2),
         "the first worker never sent a request; stage {:?}",
         provider.stage()
     );
     assert!(
-        alive(&root, Duration::from_secs(30)),
+        alive(&root, harness::WORKER_PATIENCE / 2),
         "a worker is running; stage {:?} requests={} {}",
         provider.stage(),
         provider.requests(),
@@ -49,7 +49,10 @@ fn a_long_lived_mcp_session_restarts_a_dead_worker() {
     let restarted = {
         use std::io::Write;
         let stdin = server.stdin.as_mut().expect("stdin");
-        let deadline = Instant::now() + Duration::from_secs(15);
+        // Inside the worker's own patience: past ten seconds a worker waiting on
+        // the stalled provider exits by design, so a longer window would be
+        // asserting that the product hangs.
+        let deadline = Instant::now() + harness::WORKER_PATIENCE / 2;
         let mut id = 1;
         let mut seen = false;
         while Instant::now() < deadline && !seen {
@@ -62,7 +65,7 @@ fn a_long_lived_mcp_session_restarts_a_dead_worker() {
                 break;
             }
             id += 1;
-            seen = alive(&root, Duration::from_millis(500));
+            seen = alive(&root, Duration::from_millis(300));
         }
         seen
     };

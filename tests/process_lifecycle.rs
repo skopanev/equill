@@ -42,7 +42,7 @@ fn a_write_does_not_wait_for_a_worker_that_keeps_running() {
     // the network, and on a loaded machine that moment is longer than the
     // assertion that follows it.
     assert!(
-        reaches_provider(&provider, Duration::from_secs(60)),
+        reaches_provider(&provider, harness::WORKER_PATIENCE / 2),
         "the worker never reached the provider"
     );
     assert!(
@@ -88,14 +88,14 @@ fn an_interrupt_to_the_writers_group_leaves_the_worker_running() {
     // pay for that before a request is on the wire. What is being tested is
     // whether the signal reaches the worker, not how fast the worker arrives.
     assert!(
-        reaches_provider(&provider, Duration::from_secs(30)),
+        reaches_provider(&provider, harness::WORKER_PATIENCE / 2),
         "the writer's worker never sent a request; handshake reached {:?}, requests={}, {}",
         provider.stage(),
         provider.requests(),
         diagnostics(&root)
     );
     assert!(
-        alive(&root, Duration::from_secs(30)),
+        alive(&root, harness::WORKER_PATIENCE / 2),
         "the writer never started a worker"
     );
     // Ctrl-C, as a terminal would deliver it: to the writer's whole group.
@@ -121,10 +121,13 @@ fn killing_the_worker_lets_the_next_command_start_another() {
     let root = store_against("kill", &provider.endpoint());
     record(&root, 0);
     assert!(
-        reaches_provider(&provider, Duration::from_secs(60)),
+        reaches_provider(&provider, harness::WORKER_PATIENCE / 2),
         "the worker never sent a request"
     );
-    assert!(alive(&root, Duration::from_secs(30)), "a worker is running");
+    assert!(
+        alive(&root, harness::WORKER_PATIENCE / 2),
+        "a worker is running"
+    );
 
     kill_workers(&root);
     assert!(settles(&root, Duration::from_secs(5)), "the worker is gone");
@@ -133,7 +136,7 @@ fn killing_the_worker_lets_the_next_command_start_another() {
     let out = equill(&root, &["search", "--query", "lesson", "--limit", "1"]);
     assert!(out.status.success(), "the read failed");
     assert!(
-        alive(&root, Duration::from_secs(30)),
+        alive(&root, harness::WORKER_PATIENCE / 2),
         "an ordinary command did not restart the work after a kill"
     );
     provider.release();

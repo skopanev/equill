@@ -215,6 +215,12 @@ pub fn exclusive_measurement() -> std::fs::File {
     file
 }
 
+/// How long a worker can be waiting on a stalled provider before its own client
+/// gives up: the Qdrant request timeout, ten seconds. Every assertion about a
+/// worker being alive has to land inside this, because past it the worker is
+/// SUPPOSED to exit — that is the product not hanging, not a failure.
+pub const WORKER_PATIENCE: Duration = Duration::from_secs(10);
+
 pub fn children(root: &Path) -> usize {
     let out = Command::new("pgrep")
         .args(["-f", &format!("vector drain --store {}", root.display())])
