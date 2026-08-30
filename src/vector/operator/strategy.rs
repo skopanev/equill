@@ -10,6 +10,19 @@ use std::path::Path;
 
 #[derive(Debug, Serialize)]
 pub struct StrategySearchReport {
+    /// How many records matched in the scope the caller asked about, against
+    /// how many this page carries. Without both, a full page and a truncated
+    /// one are indistinguishable — which is how a page gets mistaken for the
+    /// whole answer.
+    ///
+    /// Absent for a semantic answer on purpose: an approximate-neighbour index
+    /// returns the closest points it found, not every record that would have
+    /// qualified. Reporting its page size as a total would be a number we
+    /// cannot stand behind, and a wrong total is worse than none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_matches: Option<usize>,
+    pub returned_count: usize,
+    pub truncated: bool,
     /// Health and freshness, kept apart on purpose: an index can answer well
     /// and still be behind, and a caller deserves to know which it got.
     pub vector_freshness: crate::vector::VectorFreshness,
@@ -113,6 +126,19 @@ fn current_only(store_root: &Path, hits: &mut Vec<SearchHit>) -> Result<(), Erro
 /// the caller asked for semantics it gets an error rather than quietly worse
 /// answers. `hybrid` is the forgiving one — it prefers semantics, falls back to
 /// text, and says so in the report.
+/// Settles what a result set may claim about itself, in one place, so a caller
+/// on either surface gets the same answer to "is this all of it".
+///
+/// A total is reported only when the pool actually covered the scope and the
+/// answer came from a path that enumerates. A limited pool that filled up
+/// proves the opposite: there is more, and how much is unknown.
+pub fn finalize(report: &mut StrategySearchReport, matched: usize, pool: usize, exhaustive: bool) {
+    report.returned_count = report.hits.len();
+    let provable = exhaustive && report.answered_by != "vector";
+    report.total_matches = provable.then_some(matched);
+    report.truncated = report.returned_count < matched || (!provable && matched >= pool);
+}
+
 pub fn search(
     store_root: &Path,
     request: &SearchRequest,
@@ -132,6 +158,9 @@ pub fn search(
             hits.truncate(request.limit as usize);
             let reading = crate::vector::freshness_of(store_root)?;
             Ok(StrategySearchReport {
+                total_matches: None,
+                returned_count: hits.len(),
+                truncated: false,
                 vector_freshness: reading.freshness,
                 vector_indexed_records: reading.indexed_records,
                 vector_pending_records: reading.pending_records,
@@ -204,6 +233,9 @@ fn text_only(
     let report = projection::search(store_root, request)?;
     let reading = crate::vector::freshness_of(store_root)?;
     Ok(StrategySearchReport {
+        total_matches: Some(report.hits.len()),
+        returned_count: report.hits.len(),
+        truncated: false,
         vector_freshness: reading.freshness,
         vector_indexed_records: reading.indexed_records,
         vector_pending_records: reading.pending_records,

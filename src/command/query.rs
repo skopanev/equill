@@ -84,6 +84,7 @@ pub fn search(
     strict: bool,
     format: command::cli::FormatArg,
     fields: Vec<String>,
+    all: bool,
 ) -> Result<String, Error> {
     let filter = filter::Filter::parse(&filters, strict)?;
     filter::validate(&filter, &filter::in_scope(&store, type_name.as_deref())?)?;
@@ -101,13 +102,24 @@ pub fn search(
     };
     // The projection caps its own result set, so a filter that runs
     // afterwards must inspect the entire corpus or refuse explicitly.
-    let pool = if filter.is_empty() {
+    // The pool decides whether a total can be claimed at all. It covers the
+    // whole scope whenever a filter or `--all` is in play; otherwise it is just
+    // the page, and a count taken from it would only ever say "one page".
+    // `--all` promises completeness, and only a path that enumerates can keep
+    // that promise. An approximate-neighbour index returns near matches, not
+    // every qualifying record, so the refusal is upfront rather than a footnote
+    // on an answer that already looks complete.
+    if all && !matches!(strategy, command::cli::StrategyArg::Fts) {
+        return Err(Error::Projection(
+            "--all needs a path that can enumerate; use --strategy fts, or drop --all".into(),
+        ));
+    }
+    let scope = filter::scope_size(&store, namespace.as_deref(), type_name.as_deref())?;
+    let exhaustive = all || !filter.is_empty();
+    let pool = if !exhaustive {
         limit
     } else {
-        filter::candidate_limit(
-            filter::scope_size(&store, namespace.as_deref(), type_name.as_deref())?,
-            limit,
-        )?
+        filter::candidate_limit(scope, limit)?
     };
     let report_query = query.clone().unwrap_or_default();
     let request = projection::SearchRequest {
@@ -125,7 +137,28 @@ pub fn search(
     report
         .hits
         .retain(|hit| filter::matches(&hit.record, &filter));
-    report.hits.truncate(limit as usize);
+    // Everything in scope that matched, counted before the page is cut. This is
+    // the number a caller needs to know whether they are looking at the answer
+    // or at the first hundred of it.
+    let matched = report.hits.len();
+    report
+        .hits
+        .truncate(if all { matched } else { limit as usize });
+    vector::finalize(&mut report, matched, pool as usize, exhaustive);
+    if report.truncated {
+        // stdout stays a clean record stream, so the warning goes beside it:
+        // a pipe should never have to strip a sentence out of its data.
+        match report.total_matches {
+            Some(total) => eprintln!(
+                "equill: showing {} of {total} matches; use --all for every match",
+                report.returned_count
+            ),
+            None => eprintln!(
+                "equill: showing {} matches; the total is not established here, use --all",
+                report.returned_count
+            ),
+        }
+    }
     // The fallback reason is not lost: it stays in the report, which --json
     // prints in full. What a result set must not carry is a summary sentence
     // mixed into the records themselves.

@@ -15,7 +15,7 @@ pub use rebuild::{VectorRebuildReport, rebuild, rebuild_with_progress};
 pub use search::{
     QueryEmbedder, RejectedHit, SearchStrategy, VectorIndex, VerifiedHits, retrieve, verify,
 };
-pub use strategy::{StrategySearchReport, search};
+pub use strategy::{StrategySearchReport, finalize, search};
 pub(crate) use sync::catch_up;
 #[cfg(test)]
 pub(crate) use sync::{SyncIndex, execute, execute_with_progress};

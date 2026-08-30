@@ -184,9 +184,10 @@ where
             strict,
             format,
             fields,
+            all,
         } => command::query::search(
             json, store, query, namespace, type_name, limit, strategy, filters, strict, format,
-            fields,
+            fields, all,
         ),
         command::cli::Command::Vector { command } => {
             let actor = kernel::identity::actor_from_env()?;

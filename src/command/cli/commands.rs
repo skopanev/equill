@@ -179,6 +179,9 @@ pub enum Command {
         /// Maximum number of records to return.
         #[arg(long, default_value_t = 20, value_parser = clap::value_parser!(u16).range(1..=100))]
         limit: u16,
+        /// Every match instead of one page (fts only; bounded by the scan cap).
+        #[arg(long)]
+        all: bool,
         /// Retrieval strategy. `hybrid` prefers semantics and falls back to text.
         #[arg(long, value_enum, default_value_t = StrategyArg::Fts)]
         strategy: StrategyArg,

@@ -25,6 +25,7 @@ pub use model::{
     VectorPoint, VectorSearchHit, VectorSearchRequest, VectorState,
 };
 pub(crate) use operator::corpus;
+pub use operator::finalize;
 pub use operator::{
     QueryEmbedder, RejectedHit, SearchStrategy, StrategySearchReport, VectorConfigReport,
     VectorIndex, VectorRebuildReport, VectorSyncReport, VerifiedHits, canonical, configure,

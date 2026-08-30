@@ -1,5 +1,6 @@
 //! The interleavings a catch-up has to survive.
-use super::drain::{add, configure_unreachable, store};
+use super::enumeration::search;
+use super::{add, configure_unreachable, store};
 use crate::vector::after_commit;
 use std::fs;
 
@@ -14,23 +15,23 @@ fn a_published_target_never_walks_backwards() {
     add(&root, "first");
     add(&root, "second");
     after_commit(&root);
-    let reached = super::super::desired::read(&root)
+    let reached = crate::vector::desired::read(&root)
         .expect("desired")
         .expect("published")
         .records;
 
     // A stale publisher, holding a snapshot from before those writes, tries to
     // record what it saw. It must not undo what has already been reached.
-    super::super::desired::publish(&root, reached - 1, &"a".repeat(64)).expect("stale publish");
-    let after_stale = super::super::desired::read(&root)
+    crate::vector::desired::publish(&root, reached - 1, &"a".repeat(64)).expect("stale publish");
+    let after_stale = crate::vector::desired::read(&root)
         .expect("desired")
         .expect("published");
 
     assert_eq!(after_stale.records, reached, "a stale target is ignored");
     // Moving forward still works, which is the point of the guard.
-    super::super::desired::publish(&root, reached + 1, &"b".repeat(64)).expect("forward publish");
+    crate::vector::desired::publish(&root, reached + 1, &"b".repeat(64)).expect("forward publish");
     assert_eq!(
-        super::super::desired::read(&root)
+        crate::vector::desired::read(&root)
             .expect("desired")
             .expect("published")
             .records,
@@ -58,7 +59,7 @@ fn concurrent_catch_ups_agree_on_the_ledger_they_left_behind() {
         writer.join().expect("writer thread");
     }
 
-    let published = super::super::desired::read(&root)
+    let published = crate::vector::desired::read(&root)
         .expect("desired")
         .expect("published");
     let ledger = crate::record::read_all(&root).expect("records").len();
@@ -81,11 +82,11 @@ fn a_write_during_a_drain_denies_the_exit_condition() {
     configure_unreachable(&root);
     add(&root, "already indexed");
     // Pretend the drain got this far: the checkpoint matches the ledger.
-    let (records, digest) = super::super::operator::corpus(&root).expect("corpus");
-    let config = super::super::config::load(&root)
+    let (records, digest) = crate::vector::operator::corpus(&root).expect("corpus");
+    let config = crate::vector::config::load(&root)
         .expect("config")
         .expect("configured");
-    super::super::state::stage_ready(
+    crate::vector::state::stage_ready(
         &root,
         &config,
         "equill_drain_test_physical",
@@ -94,14 +95,14 @@ fn a_write_during_a_drain_denies_the_exit_condition() {
     .expect("stage")
     .commit()
     .expect("commit");
-    super::super::desired::publish(&root, records.len(), &digest).expect("publish");
-    let settled = super::super::drain::caught_up(&root).expect("caught up");
+    crate::vector::desired::publish(&root, records.len(), &digest).expect("publish");
+    let settled = crate::vector::drain::caught_up(&root).expect("caught up");
 
     // Now a write lands while the holder still owns the drain lock.
     add(&root, "arrived mid-drain");
-    let (after, after_digest) = super::super::operator::corpus(&root).expect("corpus");
-    super::super::desired::publish(&root, after.len(), &after_digest).expect("publish");
-    let unsettled = super::super::drain::caught_up(&root).expect("caught up");
+    let (after, after_digest) = crate::vector::operator::corpus(&root).expect("corpus");
+    crate::vector::desired::publish(&root, after.len(), &after_digest).expect("publish");
+    let unsettled = crate::vector::drain::caught_up(&root).expect("caught up");
 
     assert!(settled, "with nothing outstanding the holder may leave");
     assert!(
@@ -205,4 +206,28 @@ fn edit_store(
         serde_json::from_slice(&fs::read(&path).expect("store metadata")).expect("json");
     mutate(config.as_object_mut().expect("object"));
     fs::write(&path, serde_json::to_vec(&config).expect("json")).expect("store metadata");
+}
+
+/// The other half of the same story: a head that a later record replaced stops
+/// being an answer, and that is a change of state rather than a lost record.
+#[test]
+fn superseding_a_head_lowers_the_total_without_losing_anything() {
+    let root = store("supersede-total");
+    let first = crate::record::append(&root, draft("the original claim"), "owner")
+        .expect("append")
+        .id;
+    add(&root, "an unrelated claim");
+    let before = search(&root, 100, true);
+
+    let mut replacement = draft("the corrected claim");
+    replacement.supersedes = Some(first);
+    crate::record::append(&root, replacement, "owner").expect("supersede");
+    let after = search(&root, 100, true);
+
+    assert_eq!(before["total_matches"], 2);
+    // Three records exist, two are current: the replaced one is history, not a
+    // loss, and the ledger still holds it.
+    assert_eq!(after["total_matches"], 2);
+    assert_eq!(crate::record::read_all(&root).expect("records").len(), 3);
+    fs::remove_dir_all(root).expect("cleanup");
 }

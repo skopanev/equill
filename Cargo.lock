@@ -708,7 +708,7 @@ dependencies = [
 
 [[package]]
 name = "equill"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "candle-core",
  "candle-nn",

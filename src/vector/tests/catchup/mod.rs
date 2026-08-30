@@ -1,3 +1,6 @@
+mod drain_races;
+mod enumeration;
+
 use crate::command::init;
 use crate::record::{RecordDraft, append};
 use crate::schema::{self, TypeDefinition};
@@ -80,7 +83,7 @@ fn an_unreachable_provider_leaves_the_record_written() {
     assert_eq!(crate::record::read_all(&root).expect("records").len(), 1);
     assert!(report.attempt_error.is_some(), "the attempt is reported");
     // And what the ledger wants indexed is recorded, so the next attempt knows.
-    let target = super::super::desired::read(&root)
+    let target = crate::vector::desired::read(&root)
         .expect("desired")
         .expect("published");
     assert_eq!(target.records, 1);
@@ -135,7 +138,7 @@ fn a_writer_that_finds_the_drain_busy_still_publishes_its_tail() {
     configure_unreachable(&root);
     add(&root, "first");
     after_commit(&root);
-    let first = super::super::desired::read(&root)
+    let first = crate::vector::desired::read(&root)
         .expect("desired")
         .expect("published")
         .records;
@@ -146,7 +149,7 @@ fn a_writer_that_finds_the_drain_busy_still_publishes_its_tail() {
         .expect("free to take");
     add(&root, "second");
     let report = after_commit(&root);
-    let published = super::super::desired::read(&root)
+    let published = crate::vector::desired::read(&root)
         .expect("desired")
         .expect("published");
 
@@ -202,7 +205,7 @@ fn the_handoff_holds_when_another_process_owns_the_lock() {
 
     add(&root, "written while another process drains");
     let report = after_commit(&root);
-    let published = super::super::desired::read(&root)
+    let published = crate::vector::desired::read(&root)
         .expect("desired")
         .expect("published");
 

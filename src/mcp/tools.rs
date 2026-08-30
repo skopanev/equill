@@ -115,26 +115,34 @@ fn search(store: &Path, log_queries: bool, arguments: &Value) -> Result<Value, E
         ));
     }
     let namespace = optional(arguments, "namespace");
+    // An unfiltered search reads one page; a filtered one must see the scope,
+    // or its count would only ever describe the page it happened to get.
+    let exhaustive = !filter.is_empty();
+    let pool = if exhaustive {
+        filter::candidate_limit(
+            filter::scope_size(store, namespace.as_deref(), type_name.as_deref())?,
+            limit,
+        )?
+    } else {
+        limit
+    };
     let request = projection::SearchRequest {
         query: query.clone(),
         namespace: namespace.clone(),
         type_name: type_name.clone(),
         // An unfiltered search has no reason to read past the page it was
         // asked for, so it does not pay for a full scan.
-        limit: if filter.is_empty() {
-            limit
-        } else {
-            filter::candidate_limit(
-                filter::scope_size(store, namespace.as_deref(), type_name.as_deref())?,
-                limit,
-            )?
-        },
+        limit: pool,
     };
     let mut report = vector::search(store, &request, vector::SearchStrategy::Fts)?;
     report
         .hits
         .retain(|hit| filter::matches(&hit.record, &filter));
+    let matched = report.hits.len();
     report.hits.truncate(limit as usize);
+    // The same settlement the CLI uses: a candidate pool that filled up is
+    // never reported as an exact total, on either surface.
+    vector::finalize(&mut report, matched, pool as usize, exhaustive);
     // The same opt-in log the CLI writes: a miss rate that counted only the CLI
     // would measure the surface nobody uses once this becomes the main one.
     telemetry::record_query(

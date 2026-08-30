@@ -3,6 +3,9 @@ mod protocol;
 mod tests;
 mod tools;
 
+#[cfg(test)]
+pub(crate) use tools::call as tools_call;
+
 use crate::kernel::error::Error;
 use protocol::{INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, Request, Response, negotiate};
 use serde_json::{Value, json};
