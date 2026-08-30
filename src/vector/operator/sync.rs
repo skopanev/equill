@@ -69,6 +69,10 @@ impl SyncIndex for VectorProjection {
 /// Bring the active collection up to the immutable ledger without creating or
 /// switching collections. A long-lived caller can reuse this core operation
 /// after a batch append; record writes themselves never load the model.
+pub(crate) fn catch_up(store_root: &Path) -> Result<VectorSyncReport, Error> {
+    catch_up_with_progress(store_root, None)
+}
+
 pub fn sync(store_root: &Path, actor: &str) -> Result<VectorSyncReport, Error> {
     sync_with_progress(store_root, actor, None)
 }
@@ -76,10 +80,25 @@ pub fn sync(store_root: &Path, actor: &str) -> Result<VectorSyncReport, Error> {
 pub fn sync_with_progress(
     store_root: &Path,
     actor: &str,
-    mut progress: Option<&mut dyn VectorProgressSink>,
+    progress: Option<&mut dyn VectorProgressSink>,
 ) -> Result<VectorSyncReport, Error> {
+    // Running a sync on demand is governance: it is the owner who decides when
+    // the store spends minutes on a model. Reaching the same work as a
+    // consequence of a write one was already allowed to make is not, which is
+    // why the internal entry below exists and does not ask again.
     let store_config = store::load(store_root)?;
     identity::require_root(&store_config, actor)?;
+    catch_up_with_progress(store_root, progress)
+}
+
+/// The catch-up itself, without an authorization question. Reachable only after
+/// a canonical append has already been validated and allowed, so asking the
+/// writer to also be the store owner would deny every scoped writer the index
+/// their own writes just changed — while giving them no way to fix it.
+pub(crate) fn catch_up_with_progress(
+    store_root: &Path,
+    mut progress: Option<&mut dyn VectorProgressSink>,
+) -> Result<VectorSyncReport, Error> {
     let vector_config = super::super::config::load(store_root)?
         .filter(|config| config.enabled)
         .ok_or_else(|| vector_error("vector projection is not configured"))?;

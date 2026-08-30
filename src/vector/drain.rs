@@ -27,8 +27,8 @@ pub struct DrainReport {
 /// Called only after a durable commit. Nothing here can unmake a record: an
 /// unreachable provider leaves the write successful, the previous checkpoint
 /// serving, and a sanitized note in the report.
-pub fn after_commit(store: &Path, actor: &str) -> DrainReport {
-    match publish_and_drain(store, actor) {
+pub fn after_commit(store: &Path) -> DrainReport {
+    match publish_and_drain(store) {
         Ok(report) => report,
         Err(error) => DrainReport {
             ran: false,
@@ -39,7 +39,7 @@ pub fn after_commit(store: &Path, actor: &str) -> DrainReport {
     }
 }
 
-fn publish_and_drain(store: &Path, actor: &str) -> Result<DrainReport, Error> {
+fn publish_and_drain(store: &Path) -> Result<DrainReport, Error> {
     // The config is read locally, before anything could touch the network, so a
     // store with the projection off never opens a connection at all.
     if super::config::load(store)?
@@ -74,7 +74,7 @@ fn publish_and_drain(store: &Path, actor: &str) -> Result<DrainReport, Error> {
         attempt_error: None,
     };
     loop {
-        match operator::sync(store, actor) {
+        match operator::catch_up(store) {
             Ok(pass) => {
                 report.passes += 1;
                 report.embeddings += pass.embeddings;

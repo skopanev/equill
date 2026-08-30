@@ -26,7 +26,7 @@ pub fn append_file(store_root: &Path, source: &Path, actor: &str) -> Result<Appe
 /// — so batch callers use `append_only` and drain once at the end.
 pub fn append(store_root: &Path, draft: RecordDraft, actor: &str) -> Result<AppendReport, Error> {
     let mut report = append_only(store_root, draft, actor)?;
-    report.vector = crate::vector::after_commit(store_root, actor);
+    report.vector = crate::vector::after_commit(store_root);
     Ok(report)
 }
 

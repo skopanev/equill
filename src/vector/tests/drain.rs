@@ -55,7 +55,7 @@ fn a_disabled_projection_neither_publishes_nor_connects() {
     let root = store("disabled");
 
     add(&root, "a rule written with no vector configured");
-    let report = after_commit(&root, "owner");
+    let report = after_commit(&root);
 
     assert!(!report.ran);
     assert!(report.attempt_error.is_none());
@@ -74,7 +74,7 @@ fn an_unreachable_provider_leaves_the_record_written() {
     configure_unreachable(&root);
 
     add(&root, "a rule written while the index is unreachable");
-    let report = after_commit(&root, "owner");
+    let report = after_commit(&root);
 
     // The record is in the ledger regardless of what the provider did.
     assert_eq!(crate::record::read_all(&root).expect("records").len(), 1);
@@ -134,7 +134,7 @@ fn a_writer_that_finds_the_drain_busy_still_publishes_its_tail() {
     let root = store("busy");
     configure_unreachable(&root);
     add(&root, "first");
-    after_commit(&root, "owner");
+    after_commit(&root);
     let first = super::super::desired::read(&root)
         .expect("desired")
         .expect("published")
@@ -145,7 +145,7 @@ fn a_writer_that_finds_the_drain_busy_still_publishes_its_tail() {
         .expect("lock")
         .expect("free to take");
     add(&root, "second");
-    let report = after_commit(&root, "owner");
+    let report = after_commit(&root);
     let published = super::super::desired::read(&root)
         .expect("desired")
         .expect("published");
@@ -160,7 +160,7 @@ fn a_writer_that_finds_the_drain_busy_still_publishes_its_tail() {
 
     // With the lock free again, the next write is free to drain itself.
     add(&root, "third");
-    let after = after_commit(&root, "owner");
+    let after = after_commit(&root);
     assert!(
         after.ran,
         "the lock is no longer held, so this writer drains"
@@ -201,7 +201,7 @@ fn the_handoff_holds_when_another_process_owns_the_lock() {
     assert!(ready.is_file(), "the other process took the lock");
 
     add(&root, "written while another process drains");
-    let report = after_commit(&root, "owner");
+    let report = after_commit(&root);
     let published = super::super::desired::read(&root)
         .expect("desired")
         .expect("published");
