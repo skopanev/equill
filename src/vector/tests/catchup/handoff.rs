@@ -139,8 +139,9 @@ fn a_store_with_nothing_outstanding_starts_no_worker() {
     );
 }
 
-/// A store with the projection off does nothing at all — no target, no worker,
-/// no connection. The opt-in is checked before anything else can happen.
+/// A store with the projection off publishes no target and opens no connection.
+/// It still starts a worker: the text index is not optional, and a record that
+/// is durable but unfindable would be a strange thing to call written.
 #[test]
 fn a_store_without_the_projection_hands_nothing_off() {
     let root = store("opt-out");
@@ -148,9 +149,16 @@ fn a_store_without_the_projection_hands_nothing_off() {
     let write = with_starter(counting_starter, || after_commit(&root, 0));
     let read = with_starter(counting_starter, || resume(&root));
 
-    assert!(!write.ran && !write.spawned && write.attempt_error.is_none());
-    assert!(!read.ran && !read.spawned);
-    assert!(!root.join("projections/qdrant/desired.json").exists());
+    // A worker IS started, because the text index still has to catch up on a
+    // store with no vector projection — that is what makes a record findable.
+    // What must not happen is any vector work: nothing published, nothing
+    // connected, nothing reported as failed.
+    assert!(write.attempt_error.is_none() && read.attempt_error.is_none());
+    assert!(!write.ran && !read.ran, "no vector pass was made");
+    assert!(
+        !root.join("projections/qdrant/desired.json").exists(),
+        "nothing is published for a store that has no vector projection"
+    );
 }
 
 /// A worker that finds another one already running exits immediately rather

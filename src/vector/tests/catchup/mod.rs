@@ -66,7 +66,10 @@ fn a_disabled_projection_neither_publishes_nor_connects() {
     add(&root, "a rule written with no vector configured");
     let report = after_commit(&root, 0);
 
-    assert!(!report.ran);
+    // The worker still runs — the text index has to catch up whether or not a
+    // vector projection is configured. What must not happen is any vector work:
+    // no target published and no connection attempted.
+    assert!(report.embeddings == 0 && report.passes == 0);
     assert!(report.attempt_error.is_none());
     assert!(
         !root.join("projections/qdrant/desired.json").is_file(),
@@ -160,7 +163,10 @@ fn a_writer_that_finds_the_drain_busy_still_publishes_its_tail() {
         .expect("published");
 
     // The writer did not run the drain and did not block on it.
-    assert!(!report.ran);
+    // The worker still runs — the text index has to catch up whether or not a
+    // vector projection is configured. What must not happen is any vector work:
+    // no target published and no connection attempted.
+    assert!(report.embeddings == 0 && report.passes == 0);
     assert!(report.attempt_error.is_none());
     // But it did record what it wants indexed, which is what the holder will
     // see when it checks whether it has caught up.
@@ -219,7 +225,10 @@ fn the_handoff_holds_when_another_process_owns_the_lock() {
     holder.wait().expect("reap the holder");
 
     // Did not wait for the other process and did not start one of its own.
-    assert!(!report.ran);
+    // The worker still runs — the text index has to catch up whether or not a
+    // vector projection is configured. What must not happen is any vector work:
+    // no target published and no connection attempted.
+    assert!(report.embeddings == 0 && report.passes == 0);
     assert!(report.attempt_error.is_none());
     // The tail is on record for whoever is draining to pick up.
     assert_eq!(published.revision, 1);

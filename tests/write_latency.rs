@@ -45,8 +45,12 @@ fn one_canonical_write_against_a_dead_provider_has_the_right_shape() {
         elapsed <= MAX,
         "the write took {elapsed:?}, over the {MAX:?} ceiling"
     );
+    // Named, and honest. This said "ready" while the text index was written
+    // inside confirmation. It is written after it now — for the same reason the
+    // vector index is: a caller waiting on a projection is waiting on something
+    // the ledger can reconstruct. "queued" is the weaker claim and the true one.
     assert_eq!(
-        body["text_index"], "ready",
+        body["text_index"], "queued",
         "the text index state is named, not left as a bare `projection`"
     );
     assert!(

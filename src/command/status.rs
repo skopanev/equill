@@ -102,6 +102,7 @@ fn components(store_root: Option<&Path>, store_initialized: bool) -> Result<Vec<
         (Some(_), false) => "missing",
         (Some(root), true) => match projection::state(root)? {
             ProjectionState::Ready => "ready",
+            ProjectionState::Queued => "queued",
             ProjectionState::Degraded => "degraded",
             ProjectionState::Missing => "missing",
         },

@@ -56,6 +56,9 @@ pub fn append_batch(store_root: &Path, source: &Path, actor: &str) -> Result<Bat
         }
     }
     if stored > 0 {
+        // One catch-up for the whole batch rather than one per record: forty
+        // records should cost one pass, not forty.
+        let _ = crate::projection::catch_up_text(store_root);
         crate::vector::after_commit(store_root, stored as u64);
     }
     if records.is_empty() {

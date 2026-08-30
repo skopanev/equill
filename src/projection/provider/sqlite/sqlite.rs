@@ -44,6 +44,9 @@ pub fn verify(store_root: &Path, truth: &[StoredRecord]) -> Result<usize, Error>
                 "sqlite projection is marked degraded".into(),
             ));
         }
+        // Never stored: `queued` describes a write that has just been confirmed
+        // and is waiting for the index, not a state the index itself is left in.
+        ProjectionState::Queued => {}
         ProjectionState::Ready => {}
     }
     let connection = open(&database(store_root))?;

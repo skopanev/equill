@@ -6,6 +6,9 @@ use std::fmt::{Display, Formatter};
 #[serde(rename_all = "lowercase")]
 pub enum ProjectionState {
     Ready,
+    /// The record is durable and the index has not caught up with it yet. The
+    /// ordinary answer for a fresh write, and not a failure.
+    Queued,
     Degraded,
     Missing,
 }
@@ -14,6 +17,7 @@ impl Display for ProjectionState {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Ready => formatter.write_str("ready"),
+            Self::Queued => formatter.write_str("queued"),
             Self::Degraded => formatter.write_str("degraded"),
             Self::Missing => formatter.write_str("missing"),
         }

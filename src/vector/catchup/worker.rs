@@ -175,6 +175,17 @@ pub fn run_worker(store: &Path) -> Result<DrainReport, Error> {
 }
 
 pub fn run_once(store: &Path) -> DrainReport {
+    // The text index first, and unconditionally: it is what search answers
+    // from, it needs no model and no provider, and a store whose vector
+    // projection is off or unreachable must still become searchable.
+    let _ = crate::projection::catch_up_text(store);
+    // A store with no vector projection is finished here: the text index is
+    // level and there is nothing else this worker is for. Going on would open a
+    // connection the store never asked for and file an error for the absence of
+    // something optional.
+    if !matches!(super::super::config::load(store), Ok(Some(config)) if config.enabled) {
+        return DrainReport::default();
+    }
     let Ok(Some(lease)) = TryLock::acquire(store, LOCK) else {
         // Somebody is already draining, or the lock is unusable. Either way this
         // process has nothing to do and must not wait.

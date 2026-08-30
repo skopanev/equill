@@ -80,10 +80,12 @@ fn draft(index: usize) -> serde_json::Value {
     })
 }
 
-/// One write, asserted as well as timed: durable, queued, and no worker failure
-/// filed while it happened.
+/// One write, asserted as well as timed: it succeeded, and it reported the
+/// projection as queued rather than done. Worker failures are checked per
+/// measurement, not per write, because a worker's outcome lands on its own
+/// schedule and not inside the call that woke it.
 #[cfg(not(debug_assertions))]
-fn write(session: &mut Session, root: &Path, index: usize) -> Duration {
+fn write(session: &mut Session, index: usize) -> Duration {
     let (elapsed, response) = session.tool("record", serde_json::json!({ "draft": draft(index) }));
     assert!(
         response["error"].is_null(),
@@ -146,7 +148,7 @@ fn cold_and_warm_confirmations_stay_under_the_ceiling() {
     let root = store_against("confirm-cold", &provider.endpoint());
     let mut session = Session::open(&root);
 
-    let cold = write(&mut session, &root, 0);
+    let cold = write(&mut session, 0);
     eprintln!("cold record: {cold:?}");
     assert!(
         cold <= CEILING,
@@ -154,11 +156,7 @@ fn cold_and_warm_confirmations_stay_under_the_ceiling() {
     );
 
     let mark = failure_mark(&root);
-    let warm = timings(
-        (1..CALLS)
-            .map(|index| write(&mut session, &root, index))
-            .collect(),
-    );
+    let warm = timings((1..CALLS).map(|index| write(&mut session, index)).collect());
     report("warm record", &warm);
     assert!(
         !failed_since(&root, mark),
@@ -187,11 +185,7 @@ fn confirmation_does_not_get_slower_as_the_store_grows() {
     let fresh = store_against("confirm-fresh", &provider.endpoint());
     let mut session = Session::open(&fresh);
     let mark = failure_mark(&fresh);
-    let empty = timings(
-        (0..CALLS)
-            .map(|index| write(&mut session, &fresh, index))
-            .collect(),
-    );
+    let empty = timings((0..CALLS).map(|index| write(&mut session, index)).collect());
     assert!(
         !failed_since(&fresh, mark),
         "a worker failed during the empty-store measurement"
@@ -202,14 +196,20 @@ fn confirmation_does_not_get_slower_as_the_store_grows() {
     let aged = store_against("confirm-aged", &provider.endpoint());
     let mut session = Session::open(&aged);
     for index in 0..HISTORY {
-        write(&mut session, &aged, index);
+        write(&mut session, index);
     }
-    // Seeding takes longer than a worker's patience, so a filed failure from
-    // that phase is expected. The mark is taken after it, before timing.
+    // Seeding outlasts a worker's patience against a stalled provider, so a
+    // filed failure from that phase is expected. Let the last one finish before
+    // taking the mark: a worker still in flight would file DURING the timing
+    // window and be read as a failure of the thing being measured. Waiting is
+    // not hiding it — the point of the assertion is that confirmation does not
+    // depend on the worker, and a worker that has already exited cannot be the
+    // reason a later write was slow.
+    settles(&aged, harness::WORKER_PATIENCE * 2);
     let mark = failure_mark(&aged);
     let loaded = timings(
         (HISTORY..HISTORY + CALLS)
-            .map(|index| write(&mut session, &aged, index))
+            .map(|index| write(&mut session, index))
             .collect(),
     );
     assert!(

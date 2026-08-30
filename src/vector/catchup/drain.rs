@@ -118,7 +118,11 @@ pub fn after_commit_inline(store: &Path, appended: u64) -> DrainReport {
 /// worker does the enumeration and hashing on its own time.
 fn publish(store: &Path, appended: u64) -> Result<bool, Error> {
     if !enabled(store)? {
-        return Ok(false);
+        // No vector projection to advance — but the text index still has to
+        // catch up, and that is the worker's job too. Returning early here is
+        // what left a store with the projection off with nothing to make it
+        // searchable.
+        return Ok(true);
     }
     if appended == 0 {
         // Nothing new to want. The caller still gets a worker started if one is

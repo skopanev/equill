@@ -86,6 +86,7 @@ fn import_jsonl_inner(
     // One catch-up for the whole set: forty records should cost one model load,
     // not forty. A partial import still publishes what actually committed.
     if imported > 0 {
+        let _ = crate::projection::catch_up_text(store);
         crate::vector::after_commit(store, imported as u64);
     }
     Ok(ImportReport {

@@ -68,7 +68,10 @@ fn appends_valid_record_without_payload_in_receipt() {
 
     assert_eq!(contents.lines().count(), 1);
     assert_eq!(scan.records, 1);
-    assert_eq!(report.projection, ProjectionState::Ready);
+    // Queued, not ready: confirmation ends at the durable ledger and its
+    // receipt, and the index follows. A write that reported ready would be
+    // claiming something it had not waited to see.
+    assert_eq!(report.projection, ProjectionState::Queued);
     assert_eq!(search.hits.len(), 1);
     assert!(
         !serde_json::to_string(&report)
@@ -223,7 +226,10 @@ fn confirmation_touches_no_rebuildable_work() {
     }
 
     super::hotpath::reset();
-    append(&root, lesson("the record under test"), "writer").expect("append");
+    // append_only IS the confirmation boundary. `append` is the convenience
+    // path and does projection work after it, which is where that work belongs
+    // and is not what this measures.
+    super::append_only(&root, lesson("the record under test"), "writer").expect("append");
     let touched = super::hotpath::touched();
 
     assert_eq!(
