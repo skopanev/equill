@@ -52,6 +52,10 @@ pub struct StoredRecord {
 #[derive(Debug, Serialize)]
 pub struct AppendReport {
     pub ok: bool,
+    /// What the vector catch-up managed after this write. Never a reason for
+    /// the write itself to fail.
+    #[serde(skip_serializing_if = "quiet")]
+    pub vector: crate::vector::DrainReport,
     /// Records the store already holds that look like this one. Advisory: the
     /// write succeeded, and the author decides what to do about it.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -62,4 +66,9 @@ pub struct AppendReport {
     pub receipt: String,
     pub redacted: bool,
     pub projection: ProjectionState,
+}
+
+/// A drain that did nothing and had nothing to say stays out of the report.
+fn quiet(report: &crate::vector::DrainReport) -> bool {
+    !report.ran && report.attempt_error.is_none()
 }

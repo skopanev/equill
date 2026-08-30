@@ -1,4 +1,6 @@
 mod config;
+mod desired;
+mod drain;
 mod embedder;
 mod embedding;
 mod hydrate;
@@ -13,6 +15,7 @@ use provider::qdrant::{Collection, QdrantTransport, Transport};
 use std::path::{Path, PathBuf};
 
 pub use config::{EmbeddingConfig, ModelArtifact, VectorConfig};
+pub use drain::{DrainReport, after_commit};
 pub use embedder::{Embedder, embed_batch};
 pub use embedding::{
     EMBED_MODEL_ID, EmbeddingRuntime, MAX_TOKENS, QUERY_PREFIX, VECTOR_DIMENSIONS,

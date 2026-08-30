@@ -20,7 +20,17 @@ pub fn append_file(store_root: &Path, source: &Path, actor: &str) -> Result<Appe
     append(store_root, draft, actor)
 }
 
-pub fn append(
+/// One record, then a catch-up. A batch wants exactly one catch-up for the
+/// whole set rather than one per line — loading the model forty times to index
+/// forty records is the difference between a usable import and an unusable one
+/// — so batch callers use `append_only` and drain once at the end.
+pub fn append(store_root: &Path, draft: RecordDraft, actor: &str) -> Result<AppendReport, Error> {
+    let mut report = append_only(store_root, draft, actor)?;
+    report.vector = crate::vector::after_commit(store_root, actor);
+    Ok(report)
+}
+
+pub fn append_only(
     store_root: &Path,
     mut draft: RecordDraft,
     actor: &str,
@@ -99,6 +109,7 @@ pub fn append(
     let similar = super::find_similar(store_root, &record).unwrap_or_default();
     Ok(AppendReport {
         ok: true,
+        vector: crate::vector::DrainReport::default(),
         similar,
         id: record.id,
         sha256: digest,

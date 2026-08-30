@@ -1,5 +1,6 @@
 mod config;
 mod document;
+mod drain;
 mod embedding;
 mod endpoint;
 mod hydration;

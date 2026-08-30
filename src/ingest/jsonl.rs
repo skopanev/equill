@@ -69,7 +69,7 @@ fn import_jsonl_inner(
         let legacy_id = source.id.clone();
         let draft = draft(source, &digest, &known.by_legacy, &known.ids)
             .map_err(|error| Error::Import(format!("line {line}: {error}")))?;
-        let report = record::append(store, draft, actor)
+        let report = record::append_only(store, draft, actor)
             .map_err(|error| Error::Import(format!("line {line}: {error}")))?;
         known.by_digest.insert(digest.clone(), report.id);
         known.by_legacy.insert(legacy_id.clone(), report.id);
@@ -82,6 +82,11 @@ fn import_jsonl_inner(
             ImportStatus::Imported,
         ));
         imported += 1;
+    }
+    // One catch-up for the whole set: forty records should cost one model load,
+    // not forty. A partial import still publishes what actually committed.
+    if imported > 0 {
+        crate::vector::after_commit(store, actor);
     }
     Ok(ImportReport {
         ok: true,

@@ -18,4 +18,4 @@ pub use model::{AppendReport, EvidenceRef, RecordDraft, StoredRecord};
 pub use revoke::{REVOKED_TAG, RevokeReport, revoke};
 pub use similar::{SimilarRecord, find as find_similar};
 pub use verify::{read_all, verify_all};
-pub use writer::{append, append_file};
+pub use writer::{append, append_file, append_only};

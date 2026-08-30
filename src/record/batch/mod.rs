@@ -1,4 +1,4 @@
-use super::{AppendReport, RecordDraft, append};
+use super::{AppendReport, RecordDraft, append_only};
 use crate::kernel::error::Error;
 use serde::Serialize;
 use std::fs;
@@ -55,6 +55,9 @@ pub fn append_batch(store_root: &Path, source: &Path, actor: &str) -> Result<Bat
             }
         }
     }
+    if stored > 0 {
+        crate::vector::after_commit(store_root, actor);
+    }
     if records.is_empty() {
         return Err(Error::InvalidRecord("input contains no records".into()));
     }
@@ -79,7 +82,7 @@ pub fn is_batch(source: &Path) -> Result<bool, Error> {
 
 fn write(store_root: &Path, line: &str, actor: &str) -> Result<AppendReport, Error> {
     let draft: RecordDraft = serde_json::from_str(line)?;
-    append(store_root, draft, actor)
+    append_only(store_root, draft, actor)
 }
 
 #[cfg(test)]
