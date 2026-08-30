@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT: AtomicU64 = AtomicU64::new(1);
 
-fn store() -> PathBuf {
+pub(super) fn store() -> PathBuf {
     let suffix = NEXT.fetch_add(1, Ordering::Relaxed);
     let path = std::env::temp_dir().join(format!("equill-record-{}-{suffix}", std::process::id()));
     let _ = fs::remove_dir_all(&path);
@@ -51,8 +51,10 @@ fn draft(payload: serde_json::Value) -> RecordDraft {
 #[test]
 fn appends_valid_record_without_payload_in_receipt() {
     let path = store();
-    let report =
-        append(&path, draft(json!({ "rule": "Run checks." })), "writer").expect("append record");
+    // Indexed explicitly: the write no longer indexes, so a test that searches
+    // for what it wrote has to say so rather than rely on a side effect.
+    let report = super::append_indexed(&path, draft(json!({ "rule": "Run checks." })), "writer")
+        .expect("append record");
     let contents = fs::read_to_string(path.join(&report.ledger)).expect("read ledger");
     let scan = crate::integrity::scan(&path).expect("full integrity scan");
     let search = projection::search(
@@ -207,40 +209,7 @@ fn latest_receipt(root: &std::path::Path) -> serde_json::Value {
         .expect("json")
 }
 
-/// The confirmation boundary, observed rather than timed.
-///
-/// A caller is told a record is durable once the ledger holds it and its
-/// receipt is committed. Nothing before that point may scan the ledger, rebuild
-/// the lifecycle graph, or open a projection transaction: those are rebuildable
-/// work, and a write that waits for them is paying for history it already has.
-///
-/// The end-to-end benchmark measures the consequence — confirmation not getting
-/// slower as a store grows. This measures the cause, so a slow machine cannot
-/// hide it and a fast one cannot excuse it.
-#[test]
-fn confirmation_touches_no_rebuildable_work() {
-    let root = store();
-    // A store with some history, so a scan would have something to find.
-    for index in 0..20 {
-        append(&root, lesson(&format!("existing lesson {index}")), "writer").expect("seed");
-    }
-
-    super::hotpath::reset();
-    // append_only IS the confirmation boundary. `append` is the convenience
-    // path and does projection work after it, which is where that work belongs
-    // and is not what this measures.
-    super::append_only(&root, lesson("the record under test"), "writer").expect("append");
-    let touched = super::hotpath::touched();
-
-    assert_eq!(
-        touched,
-        super::hotpath::Touched::default(),
-        "confirmation did rebuildable work: {touched:?}"
-    );
-    let _ = std::fs::remove_dir_all(&root);
-}
-
-fn lesson(rule: &str) -> RecordDraft {
+pub(super) fn lesson(rule: &str) -> RecordDraft {
     RecordDraft {
         namespace: "agent.memory".into(),
         type_name: "agent.lesson.v1".into(),

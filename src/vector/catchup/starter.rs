@@ -52,3 +52,18 @@ fn spawn(store: &Path) -> Result<(), Error> {
         .spawn()?;
     Ok(())
 }
+
+/// Bring the text index level, and say whether there is vector work after it.
+///
+/// Called with the drain lease held, so exactly one process does this at a
+/// time. The text index goes first and unconditionally: it is what search answers
+/// from, it needs no model and no provider, and a store whose vector projection
+/// is off or unreachable must still become searchable.
+///
+/// A store with no vector projection is then finished. Going on would open a
+/// connection the store never asked for and file an error for the absence of
+/// something optional.
+pub(super) fn catch_text_up_first(store: &std::path::Path) -> bool {
+    let _ = crate::projection::catch_up_text(store);
+    matches!(super::super::config::load(store), Ok(Some(config)) if config.enabled)
+}

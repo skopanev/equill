@@ -145,3 +145,49 @@ fn a_first_pass_checkpoints_its_own_snapshot_despite_a_concurrent_append() {
     assert_eq!(state(&root).unwrap(), VectorState::Ready);
     fs::remove_dir_all(root).unwrap();
 }
+
+/// A checkpoint cannot have covered a target that was never published.
+///
+/// The revision is what binds a pass to the store's history: the sync reads the
+/// desired target first, indexes, and records which target it covered. A marker
+/// claiming a revision beyond the published one therefore did not come from
+/// this history — and the digest comparison alone cannot tell, because a digest
+/// that happens to match would report the index as current.
+///
+/// This is not hypothetical. The double in this fixture used to fabricate the
+/// revision from the record count, so every checkpoint here claimed coverage of
+/// a target that did not exist; the reader called it current regardless. The
+/// answer that survives a marker it cannot account for is unknown.
+#[test]
+fn a_checkpoint_ahead_of_the_published_target_is_not_current() {
+    let (root, config, index) = fixture("ahead-of-target");
+    execute(&root, &config, &index, || Ok(embedder(&config, None))).expect("sync");
+    assert_eq!(
+        crate::vector::freshness_of(&root)
+            .expect("freshness")
+            .freshness,
+        crate::vector::VectorFreshness::Current,
+        "the fixture does not start from a current index"
+    );
+
+    let published = crate::vector::desired::read(&root)
+        .expect("desired")
+        .map_or(0, |target| target.revision);
+    let marker = root.join("projections/qdrant/state.json");
+    let mut stored: serde_json::Value =
+        serde_json::from_slice(&fs::read(&marker).unwrap()).unwrap();
+    stored
+        .as_object_mut()
+        .unwrap()
+        .insert("indexed_revision".into(), json!(published + 1));
+    fs::write(&marker, serde_json::to_vec(&stored).unwrap()).unwrap();
+
+    let ahead = crate::vector::freshness_of(&root).expect("freshness");
+    assert_eq!(
+        ahead.freshness,
+        crate::vector::VectorFreshness::Unknown,
+        "a checkpoint ahead of the published target was reported as {:?}",
+        ahead.freshness
+    );
+    fs::remove_dir_all(root).unwrap();
+}

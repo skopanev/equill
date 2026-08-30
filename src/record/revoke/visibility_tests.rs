@@ -26,6 +26,7 @@ fn an_ordinary_search_stops_serving_a_withdrawn_claim() {
     )
     .expect("search");
     let report = revoke(&root, target, Some("no longer true"), "owner").expect("revoke");
+    let _ = crate::projection::catch_up_text(&root);
     let after = crate::vector::search(
         &root,
         &crate::projection::SearchRequest {
@@ -77,6 +78,7 @@ fn a_page_of_one_returns_the_live_match_not_an_empty_page() {
     let withdrawn = add(&root, "deployment checklist alpha");
     let live = add(&root, "deployment checklist beta");
     revoke(&root, withdrawn, None, "owner").expect("revoke");
+    let _ = crate::projection::catch_up_text(&root);
 
     let ask = |limit: u16| {
         crate::vector::search(
@@ -124,6 +126,7 @@ fn a_page_of_one_survives_more_history_than_any_fixed_multiple() {
     for index in 0..6 {
         let doomed = add(&root, &format!("deployment note {index}"));
         revoke(&root, doomed, None, "owner").expect("revoke");
+        let _ = crate::projection::catch_up_text(&root);
     }
     let live = add(&root, "deployment note that stands");
 
@@ -162,6 +165,7 @@ fn the_slack_is_exact_and_does_not_depend_on_the_text_projection() {
     for index in 0..6 {
         let doomed = add(&root, &format!("deployment note {index}"));
         revoke(&root, doomed, None, "owner").expect("revoke");
+        let _ = crate::projection::catch_up_text(&root);
     }
     let live = add(&root, "deployment note that stands");
     // Twelve history records: six withdrawn claims and six tombstones.

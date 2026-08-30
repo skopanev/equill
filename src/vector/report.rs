@@ -46,6 +46,20 @@ pub fn freshness(store: &Path, config: Option<&VectorConfig>) -> Result<Freshnes
             ));
         }
     };
+    // A checkpoint cannot have covered a target that was never published, nor
+    // one older than the revision it claims. When it says otherwise the marker
+    // is not describing this store's history, and the honest answer is that its
+    // position is unknown — not that it is current, which is what a digest
+    // comparison alone would say. Absent means revision zero, which is what the
+    // sync itself uses when there is no target, so a checkpoint at zero against
+    // no target is level rather than ahead.
+    let target = super::desired::read(store)?.map_or(0, |desired| desired.revision);
+    if marker
+        .indexed_revision
+        .is_some_and(|indexed| indexed > target)
+    {
+        return Ok(unknown);
+    }
     let (records, current) = super::corpus(store)?;
     Ok(Freshness {
         freshness: if current == digest {

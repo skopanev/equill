@@ -1,7 +1,7 @@
 use super::sqlite;
 use crate::command::init;
 use crate::projection::{self, SearchRequest};
-use crate::record::{RecordDraft, append};
+use crate::record::{RecordDraft, append_indexed};
 use crate::schema::{self, TypeDefinition};
 use rusqlite::Connection;
 use serde_json::json;
@@ -79,7 +79,7 @@ fn store(rules: &[&str]) -> PathBuf {
     )
     .expect("register schema");
     for rule in rules {
-        append(
+        append_indexed(
             &root,
             RecordDraft {
                 namespace: "agent.memory".into(),

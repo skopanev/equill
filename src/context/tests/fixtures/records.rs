@@ -43,7 +43,7 @@ pub fn append_coordinate(
     if let Some(scope) = scope {
         payload["scope"] = scope;
     }
-    record::append(
+    record::append_indexed(
         root,
         RecordDraft {
             namespace: "agent.memory".into(),
@@ -62,7 +62,7 @@ pub fn append_coordinate(
 }
 
 pub fn append_ranked(root: &Path, rule: &str, confidence: f64, observed_at: &str) -> uuid::Uuid {
-    record::append(
+    record::append_indexed(
         root,
         RecordDraft {
             namespace: "agent.memory".into(),

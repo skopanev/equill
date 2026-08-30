@@ -123,7 +123,7 @@ mod tests {
     use super::fts_query;
     use crate::command::init;
     use crate::projection::{self, SearchRequest};
-    use crate::record::{RecordDraft, append};
+    use crate::record::{RecordDraft, append_indexed};
     use crate::schema::{self, TypeDefinition};
     use serde_json::json;
     use std::fs;
@@ -152,7 +152,7 @@ mod tests {
         )
         .expect("register schema");
         for rule in ["Deployment checklist for staging", "Unrelated grocery list"] {
-            append(
+            append_indexed(
                 &root,
                 RecordDraft {
                     namespace: "agent.memory".into(),

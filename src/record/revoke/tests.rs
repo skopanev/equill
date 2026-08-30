@@ -1,6 +1,6 @@
 use super::{REVOKED_TAG, revoke};
 use crate::command::init;
-use crate::record::{RecordDraft, append, read_all};
+use crate::record::{RecordDraft, append_indexed, read_all};
 use crate::schema::{self, LifecycleMode, LifecyclePolicy, TypeDefinition};
 use serde_json::json;
 use std::fs;
@@ -32,7 +32,7 @@ pub(super) fn store(name: &str, lifecycle: LifecyclePolicy) -> PathBuf {
 }
 
 pub(super) fn add(root: &Path, rule: &str) -> Uuid {
-    append(
+    append_indexed(
         root,
         RecordDraft {
             namespace: "agent.memory".into(),

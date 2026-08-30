@@ -1,5 +1,5 @@
 use super::support::*;
-use crate::record::{RecordDraft, append};
+use crate::record::{RecordDraft, append_indexed};
 use serde_json::json;
 use std::fs;
 /// The adapter is a second surface, never a second write path: a record written
@@ -61,7 +61,7 @@ fn writing_goes_through_the_canonical_writer_and_respects_grants() {
 #[test]
 fn reading_tools_answer_over_the_same_core_operations() {
     let root = store();
-    let id = append(
+    let id = append_indexed(
         &root,
         RecordDraft {
             namespace: "agent.memory".into(),

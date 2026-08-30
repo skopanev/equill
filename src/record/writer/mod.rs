@@ -1,3 +1,5 @@
+mod blocked;
+
 use super::{AppendReport, RecordDraft, StoredRecord};
 use crate::defense;
 use crate::kernel::digest::sha256_hex;
@@ -9,11 +11,12 @@ use crate::projection::ProjectionState;
 use crate::schema;
 use jiff::Timestamp;
 use std::fs::{self, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::Write;
 use std::path::Path;
 use uuid::Uuid;
 
 use super::receipt::{self, WriteReceipt, WriteStatus};
+use blocked::{block_write, ensure_clean_tail, unreachable_report};
 
 pub fn append_file(store_root: &Path, source: &Path, actor: &str) -> Result<AppendReport, Error> {
     let draft: RecordDraft = serde_json::from_slice(&fs::read(source)?)?;
@@ -25,17 +28,16 @@ pub fn append_file(store_root: &Path, source: &Path, actor: &str) -> Result<Appe
 /// forty records is the difference between a usable import and an unusable one
 /// — so batch callers use `append_only` and drain once at the end.
 pub fn append(store_root: &Path, draft: RecordDraft, actor: &str) -> Result<AppendReport, Error> {
-    let (mut report, record) = confirm(store_root, draft, actor)?;
-    // Outside the confirmation boundary — the record is already durable and the
-    // receipt committed — but still before this call returns.
+    let (mut report, _record) = confirm(store_root, draft, actor)?;
+    // Nothing but waking the worker. The text index used to be written here,
+    // one transaction inside the call the user waits on, on the argument that a
+    // record should be findable the instant it is written.
     //
-    // The text index is what search answers from, and moving it fully behind a
-    // background worker would mean a record is not findable immediately after
-    // being written. That is a change to read semantics, not a speed change,
-    // and it belongs with the work that gives readers an honest current/stale
-    // signal. Until then a caller that writes and then searches gets what it
-    // has always got.
-    let _ = crate::projection::index(store_root, &record, &report.sha256, &report.ledger);
+    // That argument was about read semantics, and it has been answered on the
+    // read side rather than paid for here: a search now reports whether the
+    // index is current or behind, so a caller can tell "not there" from "not
+    // there yet" without every write funding the distinction. What is left is a
+    // signal to the worker, which does not wait for it.
     report.vector = crate::vector::after_commit(store_root, 1);
     Ok(report)
 }
@@ -61,12 +63,6 @@ pub fn append_only(
     actor: &str,
 ) -> Result<AppendReport, Error> {
     confirm(store_root, draft, actor).map(|(report, _)| report)
-}
-
-/// `block_write` always returns an error for a blocked draft; this exists only
-/// so the types line up if that ever changes, and says loudly what it assumes.
-fn unreachable_report(_report: AppendReport) -> (AppendReport, StoredRecord) {
-    unreachable!("a blocked write never produces a record")
 }
 
 /// The confirmation itself, returning the record it wrote.
@@ -135,6 +131,12 @@ fn confirm(
     };
 
     let _lock = StoreLock::exclusive(store_root)?;
+    // Finish anything a previous write left unfinished, before this one is
+    // authorized. A store holding a durable record whose receipt never
+    // committed must not accept another write on top of it: the second write
+    // would succeed, the first would stay unaccounted for, and nothing after
+    // that could tell the two apart.
+    receipt::resolve_pending(store_root)?;
     // Authority is re-read and re-checked here, inside the lock, immediately
     // before the append. The check above happened before any lock was held, so
     // a handover that landed in between would otherwise let an actor who has
@@ -171,29 +173,43 @@ fn confirm(
     ensure_clean_tail(&path)?;
     let staged = receipt::stage(store_root, &month, &receipt)?;
     let receipt_path = staged.relative().to_owned();
+    let handle = staged.handle().to_owned();
     let mut file = OpenOptions::new().create(true).append(true).open(path)?;
     file.write_all(&line)?;
     file.sync_data()?;
     lifecycle.record(&record, super::lifecycle::keys_of(&record, &claiming));
     staged.commit().map_err(|error| {
+        // The record is in the ledger and stays there. The error names the
+        // coordinate it was written under and where the unfinished receipt is,
+        // so the transaction can be finished rather than guessed at — and the
+        // next write against this store finishes it before doing anything else.
         Error::PostCommit(format!(
-            "record {} was appended but its receipt failed: {error}",
+            "record {} is durable but its receipt is not committed: {error}; \
+             recovery handle: {handle}",
             record.id
         ))
     })?;
-    // The state follows the ledger, never leads it: if this fails the next
+    // Everything from here is rebuildable, and everything from here is after
+    // the point of no return: the record is durable and its receipt is
+    // committed, so the write HAS succeeded. Failing it now would report a
+    // completed write as a failed one, which is the worse lie — a caller would
+    // retry and the store would hold the record twice.
+    //
+    // The state follows the ledger, never leads it: if this fails, the next
     // write finds a watermark that no longer matches and rebuilds, which costs
     // one scan rather than a wrong answer.
-    super::lifecycle::save_state(store_root, &mut lifecycle)?;
+    let _ = super::lifecycle::save_state(store_root, &mut lifecycle);
     // Where the ledger now stands, said out loud so that neither the text nor
     // the vector side has to look at the ledger to know what "current" means.
     // Both numbers are already in hand: the state just counted the records and
     // just stamped the byte position.
-    crate::projection::publish_target(
+    // Likewise: an unpublished target reads as unknown freshness, which is the
+    // honest answer while it is missing, and the next write publishes it again.
+    let _ = crate::projection::publish_target(
         store_root,
         lifecycle.entries.len(),
         lifecycle.watermark.bytes,
-    )?;
+    );
 
     // Confirmation ends here. The ledger holds the record and its receipt is
     // committed, which is the whole of what "durable" claims — and everything
@@ -229,55 +245,4 @@ fn month(timestamp: &str) -> Result<String, Error> {
         .get(..7)
         .map(str::to_owned)
         .ok_or_else(|| Error::InvalidRecord("system clock is out of range".into()))
-}
-
-fn block_write(
-    store_root: &Path,
-    draft: &RecordDraft,
-    actor: &str,
-    recorded_at: &str,
-    month: &str,
-    defense: defense::DefenseResult,
-) -> Result<AppendReport, Error> {
-    let receipt = WriteReceipt {
-        receipt_id: Uuid::now_v7(),
-        status: WriteStatus::BlockedByMemoryDefense,
-        record_id: None,
-        namespace: &draft.namespace,
-        type_name: &draft.type_name,
-        actor,
-        recorded_at,
-        record_sha256: None,
-        // Blocked before it reached the ledger. Nothing is durable, so nothing
-        // is queued either: reporting a projection state would describe work
-        // that will never happen for a record that does not exist.
-        durable: false,
-        projection: crate::vector::Projection::NotApplicable,
-        defense_findings: &defense.findings,
-    };
-    let matches = defense.findings.len();
-    let _lock = StoreLock::exclusive(store_root)?;
-    let staged = receipt::stage(store_root, month, &receipt)?;
-    let path = staged.relative().to_owned();
-    staged.commit()?;
-    Err(Error::MemoryDefense(format!(
-        "blocked {matches} match(es); receipt: {path}"
-    )))
-}
-
-fn ensure_clean_tail(path: &Path) -> Result<(), Error> {
-    if !path.exists() || path.metadata()?.len() == 0 {
-        return Ok(());
-    }
-    let mut file = OpenOptions::new().read(true).open(path)?;
-    file.seek(SeekFrom::End(-1))?;
-    let mut tail = [0_u8; 1];
-    file.read_exact(&mut tail)?;
-    if tail[0] != b'\n' {
-        return Err(Error::Integrity(format!(
-            "ledger has an incomplete final line: {}",
-            path.display()
-        )));
-    }
-    Ok(())
 }

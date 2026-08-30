@@ -53,6 +53,8 @@ pub(crate) struct LifecycleState {
     pub(crate) superseded: BTreeSet<Uuid>,
     /// Ids gained since the last save — the only lines a save has to write.
     pending: Vec<Uuid>,
+    /// The chained digest of every line written so far.
+    chain: String,
     /// Whether the file on disk has to be replaced rather than extended. True
     /// for a state built from the ledger, because whatever is on disk was not
     /// the source it was built from.
@@ -113,7 +115,7 @@ impl LifecycleState {
 /// trusted.
 pub(crate) fn load(store: &Path) -> Result<Option<LifecycleState>, Error> {
     let lines = store.join(STATE);
-    let (Some(claimed), true) = (watermark::read(store)?, lines.is_file()) else {
+    let (Some((claimed, chain)), true) = (watermark::read(store)?, lines.is_file()) else {
         return Ok(None);
     };
     if watermark::observe(store)? != claimed {
@@ -126,6 +128,7 @@ pub(crate) fn load(store: &Path) -> Result<Option<LifecycleState>, Error> {
         if line.trim().is_empty() {
             continue;
         }
+        state.chain = watermark::extend(&state.chain, line);
         let Ok(Line { id, entry }) = serde_json::from_str::<Line>(line) else {
             return Ok(None);
         };
@@ -133,6 +136,12 @@ pub(crate) fn load(store: &Path) -> Result<Option<LifecycleState>, Error> {
             state.superseded.insert(target);
         }
         state.entries.insert(id, entry);
+    }
+    if state.chain != chain {
+        // The lines are not the lines this marker was written for. Something
+        // edited them; whether by damage or by hand does not matter, because
+        // this state authorizes appends and an unverified authority is not one.
+        return Ok(None);
     }
     state.watermark = claimed;
     Ok(Some(state))
@@ -157,6 +166,7 @@ pub(crate) fn save(store: &Path, state: &mut LifecycleState) -> Result<(), Error
         // not a prefix of this and must go.
         watermark::discard(store);
         state.pending = state.entries.keys().copied().collect();
+        state.chain = String::new();
     }
     let mut file = OpenOptions::new()
         .create(true)
@@ -169,20 +179,19 @@ pub(crate) fn save(store: &Path, state: &mut LifecycleState) -> Result<(), Error
         let Some(entry) = state.entries.get(&id) else {
             continue;
         };
-        serde_json::to_writer(
-            &mut buffer,
-            &Line {
-                id,
-                entry: entry.clone(),
-            },
-        )?;
+        let line = serde_json::to_string(&Line {
+            id,
+            entry: entry.clone(),
+        })?;
+        state.chain = watermark::extend(&state.chain, &line);
+        buffer.extend_from_slice(line.as_bytes());
         buffer.push(b'\n');
     }
     file.write_all(&buffer)?;
     file.sync_data()?;
     drop(file);
     state.rewrite = false;
-    state.watermark = watermark::commit(store, directory)?;
+    state.watermark = watermark::commit(store, directory, state.chain.clone())?;
     Ok(())
 }
 
@@ -192,6 +201,7 @@ pub(crate) fn empty() -> LifecycleState {
         entries: BTreeMap::new(),
         superseded: BTreeSet::new(),
         pending: Vec::new(),
+        chain: String::new(),
         rewrite: true,
     }
 }

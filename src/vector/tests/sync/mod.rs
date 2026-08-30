@@ -80,7 +80,7 @@ impl SyncIndex for FakeIndex {
         physical: &str,
         records: usize,
         digest: &str,
-        _r: u64,
+        revision: u64,
     ) -> Result<(), Error> {
         let mut inner = self.inner.lock().unwrap();
         inner.ready_marks += 1;
@@ -90,7 +90,9 @@ impl SyncIndex for FakeIndex {
             &self.root,
             &self.config,
             physical,
-            Some((records, digest, records as u64)),
+            // The revision the pass was given. Inventing one from the record
+            // count made every checkpoint claim an unpublished target.
+            Some((records, digest, revision)),
         )?
         .commit()
     }

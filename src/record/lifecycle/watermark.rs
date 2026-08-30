@@ -6,7 +6,7 @@ use std::path::Path;
 use uuid::Uuid;
 
 const MARKER: &str = "projections/lifecycle/watermark.json";
-const SCHEMA: &str = "equill.lifecycle-state.v2";
+const SCHEMA: &str = "equill.lifecycle-state.v3";
 
 /// The ledger position a lifecycle state describes: the total size of the
 /// ledger files.
@@ -25,6 +25,27 @@ pub(crate) struct Watermark {
 struct Marker {
     schema: String,
     watermark: Watermark,
+    /// A digest over the state's contents, not only over its length.
+    ///
+    /// The watermark says which ledger the state was built from. It says
+    /// nothing about whether the state still holds what it held: an edit that
+    /// keeps the file the same length — a namespace changed, a supersedes
+    /// pointer swapped for another id — passes a length check untouched, and
+    /// this state is what authorizes appends. So the marker carries a digest of
+    /// the lines themselves and a state that does not match it is refused.
+    ///
+    /// Chained rather than taken over the whole file: each save folds only the
+    /// lines it added into the previous digest, so publishing stays proportional
+    /// to what was written. Verifying folds over every line, which costs
+    /// nothing extra because loading reads them all anyway.
+    chain: String,
+}
+
+/// Fold one line into a chained digest.
+pub(crate) fn extend(chain: &str, line: &str) -> String {
+    let mut bytes = chain.as_bytes().to_vec();
+    bytes.extend_from_slice(line.as_bytes());
+    crate::kernel::digest::sha256_hex(&bytes)
 }
 
 /// Where the ledger stands now, from file metadata alone.
@@ -47,7 +68,7 @@ pub(crate) fn observe(store: &Path) -> Result<Watermark, Error> {
 /// An unreadable or foreign marker reports absence rather than an error: the
 /// caller's fallback is to rebuild from the ledger, which is the only source
 /// that can settle the question anyway.
-pub(crate) fn read(store: &Path) -> Result<Option<Watermark>, Error> {
+pub(crate) fn read(store: &Path) -> Result<Option<(Watermark, String)>, Error> {
     let path = store.join(MARKER);
     if !path.is_file() {
         return Ok(None);
@@ -58,7 +79,7 @@ pub(crate) fn read(store: &Path) -> Result<Option<Watermark>, Error> {
     if marker.schema != SCHEMA {
         return Ok(None);
     }
-    Ok(Some(marker.watermark))
+    Ok(Some((marker.watermark, marker.chain)))
 }
 
 /// Withdraw the claim. Until a marker is written again there is no state, which
@@ -72,11 +93,12 @@ pub(crate) fn discard(store: &Path) {
 /// Written after those lines, never before: a crash in between leaves a
 /// watermark that no longer matches the ledger, so the next write rebuilds —
 /// one scan, rather than a state that claims to cover records it does not hold.
-pub(crate) fn commit(store: &Path, directory: &Path) -> Result<Watermark, Error> {
+pub(crate) fn commit(store: &Path, directory: &Path, chain: String) -> Result<Watermark, Error> {
     let watermark = observe(store)?;
     let bytes = serde_json::to_vec(&Marker {
         schema: SCHEMA.into(),
         watermark,
+        chain,
     })?;
     let temporary = directory.join(format!(".watermark-{}.json", Uuid::now_v7()));
     let mut file = OpenOptions::new()

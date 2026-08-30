@@ -6,7 +6,7 @@ use super::super::{
 use crate::command::init;
 use crate::kernel::error::Error;
 use crate::projection::SearchRequest;
-use crate::record::{RecordDraft, StoredRecord, append};
+use crate::record::{RecordDraft, StoredRecord, append_indexed};
 use crate::schema::{self, TypeDefinition};
 use serde_json::json;
 use std::fs;
@@ -152,7 +152,7 @@ fn store(name: &str) -> PathBuf {
 }
 
 fn add(root: &Path, rule: &str) -> Uuid {
-    append(
+    append_indexed(
         root,
         RecordDraft {
             namespace: "agent.memory".into(),

@@ -8,7 +8,7 @@ mod harness;
 mod latency;
 
 use crate::command::init;
-use crate::record::{RecordDraft, append};
+use crate::record::{RecordDraft, append_indexed};
 use crate::schema::{self, TypeDefinition};
 use crate::vector::after_commit_inline as after_commit;
 use serde_json::json;
@@ -40,7 +40,7 @@ pub(super) fn store(name: &str) -> PathBuf {
 }
 
 pub(super) fn add(root: &Path, rule: &str) {
-    append(
+    append_indexed(
         root,
         RecordDraft {
             namespace: "agent.memory".into(),

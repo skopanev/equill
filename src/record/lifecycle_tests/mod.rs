@@ -1,5 +1,6 @@
 mod chains;
 mod graph;
+mod integrity;
 mod modes;
 
 use super::{RecordDraft, StoredRecord, append, lifecycle, read_all};
