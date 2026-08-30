@@ -33,7 +33,18 @@ pub fn read_all(store_root: &Path) -> Result<Vec<StoredRecord>, Error> {
             )));
         }
         let contents = fs::read_to_string(&path)?;
-        for (index, line) in contents.lines().enumerate() {
+        // A reader running beside an append-only writer can catch the last line
+        // mid-write. Only completed lines are records: a trailing fragment with
+        // no newline is a write in progress, not corruption, and refusing to
+        // read the store until it finishes would make every reader wait on
+        // every writer.
+        let complete = match contents.rfind('\n') {
+            Some(end) => &contents[..=end],
+            None if contents.trim().is_empty() => &contents[..],
+            // No newline at all: nothing has been completely written yet.
+            None => "",
+        };
+        for (index, line) in complete.lines().enumerate() {
             if line.trim().is_empty() {
                 continue;
             }

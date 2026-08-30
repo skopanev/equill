@@ -7,27 +7,31 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
-const STATE: &str = "projections/qdrant/state.json";
+pub(super) const STATE: &str = "projections/qdrant/state.json";
 const SCHEMA: &str = "equill.qdrant-state.v2";
 const SCHEMA_V1: &str = "equill.qdrant-state.v1";
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct StateFile {
-    schema: String,
-    state: StoredState,
-    store_id: Uuid,
-    collection_alias: String,
-    physical_collection: String,
-    model_sha256: String,
+pub(super) struct StateFile {
+    pub(super) schema: String,
+    pub(super) state: StoredState,
+    pub(super) store_id: Uuid,
+    pub(super) collection_alias: String,
+    pub(super) physical_collection: String,
+    pub(super) model_sha256: String,
     /// The snapshot this index was built from: how many records it covered and
     /// their digest. A v1 marker has neither, which is not a failure — it is a
     /// checkpoint whose freshness simply cannot be computed until the next sync
     /// writes one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    indexed_records: Option<usize>,
+    pub(super) indexed_records: Option<usize>,
+    /// The desired revision this pass covered. Bound to the checkpoint so a
+    /// write that lands mid-pass leaves the numbers apart and forces another.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    indexed_sha256: Option<String>,
+    pub(super) indexed_revision: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) indexed_sha256: Option<String>,
 }
 
 /// Whether the index reflects the ledger as it is now. This is not health: an
@@ -55,7 +59,7 @@ pub struct Freshness {
 
 #[derive(Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
-enum StoredState {
+pub(super) enum StoredState {
     Ready,
     Degraded,
 }
@@ -94,7 +98,7 @@ pub(crate) fn stage_ready(
     store: &Path,
     config: &VectorConfig,
     physical: &str,
-    snapshot: Option<(usize, &str)>,
+    snapshot: Option<(usize, &str, u64)>,
 ) -> Result<StagedReady, Error> {
     stage(store, config, physical, StoredState::Ready, snapshot)
 }
@@ -104,7 +108,7 @@ fn stage(
     config: &VectorConfig,
     physical: &str,
     state: StoredState,
-    snapshot: Option<(usize, &str)>,
+    snapshot: Option<(usize, &str, u64)>,
 ) -> Result<StagedReady, Error> {
     if !valid_collection_name(physical) {
         return Err(vector_error("invalid collection name"));
@@ -122,8 +126,9 @@ fn stage(
         collection_alias: config.collection_alias.clone(),
         physical_collection: physical.into(),
         model_sha256: config.embedding.model.sha256.clone(),
-        indexed_records: snapshot.map(|(count, _)| count),
-        indexed_sha256: snapshot.map(|(_, digest)| digest.to_owned()),
+        indexed_records: snapshot.map(|(count, _, _)| count),
+        indexed_revision: snapshot.map(|(_, _, revision)| revision),
+        indexed_sha256: snapshot.map(|(_, digest, _)| digest.to_owned()),
     };
     let bytes = serde_json::to_vec(&marker)
         .map_err(|_| vector_error("ready marker serialization failed"))?;
@@ -176,16 +181,9 @@ pub(crate) fn read(store: &Path, config: Option<&VectorConfig>) -> Result<Vector
     })
 }
 
-/// How far behind the index is, read without loading a model or touching the
-/// provider. A store nobody has written to since the last sync is `Current`; a
-/// store that has moved on is `Lagging` by a countable number of records; a
-/// pre-v2 checkpoint is `Unknown`, because its snapshot was never recorded.
-///
-/// Freshness is never an error: a lagging index still answers, and saying so
-/// honestly is the point.
 /// Whether a marker describes the index this config points at. The same
 /// question the health read asks, asked once more before believing a number.
-fn describes(marker: &StateFile, config: &VectorConfig) -> bool {
+pub(super) fn describes(marker: &StateFile, config: &VectorConfig) -> bool {
     (marker.schema == SCHEMA || marker.schema == SCHEMA_V1)
         && marker.store_id == config.store_id
         && marker.collection_alias == config.collection_alias
@@ -193,47 +191,27 @@ fn describes(marker: &StateFile, config: &VectorConfig) -> bool {
         && valid_collection_name(&marker.physical_collection)
 }
 
-pub fn freshness(store: &Path, config: Option<&VectorConfig>) -> Result<Freshness, Error> {
-    let unknown = Freshness {
-        freshness: VectorFreshness::Unknown,
-        indexed_records: None,
-        pending_records: None,
-    };
-    let Some(config) = config.filter(|config| config.enabled) else {
-        return Ok(unknown);
-    };
+/// The checkpoint as recorded, without touching the ledger.
+///
+/// `freshness` hashes the whole corpus to say how far behind the index is. That
+/// is right for a report and unacceptable for a gate that runs before every
+/// command, so this reads the marker and nothing else.
+///
+/// `None` means there is no usable checkpoint: no config, no marker, a marker
+/// describing a different store, or half a checkpoint. Each of those means the
+/// index cannot be shown to be current — a reason to look closer, never a
+/// reason to assume all is well.
+pub(crate) fn checkpoint(store: &Path, config: Option<&VectorConfig>) -> Option<u64> {
+    let config = config.filter(|config| config.enabled)?;
     let path = store.join(STATE);
     if !path.is_file() {
-        return Ok(unknown);
+        return None;
     }
-    let marker: StateFile = serde_json::from_slice(&fs::read(path)?)?;
-    // Freshness is only meaningful for a marker that describes this store, this
-    // alias and this model. A checkpoint that describes something else is not a
-    // smaller number — it is no answer at all.
+    let marker: StateFile = serde_json::from_slice(&fs::read(path).ok()?).ok()?;
     if !describes(&marker, config) {
-        return Ok(unknown);
+        return None;
     }
-    let (indexed, digest) = match (marker.indexed_records, marker.indexed_sha256) {
-        (Some(indexed), Some(digest)) if valid_sha256(&digest) => (indexed, digest),
-        // Half a checkpoint is a malformed one: refuse to read a count whose
-        // snapshot is missing, rather than report freshness against nothing.
-        (None, None) => return Ok(unknown),
-        _ => {
-            return Err(vector_error(
-                "state marker carries an incomplete checkpoint",
-            ));
-        }
-    };
-    let (records, current) = super::corpus(store)?;
-    Ok(Freshness {
-        freshness: if current == digest {
-            VectorFreshness::Current
-        } else {
-            VectorFreshness::Lagging
-        },
-        indexed_records: Some(indexed),
-        // Records the snapshot did not cover. Never negative and never falsely
-        // zero: a shrinking corpus reports nothing pending rather than a lie.
-        pending_records: Some(records.len().saturating_sub(indexed)),
-    })
+    // The revision the worker actually covered. A write during a pass leaves
+    // this behind the target, which is what forces another pass.
+    marker.indexed_revision
 }

@@ -156,3 +156,50 @@ fn invalid_payload_names_the_field_and_the_constraint() {
 
     fs::remove_dir_all(path).expect("remove test store");
 }
+
+/// A write the defense refused never reaches the ledger, so there is nothing for
+/// the index to catch up on. Reporting it as queued would describe work that
+/// will never happen for a record that does not exist.
+#[test]
+fn a_blocked_write_reports_no_projection_state_at_all() {
+    let root = store();
+    let refused = append(
+        &root,
+        RecordDraft {
+            namespace: "agent.memory".into(),
+            type_name: "agent.lesson.v1".into(),
+            observed_at: "2026-01-01T00:00:00Z".into(),
+            valid_at: None,
+            // A synthetic credential shape, present only to trip the scanner.
+            payload: serde_json::json!({
+                "rule": "AKIAIOSFODNN7EXAMPLE is a key that must never be stored"
+            }),
+            evidence: Vec::new(),
+            tags: Vec::new(),
+            supersedes: None,
+        },
+        "writer",
+    );
+
+    assert!(refused.is_err(), "the defense must refuse this write");
+    let receipt = latest_receipt(&root);
+    assert_eq!(receipt["status"], "blocked-by-memory-defense");
+    assert_eq!(receipt["durable"], false, "nothing was made durable");
+    assert_eq!(
+        receipt["projection"], "not-applicable",
+        "a record that does not exist has no projection state"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+fn latest_receipt(root: &std::path::Path) -> serde_json::Value {
+    let mut found: Vec<std::path::PathBuf> = Vec::new();
+    for month in std::fs::read_dir(root.join("receipts/writes")).expect("receipts") {
+        for entry in std::fs::read_dir(month.expect("month").path()).expect("month entries") {
+            found.push(entry.expect("receipt").path());
+        }
+    }
+    found.sort();
+    serde_json::from_slice(&std::fs::read(found.last().expect("a receipt")).expect("read"))
+        .expect("json")
+}

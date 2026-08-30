@@ -52,9 +52,15 @@ pub struct StoredRecord {
 #[derive(Debug, Serialize)]
 pub struct AppendReport {
     pub ok: bool,
+    /// The canonical claim: this record is in the immutable ledger and will
+    /// survive a crash. It does not depend on the index, the provider, or a
+    /// worker — those are reported separately under `vector`.
+    pub durable: bool,
     /// What the vector catch-up managed after this write. Never a reason for
     /// the write itself to fail.
-    #[serde(skip_serializing_if = "quiet")]
+    /// Always present, never elided. A caller has to be able to read the
+    /// projection state from the response without inferring it from an absence,
+    /// which is what suppressing this section forced them to do.
     pub vector: crate::vector::DrainReport,
     /// Records the store already holds that look like this one. Advisory: the
     /// write succeeded, and the author decides what to do about it.
@@ -65,10 +71,10 @@ pub struct AppendReport {
     pub ledger: String,
     pub receipt: String,
     pub redacted: bool,
+    /// The TEXT index only. Named so in the response, because a bare
+    /// "projection" beside a vector section reads as a claim about search
+    /// freshness in general — and that is how 0.2.9 came to announce a store
+    /// ready while its vector index was unreachable.
+    #[serde(rename = "text_index")]
     pub projection: ProjectionState,
-}
-
-/// A drain that did nothing and had nothing to say stays out of the report.
-fn quiet(report: &crate::vector::DrainReport) -> bool {
-    !report.ran && report.attempt_error.is_none()
 }

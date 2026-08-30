@@ -108,7 +108,10 @@ pub fn rebuild_with_progress(
     // that is written to continuously would never satisfy "the ledger has not
     // moved", so it is not asked to: whatever arrived meanwhile is the tail the
     // next sync takes, and the checkpoint records exactly this boundary.
-    projection.activate(&physical, Some((records.len(), &digest)))?;
+    // A rebuild covers whatever the target says right now; anything written
+    // after this point is the next pass's tail.
+    let revision = crate::vector::desired::read(store_root)?.map_or(0, |target| target.revision);
+    projection.activate(&physical, Some((records.len(), &digest, revision)))?;
     drop(_lock);
     emit(
         &mut progress,

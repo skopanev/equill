@@ -42,6 +42,13 @@ where
     use clap::Parser;
 
     let cli = command::cli::Cli::parse_from(args);
+    // One place, for every command that opens a store: make sure a lagging
+    // index is being caught up. Cheap and local — a current store spawns
+    // nothing — and skipped for the worker itself, which would otherwise try to
+    // start a second copy of the work it is about to do.
+    if let Some(store) = cli.command.store_to_resume() {
+        vector::resume(store);
+    }
     let json = cli.json;
     if json {
         progress = None;

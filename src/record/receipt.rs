@@ -24,6 +24,14 @@ pub struct WriteReceipt<'a> {
     pub actor: &'a str,
     pub recorded_at: &'a str,
     pub record_sha256: Option<&'a str>,
+    /// The canonical claim, written into the receipt so it survives the process
+    /// that made it: this record is in the immutable ledger. It says nothing
+    /// about the index, which is reported beside it and separately.
+    pub durable: bool,
+    /// Where the vector projection stood when the record was written. A receipt
+    /// that only recorded durability left a reader unable to tell a store that
+    /// was current from one that was still catching up.
+    pub projection: crate::vector::Projection,
     pub defense_findings: &'a [DefenseFinding],
 }
 

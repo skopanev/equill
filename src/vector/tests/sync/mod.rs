@@ -75,7 +75,13 @@ impl SyncIndex for FakeIndex {
             .ok_or_else(|| vector_error("active collection changed"))
     }
 
-    fn mark_indexed(&self, physical: &str, records: usize, digest: &str) -> Result<(), Error> {
+    fn mark_indexed(
+        &self,
+        physical: &str,
+        records: usize,
+        digest: &str,
+        _r: u64,
+    ) -> Result<(), Error> {
         let mut inner = self.inner.lock().unwrap();
         inner.ready_marks += 1;
         inner.checkpoint = Some((records, digest.to_owned()));
@@ -84,7 +90,7 @@ impl SyncIndex for FakeIndex {
             &self.root,
             &self.config,
             physical,
-            Some((records, digest)),
+            Some((records, digest, records as u64)),
         )?
         .commit()
     }
@@ -151,7 +157,6 @@ fn sync_upserts_delta_then_noop_loads_no_embedder() {
     );
     let counts = index.inner.lock().unwrap();
     assert_eq!(counts.points_upserted, 1);
-    // The checkpoint is written on every pass, including the no-op one: that is
     // how a store nobody wrote to becomes current rather than staying lagging.
     assert_eq!(counts.ready_marks, 2);
     drop(counts);

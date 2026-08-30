@@ -40,6 +40,11 @@ pub fn serve(
 
 /// Returns `None` for a notification, which by protocol gets no answer.
 fn handle(store: &Path, actor: &str, log_queries: bool, line: &str) -> Option<Response> {
+    // Per call, not once at startup. A long-lived server that only nudged the
+    // index when it booted would let a store fall behind for the whole session,
+    // which is exactly the case a long-lived server makes likely. The check is
+    // two small file reads when there is nothing to do.
+    crate::vector::resume(store);
     let request: Request = match serde_json::from_str(line) {
         Ok(request) => request,
         Err(error) => {

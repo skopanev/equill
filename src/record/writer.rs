@@ -26,7 +26,7 @@ pub fn append_file(store_root: &Path, source: &Path, actor: &str) -> Result<Appe
 /// — so batch callers use `append_only` and drain once at the end.
 pub fn append(store_root: &Path, draft: RecordDraft, actor: &str) -> Result<AppendReport, Error> {
     let mut report = append_only(store_root, draft, actor)?;
-    report.vector = crate::vector::after_commit(store_root);
+    report.vector = crate::vector::after_commit(store_root, 1);
     Ok(report)
 }
 
@@ -93,6 +93,13 @@ pub fn append_only(
         actor,
         recorded_at: &record.recorded_at,
         record_sha256: Some(&digest),
+        // The receipt is written before the append lands, so it states the
+        // intent of a durable write; a receipt only ever accompanies one that
+        // committed. The record being written is not indexed yet, so the
+        // projection is queued whenever there is one — no marker read needed to
+        // establish something already known.
+        durable: true,
+        projection: crate::vector::projection_after_write(store_root),
         defense_findings: &defense.findings,
     };
 
@@ -130,6 +137,7 @@ pub fn append_only(
     let similar = super::find_similar(store_root, &record).unwrap_or_default();
     Ok(AppendReport {
         ok: true,
+        durable: true,
         vector: crate::vector::DrainReport::default(),
         similar,
         id: record.id,
@@ -165,6 +173,11 @@ fn block_write(
         actor,
         recorded_at,
         record_sha256: None,
+        // Blocked before it reached the ledger. Nothing is durable, so nothing
+        // is queued either: reporting a projection state would describe work
+        // that will never happen for a record that does not exist.
+        durable: false,
+        projection: crate::vector::Projection::NotApplicable,
         defense_findings: &defense.findings,
     };
     let matches = defense.findings.len();

@@ -8,3 +8,4 @@ pub mod present;
 pub mod query;
 pub mod status;
 pub(crate) mod vector;
+mod vector_state;

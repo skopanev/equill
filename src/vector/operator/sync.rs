@@ -1,9 +1,10 @@
 use super::super::config::VectorConfig;
 use super::super::embedding::EmbeddingRuntime;
-use super::super::model::{VectorPoint, VectorPointMetadata, vector_error};
+use super::super::model::vector_error;
 use super::super::progress::{VectorProgress, VectorProgressSink, emit};
 use super::super::{Embedder, VectorProjection, embed_batch};
 use super::delta::{pending, verify_descriptor};
+use super::index::SyncIndex;
 use super::rebuild::corpus;
 use crate::kernel::error::Error;
 use crate::kernel::governance::RootGuard;
@@ -12,7 +13,6 @@ use crate::kernel::lock::StoreLock;
 use serde::Serialize;
 use std::path::Path;
 use std::time::Instant;
-use uuid::Uuid;
 
 const EMBED_BATCH: usize = 32;
 
@@ -27,44 +27,6 @@ pub struct VectorSyncReport {
     pub upsert_batches: usize,
     pub corpus_sha256: String,
     pub duration_ms: u64,
-}
-
-pub(crate) trait SyncIndex {
-    fn active_collection(&self) -> Result<String, Error>;
-    fn metadata(
-        &self,
-        physical: &str,
-        record_ids: &[Uuid],
-    ) -> Result<Vec<VectorPointMetadata>, Error>;
-    fn upsert(&self, physical: &str, points: &[VectorPoint]) -> Result<(), Error>;
-    fn ensure_active(&self, physical: &str) -> Result<(), Error>;
-    fn mark_indexed(&self, physical: &str, records: usize, digest: &str) -> Result<(), Error>;
-}
-
-impl SyncIndex for VectorProjection {
-    fn active_collection(&self) -> Result<String, Error> {
-        self.active_collection()
-    }
-
-    fn metadata(
-        &self,
-        physical: &str,
-        record_ids: &[Uuid],
-    ) -> Result<Vec<VectorPointMetadata>, Error> {
-        self.metadata(physical, record_ids)
-    }
-
-    fn upsert(&self, physical: &str, points: &[VectorPoint]) -> Result<(), Error> {
-        self.upsert(physical, points)
-    }
-
-    fn ensure_active(&self, physical: &str) -> Result<(), Error> {
-        self.ensure_active(physical)
-    }
-
-    fn mark_indexed(&self, physical: &str, records: usize, digest: &str) -> Result<(), Error> {
-        self.mark_indexed(physical, records, digest)
-    }
 }
 
 /// Bring the active collection up to the immutable ledger without creating or
@@ -88,6 +50,10 @@ pub fn sync_with_progress(
     // consequence of a write one was already allowed to make is not, which is
     // why the internal entry below exists and does not ask again.
     let (_guard, _config) = RootGuard::acquire(store_root, actor)?;
+    // An operator asking for the work is not something a remembered failure gets
+    // to refuse: the explicit path always runs, and clears the way for the
+    // automatic one at the same time.
+    crate::vector::catchup::cooldown::clear(store_root);
     catch_up_with_progress(store_root, progress)
 }
 
@@ -148,10 +114,14 @@ where
 {
     let started = Instant::now();
     let physical = index.active_collection()?;
-    let (records, digest) = {
-        let _lock = StoreLock::exclusive(store_root)?;
-        corpus(store_root)?
-    };
+    // Read the target BEFORE the corpus: a write that lands while this pass runs
+    // must leave the checkpoint behind the target rather than be swallowed by it.
+    let revision = crate::vector::desired::read(store_root)?.map_or(0, |target| target.revision);
+    // Deliberately NOT under the writer lock: holding it across a full ledger
+    // hash made every concurrent write wait for the scan (measured p95 165ms and
+    // 873ms). The ledger is append-only and the reader stops at the last
+    // completed line, so an unlocked snapshot is a consistent prefix.
+    let (records, digest) = corpus(store_root)?;
     let documents = pending(config, index, &physical, &records)?;
     let embeddings = documents.len();
     let mut upsert_batches = 0;
@@ -204,12 +174,15 @@ where
         }
     }
 
-    let _lock = StoreLock::exclusive(store_root)?;
+    // Before the lock: this asks the provider, and a network call under the
+    // writer lock makes every concurrent write wait on it.
     index.ensure_active(&physical)?;
-    // The checkpoint records what this pass actually covered, so the next one
-    // knows its tail and a reader can tell how far behind the index is.
-    index.mark_indexed(&physical, records.len(), &digest)?;
-    drop(_lock);
+    {
+        // The checkpoint records what this pass covered, so the next one knows
+        // its tail. Only the marker write needs the lock.
+        let _lock = StoreLock::exclusive(store_root)?;
+        index.mark_indexed(&physical, records.len(), &digest, revision)?;
+    }
     emit(
         &mut progress,
         VectorProgress::Ready {

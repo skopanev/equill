@@ -1,7 +1,7 @@
 //! The interleavings a catch-up has to survive.
 use super::enumeration::search;
 use super::{add, configure_unreachable, store};
-use crate::vector::after_commit;
+use crate::vector::after_commit_inline as after_commit;
 use std::fs;
 
 /// The regression this exists to prevent: two catch-ups interleaving so that
@@ -14,27 +14,27 @@ fn a_published_target_never_walks_backwards() {
     configure_unreachable(&root);
     add(&root, "first");
     add(&root, "second");
-    after_commit(&root);
+    after_commit(&root, 0);
     let reached = crate::vector::desired::read(&root)
         .expect("desired")
         .expect("published")
-        .records;
+        .revision;
 
     // A stale publisher, holding a snapshot from before those writes, tries to
     // record what it saw. It must not undo what has already been reached.
-    crate::vector::desired::publish(&root, reached - 1, &"a".repeat(64)).expect("stale publish");
+    crate::vector::desired::publish(&root, reached.saturating_sub(1)).expect("stale publish");
     let after_stale = crate::vector::desired::read(&root)
         .expect("desired")
         .expect("published");
 
-    assert_eq!(after_stale.records, reached, "a stale target is ignored");
+    assert_eq!(after_stale.revision, reached, "a stale target is ignored");
     // Moving forward still works, which is the point of the guard.
-    crate::vector::desired::publish(&root, reached + 1, &"b".repeat(64)).expect("forward publish");
+    crate::vector::desired::publish(&root, reached + 1).expect("forward publish");
     assert_eq!(
         crate::vector::desired::read(&root)
             .expect("desired")
             .expect("published")
-            .records,
+            .revision,
         reached + 1
     );
     fs::remove_dir_all(root).expect("cleanup");
@@ -51,7 +51,7 @@ fn concurrent_catch_ups_agree_on_the_ledger_they_left_behind() {
             let root = root.clone();
             std::thread::spawn(move || {
                 add(&root, &format!("rule {index}"));
-                after_commit(&root);
+                after_commit(&root, 0);
             })
         })
         .collect::<Vec<_>>();
@@ -66,8 +66,8 @@ fn concurrent_catch_ups_agree_on_the_ledger_they_left_behind() {
 
     assert_eq!(ledger, 4, "every write landed");
     assert_eq!(
-        published.records, ledger,
-        "the target describes the ledger, whoever published last"
+        published.revision, ledger as u64,
+        "the target counts every write, whoever published last"
     );
     fs::remove_dir_all(root).expect("cleanup");
 }
@@ -90,19 +90,19 @@ fn a_write_during_a_drain_denies_the_exit_condition() {
         &root,
         &config,
         "equill_drain_test_physical",
-        Some((records.len(), &digest)),
+        Some((records.len(), &digest, records.len() as u64)),
     )
     .expect("stage")
     .commit()
     .expect("commit");
-    crate::vector::desired::publish(&root, records.len(), &digest).expect("publish");
-    let settled = crate::vector::drain::caught_up(&root).expect("caught up");
+    crate::vector::desired::publish(&root, records.len() as u64).expect("publish");
+    let settled = crate::vector::worker::caught_up(&root).expect("caught up");
 
     // Now a write lands while the holder still owns the drain lock.
     add(&root, "arrived mid-drain");
-    let (after, after_digest) = crate::vector::operator::corpus(&root).expect("corpus");
-    crate::vector::desired::publish(&root, after.len(), &after_digest).expect("publish");
-    let unsettled = crate::vector::drain::caught_up(&root).expect("caught up");
+    let (after, _) = crate::vector::operator::corpus(&root).expect("corpus");
+    crate::vector::desired::publish(&root, after.len() as u64).expect("publish");
+    let unsettled = crate::vector::worker::caught_up(&root).expect("caught up");
 
     assert!(settled, "with nothing outstanding the holder may leave");
     assert!(
@@ -122,14 +122,17 @@ fn a_scoped_writer_reaches_the_catch_up_that_its_own_write_needs() {
     configure_unreachable(&root);
     grant_scoped_writer(&root, "finding-agent");
 
-    let scoped = crate::record::append(&root, draft("written by a scoped writer"), "finding-agent")
+    crate::record::append_only(&root, draft("written by a scoped writer"), "finding-agent")
         .expect("a scoped writer may append");
+    // Inline, because the claim under test is about the catch-up's authority,
+    // not about how a write hands that work off.
+    let scoped = crate::vector::after_commit_inline(&root, 0);
     let manual = crate::vector::sync(&root, "finding-agent");
     let owner_manual = crate::vector::sync(&root, "owner");
 
     // The write succeeded, and its catch-up was attempted: what stopped it is
     // the unreachable provider, not an authorization refusal.
-    let attempt = scoped.vector.attempt_error.expect("an attempt was made");
+    let attempt = scoped.attempt_error.expect("an attempt was made");
     assert!(
         !attempt.contains("denied") && !attempt.contains("not allowed"),
         "the internal catch-up must not re-authorize the writer: {attempt}"
@@ -154,10 +157,11 @@ fn a_legacy_store_wide_writer_reaches_it_too() {
     configure_unreachable(&root);
     grant_legacy_writer(&root, "legacy-agent");
 
-    let written = crate::record::append(&root, draft("written by a legacy writer"), "legacy-agent")
+    crate::record::append_only(&root, draft("written by a legacy writer"), "legacy-agent")
         .expect("a legacy writer may append");
+    let written = crate::vector::after_commit_inline(&root, 0);
 
-    let attempt = written.vector.attempt_error.expect("an attempt was made");
+    let attempt = written.attempt_error.expect("an attempt was made");
     assert!(
         !attempt.contains("denied") && !attempt.contains("not allowed"),
         "{attempt}"

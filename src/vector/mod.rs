@@ -1,6 +1,18 @@
+pub(crate) mod catchup;
 mod config;
-mod desired;
-mod drain;
+
+pub(crate) use catchup::desired;
+pub(crate) use catchup::{drain, worker};
+
+#[cfg(test)]
+pub(crate) fn handoff_for_tests(store: &std::path::Path) -> Result<uuid::Uuid, Error> {
+    catchup::handoff::claim(store).map(|id| id.expect("a bare store has no live claim"))
+}
+
+#[cfg(test)]
+pub(crate) fn handoff_path_for_tests(store: &std::path::Path) -> std::path::PathBuf {
+    catchup::handoff::path(store)
+}
 mod embedder;
 mod embedding;
 mod hydrate;
@@ -8,6 +20,7 @@ mod model;
 mod operator;
 mod progress;
 mod provider;
+mod report;
 mod state;
 
 use crate::kernel::error::Error;
@@ -15,7 +28,7 @@ use provider::qdrant::{Collection, QdrantTransport, Transport};
 use std::path::{Path, PathBuf};
 
 pub use config::{EmbeddingConfig, ModelArtifact, VectorConfig};
-pub use drain::{DrainReport, after_commit};
+pub use drain::{after_commit, after_commit_inline, projection_after_write, resume};
 pub use embedder::{Embedder, embed_batch};
 pub use embedding::{
     EMBED_MODEL_ID, EmbeddingRuntime, MAX_TOKENS, QUERY_PREFIX, VECTOR_DIMENSIONS,
@@ -32,7 +45,9 @@ pub use operator::{
     disable, rebuild, rebuild_with_progress, retrieve, search, sync, sync_with_progress, verify,
 };
 pub use progress::{VectorProgress, VectorProgressSink};
-pub use state::{Freshness, VectorFreshness, freshness};
+pub use report::freshness;
+pub use state::{Freshness, VectorFreshness};
+pub use worker::{DrainReport, Projection, run_once, run_worker};
 
 pub struct VectorProjection {
     store: PathBuf,
@@ -68,7 +83,11 @@ impl VectorProjection {
 
     /// The snapshot the index was built from travels with activation, so the
     /// checkpoint and the collection it describes are committed together.
-    pub fn activate(&self, physical: &str, snapshot: Option<(usize, &str)>) -> Result<(), Error> {
+    pub fn activate(
+        &self,
+        physical: &str,
+        snapshot: Option<(usize, &str, u64)>,
+    ) -> Result<(), Error> {
         activate_collection(
             &self.store,
             &self.config,
@@ -99,8 +118,15 @@ impl VectorProjection {
         physical: &str,
         records: usize,
         digest: &str,
+        revision: u64,
     ) -> Result<(), Error> {
-        state::stage_ready(&self.store, &self.config, physical, Some((records, digest)))?.commit()
+        state::stage_ready(
+            &self.store,
+            &self.config,
+            physical,
+            Some((records, digest, revision)),
+        )?
+        .commit()
     }
 }
 
@@ -109,7 +135,7 @@ fn activate_collection<T: Transport>(
     config: &VectorConfig,
     collection: &Collection<T>,
     physical: &str,
-    snapshot: Option<(usize, &str)>,
+    snapshot: Option<(usize, &str, u64)>,
 ) -> Result<(), Error> {
     let marker = state::stage_ready(store, config, physical, snapshot)?;
     let change = collection.activate(physical)?;
@@ -128,7 +154,7 @@ fn activate_collection<T: Transport>(
 /// once here rather than re-read by every reporting surface.
 pub fn freshness_of(store: &Path) -> Result<Freshness, Error> {
     let config = config::load(store)?;
-    state::freshness(store, config.as_ref())
+    report::freshness(store, config.as_ref())
 }
 
 pub fn state(store: &Path) -> Result<VectorState, Error> {

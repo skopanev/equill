@@ -1,10 +1,16 @@
 mod drain_races;
+mod durability;
 mod enumeration;
+mod failures;
+mod gating;
+mod handoff;
+mod harness;
+mod latency;
 
 use crate::command::init;
 use crate::record::{RecordDraft, append};
 use crate::schema::{self, TypeDefinition};
-use crate::vector::after_commit;
+use crate::vector::after_commit_inline as after_commit;
 use serde_json::json;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -58,7 +64,7 @@ fn a_disabled_projection_neither_publishes_nor_connects() {
     let root = store("disabled");
 
     add(&root, "a rule written with no vector configured");
-    let report = after_commit(&root);
+    let report = after_commit(&root, 0);
 
     assert!(!report.ran);
     assert!(report.attempt_error.is_none());
@@ -77,7 +83,7 @@ fn an_unreachable_provider_leaves_the_record_written() {
     configure_unreachable(&root);
 
     add(&root, "a rule written while the index is unreachable");
-    let report = after_commit(&root);
+    let report = after_commit(&root, 0);
 
     // The record is in the ledger regardless of what the provider did.
     assert_eq!(crate::record::read_all(&root).expect("records").len(), 1);
@@ -86,7 +92,7 @@ fn an_unreachable_provider_leaves_the_record_written() {
     let target = crate::vector::desired::read(&root)
         .expect("desired")
         .expect("published");
-    assert_eq!(target.records, 1);
+    assert_eq!(target.revision, 1);
     fs::remove_dir_all(root).expect("cleanup");
 }
 
@@ -137,18 +143,18 @@ fn a_writer_that_finds_the_drain_busy_still_publishes_its_tail() {
     let root = store("busy");
     configure_unreachable(&root);
     add(&root, "first");
-    after_commit(&root);
+    after_commit(&root, 0);
     let first = crate::vector::desired::read(&root)
         .expect("desired")
         .expect("published")
-        .records;
+        .revision;
 
     // Somebody else is draining for the whole of the next write.
     let held = crate::kernel::lock::TryLock::acquire(&root, "vector-drain.lock")
         .expect("lock")
         .expect("free to take");
     add(&root, "second");
-    let report = after_commit(&root);
+    let report = after_commit(&root, 0);
     let published = crate::vector::desired::read(&root)
         .expect("desired")
         .expect("published");
@@ -158,12 +164,12 @@ fn a_writer_that_finds_the_drain_busy_still_publishes_its_tail() {
     assert!(report.attempt_error.is_none());
     // But it did record what it wants indexed, which is what the holder will
     // see when it checks whether it has caught up.
-    assert_eq!(published.records, first + 1);
+    assert_eq!(published.revision, first + 1);
     drop(held);
 
     // With the lock free again, the next write is free to drain itself.
     add(&root, "third");
-    let after = after_commit(&root);
+    let after = after_commit(&root, 0);
     assert!(
         after.ran,
         "the lock is no longer held, so this writer drains"
@@ -204,7 +210,7 @@ fn the_handoff_holds_when_another_process_owns_the_lock() {
     assert!(ready.is_file(), "the other process took the lock");
 
     add(&root, "written while another process drains");
-    let report = after_commit(&root);
+    let report = after_commit(&root, 0);
     let published = crate::vector::desired::read(&root)
         .expect("desired")
         .expect("published");
@@ -216,7 +222,7 @@ fn the_handoff_holds_when_another_process_owns_the_lock() {
     assert!(!report.ran);
     assert!(report.attempt_error.is_none());
     // The tail is on record for whoever is draining to pick up.
-    assert_eq!(published.records, 1);
+    assert_eq!(published.revision, 1);
     // Once that process is gone the lock is free again — the kernel releases it
     // even if the holder never got to, which is why no lease timeout is needed.
     let reclaimed = crate::kernel::lock::TryLock::acquire(&root, "vector-drain.lock")

@@ -2,6 +2,7 @@ mod args;
 mod authority;
 mod commands;
 mod progress;
+mod resume;
 
 pub use args::*;
 pub use authority::{GrantCommand, OwnerCommand};

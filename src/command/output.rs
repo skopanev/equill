@@ -32,9 +32,15 @@ pub fn init(path: &Path, report: &InitReport) -> String {
 }
 
 pub fn record(report: &AppendReport) -> String {
+    // Two projections, named: a bare "Projection: ready" described the text
+    // index while reading as a claim about search freshness generally.
     format!(
-        "Recorded {}\nLedger: {}\nReceipt: {}\nProjection: {}",
-        report.id, report.ledger, report.receipt, report.projection
+        "Recorded {}\nLedger: {}\nReceipt: {}\nText index: {}\nVector index: {}",
+        report.id,
+        report.ledger,
+        report.receipt,
+        report.projection,
+        super::vector_state::vector_state(report)
     )
 }
 

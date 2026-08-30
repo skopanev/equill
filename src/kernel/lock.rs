@@ -65,3 +65,27 @@ impl Drop for StoreLock {
         let _ = FileExt::unlock(&self.file);
     }
 }
+
+#[cfg(test)]
+mod probe {
+    use super::TryLock;
+
+    /// Does this lock exclude a second acquisition inside the same process?
+    /// The answer decides whether the drain claim can work at all.
+    #[test]
+    fn a_second_acquisition_in_this_process_is_refused() {
+        let root = std::env::temp_dir().join(format!("equill-lockprobe-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(root.join("locks")).expect("locks");
+        let first = TryLock::acquire(&root, "probe.lock")
+            .expect("acquire")
+            .expect("free");
+        let second = TryLock::acquire(&root, "probe.lock").expect("acquire");
+        let excluded = second.is_none();
+        drop(first);
+        std::fs::remove_dir_all(&root).ok();
+        assert!(
+            excluded,
+            "same-process re-acquisition succeeded; the claim cannot rely on it"
+        );
+    }
+}

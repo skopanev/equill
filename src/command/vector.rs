@@ -37,6 +37,16 @@ pub(crate) fn run(
             );
             super::output::render(json, &report, text)
         }
+        VectorCommand::Drain { store, once } => {
+            if !once {
+                return Err(Error::Projection(
+                    "vector drain runs once; pass --once to say so explicitly".into(),
+                ));
+            }
+            let report = vector::run_worker(&store)?;
+            let text = format!("{} passes, {} embeddings", report.passes, report.embeddings);
+            super::output::render(json, &report, text)
+        }
         VectorCommand::Sync { store } => {
             let report = vector::sync_with_progress(&store, actor, progress)?;
             let text = format!(

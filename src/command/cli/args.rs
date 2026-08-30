@@ -85,6 +85,21 @@ pub enum VectorCommand {
         #[arg(long)]
         store: PathBuf,
     },
+    /// Catch the index up to the ledger once, then exit.
+    ///
+    /// Hidden: this is the worker a write starts for itself. The supported
+    /// manual recovery is `vector sync`, which is root-only; exposing this one
+    /// would be a second, unauthorized way to reach the same work.
+    #[command(hide = true)]
+    Drain {
+        /// Initialized store directory.
+        #[arg(long)]
+        store: PathBuf,
+        /// Required, and the only mode there is: the command performs one
+        /// catch-up and exits. It never waits for more work.
+        #[arg(long)]
+        once: bool,
+    },
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -181,4 +196,23 @@ pub struct PresentationArgs {
     /// Print only these fields, in order. Envelope names work beside payload.
     #[arg(long, value_delimiter = ',')]
     pub fields: Vec<String>,
+}
+
+impl VectorCommand {
+    /// Every vector command opens a store, but the worker must not nudge
+    /// itself.
+    /// None for every vector command.
+    ///
+    /// `drain` is the worker itself. The maintenance commands own their own
+    /// recovery: starting a background worker alongside a rebuild or a disable
+    /// would have the automatic mechanism fight the deliberate one.
+    pub fn store_to_resume(&self) -> Option<&std::path::Path> {
+        match self {
+            Self::Configure { .. }
+            | Self::Disable { .. }
+            | Self::Rebuild { .. }
+            | Self::Sync { .. }
+            | Self::Drain { .. } => None,
+        }
+    }
 }

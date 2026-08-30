@@ -2,7 +2,7 @@ use super::super::Embedder;
 use super::super::config::VectorConfig;
 use super::super::model::{EmbeddingDocument, VectorPointMetadata, vector_error};
 use super::document::canonical;
-use super::sync::SyncIndex;
+use super::index::SyncIndex;
 use crate::kernel::error::Error;
 use crate::record::StoredRecord;
 use std::collections::{HashMap, HashSet};

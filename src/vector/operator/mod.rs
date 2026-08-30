@@ -3,6 +3,7 @@
 mod configure;
 mod delta;
 mod document;
+mod index;
 mod rebuild;
 mod search;
 mod strategy;
@@ -10,6 +11,8 @@ mod sync;
 
 pub use configure::{VectorConfigReport, configure, disable};
 pub use document::canonical;
+#[cfg(test)]
+pub(crate) use index::SyncIndex;
 pub(crate) use rebuild::corpus;
 pub use rebuild::{VectorRebuildReport, rebuild, rebuild_with_progress};
 pub use search::{
@@ -17,6 +20,6 @@ pub use search::{
 };
 pub use strategy::{StrategySearchReport, finalize, search};
 pub(crate) use sync::catch_up;
-#[cfg(test)]
-pub(crate) use sync::{SyncIndex, execute, execute_with_progress};
 pub use sync::{VectorSyncReport, sync, sync_with_progress};
+#[cfg(test)]
+pub(crate) use sync::{execute, execute_with_progress};
