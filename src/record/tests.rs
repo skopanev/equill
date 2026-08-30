@@ -203,3 +203,46 @@ fn latest_receipt(root: &std::path::Path) -> serde_json::Value {
     serde_json::from_slice(&std::fs::read(found.last().expect("a receipt")).expect("read"))
         .expect("json")
 }
+
+/// The confirmation boundary, observed rather than timed.
+///
+/// A caller is told a record is durable once the ledger holds it and its
+/// receipt is committed. Nothing before that point may scan the ledger, rebuild
+/// the lifecycle graph, or open a projection transaction: those are rebuildable
+/// work, and a write that waits for them is paying for history it already has.
+///
+/// The end-to-end benchmark measures the consequence — confirmation not getting
+/// slower as a store grows. This measures the cause, so a slow machine cannot
+/// hide it and a fast one cannot excuse it.
+#[test]
+fn confirmation_touches_no_rebuildable_work() {
+    let root = store();
+    // A store with some history, so a scan would have something to find.
+    for index in 0..20 {
+        append(&root, lesson(&format!("existing lesson {index}")), "writer").expect("seed");
+    }
+
+    super::hotpath::reset();
+    append(&root, lesson("the record under test"), "writer").expect("append");
+    let touched = super::hotpath::touched();
+
+    assert_eq!(
+        touched,
+        super::hotpath::Touched::default(),
+        "confirmation did rebuildable work: {touched:?}"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+fn lesson(rule: &str) -> RecordDraft {
+    RecordDraft {
+        namespace: "agent.memory".into(),
+        type_name: "agent.lesson.v1".into(),
+        observed_at: "2026-01-01T00:00:00Z".into(),
+        valid_at: None,
+        payload: json!({ "rule": rule }),
+        evidence: Vec::new(),
+        tags: Vec::new(),
+        supersedes: None,
+    }
+}

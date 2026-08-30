@@ -13,6 +13,8 @@ pub fn verify_all(store_root: &Path) -> Result<usize, Error> {
 }
 
 pub fn read_all(store_root: &Path) -> Result<Vec<StoredRecord>, Error> {
+    #[cfg(test)]
+    super::hotpath::ledger_read();
     let config = store::load(store_root)?;
     let directory = store_root.join("records");
     if !directory.is_dir() {

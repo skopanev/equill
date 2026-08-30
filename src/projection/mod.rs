@@ -24,6 +24,8 @@ pub fn index(
     sha256: &str,
     ledger: &str,
 ) -> Result<(), Error> {
+    #[cfg(test)]
+    crate::record::hotpath::projection_write();
     provider::sqlite::index(store_root, record, sha256, ledger)
 }
 

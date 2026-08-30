@@ -9,6 +9,8 @@ mod verify;
 mod writer;
 
 #[cfg(test)]
+pub(crate) mod hotpath;
+#[cfg(test)]
 mod lifecycle_tests;
 #[cfg(test)]
 mod tests;

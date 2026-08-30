@@ -15,6 +15,8 @@ pub fn validate_append(
     candidate: &StoredRecord,
     definition: &TypeDefinition,
 ) -> Result<(), Error> {
+    #[cfg(test)]
+    super::hotpath::lifecycle_walk();
     let target = candidate
         .supersedes
         .map(|id| find(&records, id))
