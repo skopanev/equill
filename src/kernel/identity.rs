@@ -81,6 +81,7 @@ mod tests {
                 types: vec!["agent.finding.v1".into()],
             }],
             created_at_unix_ms: 1,
+            extra: Default::default(),
         }
     }
 

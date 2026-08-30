@@ -1,6 +1,7 @@
 use super::super::model::vector_error;
 use crate::kernel::error::Error;
-use crate::kernel::{identity, store};
+use crate::kernel::governance::RootGuard;
+
 use serde::Serialize;
 use serde_json::Value;
 use std::fs;
@@ -21,8 +22,7 @@ pub struct VectorConfigReport {
 /// the reader rejects is rolled back, so a store never keeps a config that its
 /// own loader would refuse — the alternative is a second, drifting validator.
 pub fn configure(store_root: &Path, file: &Path, actor: &str) -> Result<VectorConfigReport, Error> {
-    let config = store::load(store_root)?;
-    identity::require_root(&config, actor)?;
+    let (_guard, _config) = RootGuard::acquire(store_root, actor)?;
     let candidate: Value = serde_json::from_slice(&fs::read(file)?)?;
     write(store_root, &candidate, previous(store_root)?)
 }
@@ -30,8 +30,7 @@ pub fn configure(store_root: &Path, file: &Path, actor: &str) -> Result<VectorCo
 /// Disabling keeps the descriptor so a later enable does not have to rebuild
 /// the file, and immediately makes the projection report Disabled.
 pub fn disable(store_root: &Path, actor: &str) -> Result<VectorConfigReport, Error> {
-    let config = store::load(store_root)?;
-    identity::require_root(&config, actor)?;
+    let (_guard, _config) = RootGuard::acquire(store_root, actor)?;
     let mut current =
         previous(store_root)?.ok_or_else(|| vector_error("vector projection is not configured"))?;
     current

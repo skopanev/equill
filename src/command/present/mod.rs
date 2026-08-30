@@ -83,3 +83,6 @@ fn flatten(value: Value) -> String {
         other => other.to_string(),
     }
 }
+
+#[cfg(test)]
+mod tests;

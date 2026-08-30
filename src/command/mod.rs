@@ -1,3 +1,4 @@
+pub(crate) mod authority;
 pub mod catalog;
 pub mod cli;
 pub mod doctor;
@@ -7,6 +8,3 @@ pub mod present;
 pub mod query;
 pub mod status;
 pub(crate) mod vector;
-
-#[cfg(test)]
-mod present_tests;

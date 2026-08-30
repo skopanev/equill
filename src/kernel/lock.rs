@@ -9,12 +9,19 @@ pub struct StoreLock {
 
 impl StoreLock {
     pub fn exclusive(store: &Path) -> Result<Self, Error> {
+        Self::named(store, "writer.lock")
+    }
+
+    /// A lock on one named file under `locks/`. Governance holds its own for a
+    /// whole transaction while the writer lock is taken and released several
+    /// times inside it, which only works because they are different files.
+    pub fn named(store: &Path, name: &str) -> Result<Self, Error> {
         let file = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
             .truncate(false)
-            .open(store.join("locks/writer.lock"))?;
+            .open(store.join("locks").join(name))?;
         file.lock_exclusive()?;
         Ok(Self { file })
     }

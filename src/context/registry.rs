@@ -1,7 +1,8 @@
 use super::model::{ContextProfile, RegistryReport, Selector, VersionCoordinate};
 use crate::kernel::digest::sha256_hex;
 use crate::kernel::error::Error;
-use crate::kernel::{identity, lock::StoreLock, store};
+use crate::kernel::governance::RootGuard;
+use crate::kernel::lock::StoreLock;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::fs::{self, OpenOptions};
@@ -77,8 +78,7 @@ fn register<T: Serialize + DeserializeOwned>(
     value: &T,
     actor: &str,
 ) -> Result<RegistryReport, Error> {
-    let config = store::load(store_root)?;
-    identity::require_root(&config, actor)?;
+    let (_guard, _config) = RootGuard::acquire(store_root, actor)?;
     validate_id(id)?;
     let bytes = serde_json::to_vec(value)?;
     let digest = sha256_hex(&bytes);

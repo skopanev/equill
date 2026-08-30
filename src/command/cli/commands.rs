@@ -1,5 +1,6 @@
 //! The command list. Its argument vocabularies live beside it in `args`.
 use super::args::*;
+use super::authority::{GrantCommand, OwnerCommand};
 use clap::Subcommand;
 use std::path::PathBuf;
 
@@ -141,20 +142,8 @@ pub enum Command {
         /// Also return records a later one superseded, to read the chain.
         #[arg(long, conflicts_with = "request")]
         include_superseded: bool,
-        /// Filter by a field: `field=value`. Repeated flags are ANDed, commas
-        /// inside one are ORed, `!` negates, `null`/`!null` ask about presence.
-        #[arg(long = "where")]
-        filters: Vec<String>,
-        /// Drop records whose filtered field is absent, instead of matching all.
-        #[arg(long)]
-        strict: bool,
-        /// Output shape for the result set: one JSON object per line, or one
-        /// readable line per record.
-        #[arg(long, value_enum, default_value_t = FormatArg::Jsonl)]
-        format: FormatArg,
-        /// Print only these fields, in order. Envelope names work beside payload.
-        #[arg(long, value_delimiter = ',')]
-        fields: Vec<String>,
+        #[command(flatten)]
+        present: PresentationArgs,
     },
     /// Show installed, configured, optional, and planned components.
     Status {
@@ -185,20 +174,8 @@ pub enum Command {
         /// Retrieval strategy. `hybrid` prefers semantics and falls back to text.
         #[arg(long, value_enum, default_value_t = StrategyArg::Fts)]
         strategy: StrategyArg,
-        /// Filter by a field: `field=value`. Repeated flags are ANDed, commas
-        /// inside one are ORed, `!` negates, `null`/`!null` ask about presence.
-        #[arg(long = "where")]
-        filters: Vec<String>,
-        /// Drop records whose filtered field is absent, instead of matching all.
-        #[arg(long)]
-        strict: bool,
-        /// Output shape for the result set: one JSON object per line, or one
-        /// readable line per record.
-        #[arg(long, value_enum, default_value_t = FormatArg::Jsonl)]
-        format: FormatArg,
-        /// Print only these fields, in order. Envelope names work beside payload.
-        #[arg(long, value_delimiter = ',')]
-        fields: Vec<String>,
+        #[command(flatten)]
+        present: PresentationArgs,
     },
     /// Manage the optional Qdrant vector projection.
     #[command(after_help = ACTOR_HELP)]
@@ -240,6 +217,16 @@ pub enum Command {
         /// Initialized store directory.
         #[arg(long)]
         store: PathBuf,
+    },
+    /// Show or hand over root ownership of a store.
+    Owner {
+        #[command(subcommand)]
+        command: OwnerCommand,
+    },
+    /// Manage scoped append grants.
+    Grant {
+        #[command(subcommand)]
+        command: GrantCommand,
     },
     /// Rebuild disposable projections from immutable records.
     Rebuild {

@@ -163,3 +163,22 @@ mod tests {
         assert_eq!(store, PathBuf::from("store"));
     }
 }
+
+/// Flags every result set shares: what to keep, and how to print it. Declared
+/// once so the context and search surfaces cannot drift apart.
+#[derive(Clone, Debug, clap::Args)]
+pub struct PresentationArgs {
+    /// Filter by a field: `field=value`. Repeated flags are ANDed, commas
+    /// inside one are ORed, `!` negates, `null`/`!null` ask about presence.
+    #[arg(long = "where")]
+    pub filters: Vec<String>,
+    /// Drop records whose filtered field is absent, instead of matching all.
+    #[arg(long)]
+    pub strict: bool,
+    /// Output shape: one JSON object per line, or one readable line per record.
+    #[arg(long, value_enum, default_value_t = FormatArg::Jsonl)]
+    pub format: FormatArg,
+    /// Print only these fields, in order. Envelope names work beside payload.
+    #[arg(long, value_delimiter = ',')]
+    pub fields: Vec<String>,
+}

@@ -6,8 +6,9 @@ use super::super::{Embedder, VectorProjection, embed_batch};
 use super::delta::{pending, verify_descriptor};
 use super::rebuild::corpus;
 use crate::kernel::error::Error;
+use crate::kernel::governance::RootGuard;
 use crate::kernel::lock::StoreLock;
-use crate::kernel::{identity, store};
+
 use serde::Serialize;
 use std::path::Path;
 use std::time::Instant;
@@ -86,8 +87,7 @@ pub fn sync_with_progress(
     // the store spends minutes on a model. Reaching the same work as a
     // consequence of a write one was already allowed to make is not, which is
     // why the internal entry below exists and does not ask again.
-    let store_config = store::load(store_root)?;
-    identity::require_root(&store_config, actor)?;
+    let (_guard, _config) = RootGuard::acquire(store_root, actor)?;
     catch_up_with_progress(store_root, progress)
 }
 

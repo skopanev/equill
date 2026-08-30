@@ -30,6 +30,21 @@ pub fn append(store_root: &Path, draft: RecordDraft, actor: &str) -> Result<Appe
     Ok(report)
 }
 
+/// Re-read the authority from disk and check it again. Called while the writer
+/// lock is held, immediately before the append.
+///
+/// The check at the top of `append_only` happens before any lock is taken, so a
+/// handover landing in between would otherwise let an actor who has just lost
+/// access write anyway — authorized against a store that no longer exists.
+pub(crate) fn require_current_writer(
+    store_root: &Path,
+    actor: &str,
+    namespace: &str,
+    type_name: &str,
+) -> Result<(), Error> {
+    identity::require_type_writer(&store::load(store_root)?, actor, namespace, type_name)
+}
+
 pub fn append_only(
     store_root: &Path,
     mut draft: RecordDraft,
@@ -82,6 +97,12 @@ pub fn append_only(
     };
 
     let _lock = StoreLock::exclusive(store_root)?;
+    // Authority is re-read and re-checked here, inside the lock, immediately
+    // before the append. The check above happened before any lock was held, so
+    // a handover that landed in between would otherwise let an actor who has
+    // just lost access write anyway — authorized against a store that no longer
+    // exists.
+    require_current_writer(store_root, actor, &record.namespace, &record.type_name)?;
     let records = super::read_all(store_root)?;
     super::lifecycle::validate_append(store_root, records, &record, &definition)?;
     ensure_clean_tail(&path)?;

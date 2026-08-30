@@ -3,14 +3,15 @@ use super::{receipt, transaction};
 use crate::command::{doctor, init};
 use crate::ingest::manifest::{self, ResolvedInput};
 use crate::kernel::error::Error;
-use crate::kernel::{identity, lock::StoreLock, store};
+use crate::kernel::{lock::StoreLock, store};
 use crate::{integrity, projection};
 use std::fs;
 use std::path::Path;
 
+/// Called only from `compact::run`, which already holds the governance guard and
+/// has already established that this actor governs.
 pub fn execute(store_root: &Path, plan: Plan, actor: &str) -> Result<CompactReport, Error> {
     let config = store::load(store_root)?;
-    identity::require_root(&config, actor)?;
     let _lock = StoreLock::exclusive(store_root)?;
     let transaction_id = uuid::Uuid::now_v7().to_string();
     let mut sources = transaction::stage_sources(&plan, &transaction_id)?;

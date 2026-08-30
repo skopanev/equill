@@ -14,6 +14,9 @@ pub enum Error {
     Compact(String),
     Context(String),
     Filter(String),
+    /// A governance call that is refused for a reason the caller has to read:
+    /// the store is in a shape this operation cannot safely change.
+    Governance(String),
     Integrity(String),
     Import(String),
     MemoryDefense(String),
@@ -60,6 +63,7 @@ impl Display for Error {
                     "record type already registered differently: {name}"
                 )
             }
+            Self::Governance(detail) => write!(formatter, "{detail}"),
             Self::PermissionDenied => write!(formatter, "actor is not allowed to write"),
             Self::PostCommit(reason) => write!(formatter, "post-commit failure: {reason}"),
             Self::Projection(reason) => write!(formatter, "projection failed: {reason}"),

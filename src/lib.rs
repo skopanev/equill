@@ -3,6 +3,7 @@ pub mod compact;
 pub mod context;
 pub mod defense;
 pub mod filter;
+pub mod governance;
 pub mod ingest;
 pub mod integrity;
 pub mod kernel;
@@ -145,10 +146,7 @@ where
             kinds,
             at,
             include_superseded,
-            filters,
-            strict,
-            format,
-            fields,
+            present,
         } => command::query::context(
             json,
             store,
@@ -164,10 +162,10 @@ where
             kinds,
             at,
             include_superseded,
-            filters,
-            strict,
-            format,
-            fields,
+            present.filters,
+            present.strict,
+            present.format,
+            present.fields,
         ),
         command::cli::Command::Status { store } => {
             let report = command::status::report(store.as_deref())?;
@@ -180,14 +178,21 @@ where
             type_name,
             limit,
             strategy,
-            filters,
-            strict,
-            format,
-            fields,
+            present,
             all,
         } => command::query::search(
-            json, store, query, namespace, type_name, limit, strategy, filters, strict, format,
-            fields, all,
+            json,
+            store,
+            query,
+            namespace,
+            type_name,
+            limit,
+            strategy,
+            present.filters,
+            present.strict,
+            present.format,
+            present.fields,
+            all,
         ),
         command::cli::Command::Vector { command } => {
             let actor = kernel::identity::actor_from_env()?;
@@ -218,6 +223,8 @@ where
             mcp::serve(&store, &actor, telemetry::enabled(), input, out)?;
             Ok(String::new())
         }
+        command::cli::Command::Owner { command } => command::authority::owner(json, command),
+        command::cli::Command::Grant { command } => command::authority::grant(json, command),
         command::cli::Command::Rebuild { store } => {
             let report = projection::rebuild(&store)?;
             command::output::render(json, &report, command::output::rebuild(&report))

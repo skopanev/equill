@@ -1,8 +1,10 @@
 mod args;
+mod authority;
 mod commands;
 mod progress;
 
 pub use args::*;
+pub use authority::{GrantCommand, OwnerCommand};
 use clap::Parser;
 pub use commands::*;
 pub(crate) use progress::HumanVectorProgress;

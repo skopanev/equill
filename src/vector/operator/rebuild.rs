@@ -6,8 +6,9 @@ use super::super::{VectorProjection, embed_batch};
 use super::document::canonical;
 use crate::kernel::digest::sha256_hex;
 use crate::kernel::error::Error;
+use crate::kernel::governance::RootGuard;
 use crate::kernel::lock::StoreLock;
-use crate::kernel::{identity, store};
+
 use crate::record::StoredRecord;
 use serde::Serialize;
 use std::fs;
@@ -43,8 +44,7 @@ pub fn rebuild_with_progress(
     actor: &str,
     mut progress: Option<&mut dyn VectorProgressSink>,
 ) -> Result<VectorRebuildReport, Error> {
-    let config = store::load(store_root)?;
-    identity::require_root(&config, actor)?;
+    let (_guard, _config) = RootGuard::acquire(store_root, actor)?;
     let vector_config = super::super::config::load(store_root)?
         .filter(|config| config.enabled)
         .ok_or_else(|| vector_error("vector projection is not configured"))?;
@@ -128,8 +128,19 @@ pub fn rebuild_with_progress(
 
 /// The ledger is the truth being indexed, so the digest covers exactly what a
 /// canonical read returns: every record hash in record-id order.
+/// Records the engine writes about itself. Their payload is digests, so there
+/// is nothing to embed and nothing a semantic query could usefully match. They
+/// are excluded from the corpus rather than indexed, which also keeps a
+/// governance change from leaving every store lagging until someone runs a sync.
+fn embeddable(record: &StoredRecord) -> bool {
+    record.type_name != crate::governance::AUDIT_TYPE
+}
+
 pub(crate) fn corpus(store_root: &Path) -> Result<(Vec<(StoredRecord, String)>, String), Error> {
-    let validated = crate::record::read_all(store_root)?;
+    let validated = crate::record::read_all(store_root)?
+        .into_iter()
+        .filter(embeddable)
+        .collect::<Vec<_>>();
     let mut digests = std::collections::HashMap::new();
     for entry in fs::read_dir(store_root.join("records"))? {
         let path = entry?.path();

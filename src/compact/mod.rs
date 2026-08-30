@@ -8,7 +8,7 @@ mod rewrite;
 mod transaction;
 
 use crate::kernel::error::Error;
-use crate::kernel::{identity, store};
+use crate::kernel::governance::RootGuard;
 use std::path::Path;
 
 pub use model::CompactReport;
@@ -19,8 +19,7 @@ pub fn run(
     apply_changes: bool,
     actor: &str,
 ) -> Result<CompactReport, Error> {
-    let config = store::load(store_root)?;
-    identity::require_root(&config, actor)?;
+    let (_guard, _config) = RootGuard::acquire(store_root, actor)?;
     let plan = planner::build(store_root, manifest, jiff::Timestamp::now())?;
     if apply_changes {
         return apply::execute(store_root, plan, actor);

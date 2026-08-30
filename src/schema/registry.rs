@@ -1,9 +1,8 @@
 use super::TypeDefinition;
 use crate::kernel::digest::sha256_hex;
 use crate::kernel::error::Error;
-use crate::kernel::identity;
+use crate::kernel::governance::RootGuard;
 use crate::kernel::lock::StoreLock;
-use crate::kernel::store;
 use serde::Serialize;
 use std::fs::{self, OpenOptions};
 use std::io::Write as IoWrite;
@@ -63,8 +62,17 @@ pub fn register(
     definition: TypeDefinition,
     actor: &str,
 ) -> Result<RegisterReport, Error> {
-    let config = store::load(store_root)?;
-    identity::require_root(&config, actor)?;
+    let (_guard, _config) = RootGuard::acquire(store_root, actor)?;
+    register_authorized(store_root, definition)
+}
+
+/// The same work for a caller that already holds the governance guard. Taking it
+/// twice would deadlock, so an operation inside a governance transaction reaches
+/// this entry point instead of the public one.
+pub(crate) fn register_authorized(
+    store_root: &Path,
+    definition: TypeDefinition,
+) -> Result<RegisterReport, Error> {
     validate(&definition)?;
     let canonical = serde_json::to_vec(&definition)?;
     let digest = sha256_hex(&canonical);

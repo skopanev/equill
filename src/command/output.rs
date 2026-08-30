@@ -177,3 +177,59 @@ pub fn rebuild(report: &RebuildReport) -> String {
         report.projection, report.records
     )
 }
+
+pub fn authority(report: &crate::governance::AuthorityReport) -> String {
+    let grants = report
+        .grants
+        .iter()
+        .map(|grant| {
+            format!(
+                "  {} -> {} {}",
+                grant.actors.join(","),
+                grant.namespace,
+                grant.types.join(",")
+            )
+        })
+        .collect::<Vec<_>>();
+    let mut text = format!(
+        "owner {}\nwriters {}",
+        report.owner,
+        if report.writers.is_empty() {
+            "none".into()
+        } else {
+            report.writers.join(", ")
+        }
+    );
+    if !grants.is_empty() {
+        text.push_str("\ngrants\n");
+        text.push_str(&grants.join("\n"));
+    }
+    text
+}
+
+pub fn owner(report: &crate::governance::OwnerReport) -> String {
+    let revoked = if report.revoked_writers.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " — {} lost {}",
+            report.previous_owner,
+            report.revoked_writers.join(" and ")
+        )
+    };
+    format!(
+        "{} handed the store to {}{}",
+        report.previous_owner, report.owner, revoked
+    )
+}
+
+pub fn grant(report: &crate::governance::GrantReport) -> String {
+    if report.changed {
+        format!("{} — {} grants in force", report.actor, report.grants)
+    } else {
+        format!(
+            "{} — unchanged, {} grants in force",
+            report.actor, report.grants
+        )
+    }
+}

@@ -1,5 +1,7 @@
 use crate::kernel::error::Error;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
@@ -17,6 +19,14 @@ pub struct StoreConfig {
     #[serde(default)]
     pub write_grants: Vec<WriteGrant>,
     pub created_at_unix_ms: u128,
+    /// Top-level fields this build does not know about.
+    ///
+    /// A store written by a newer Equill may carry keys this one has never heard
+    /// of. Reading them is not enough: anything that rewrites the metadata has to
+    /// write them back, or an ordinary grant silently deletes state the newer
+    /// build depends on. A sorted map keeps that round-trip byte-deterministic.
+    #[serde(flatten, default)]
+    pub extra: BTreeMap<String, Value>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -33,8 +43,27 @@ pub fn load(root: &Path) -> Result<StoreConfig, Error> {
         return Err(Error::NotInitialized(root.to_path_buf()));
     }
     let config = serde_json::from_slice(&fs::read(path)?)?;
-    validate_write_grants(&config)?;
+    validate(&config)?;
     Ok(config)
+}
+
+/// Every rule a store's metadata has to satisfy to be loadable.
+///
+/// Reading is not the only time this matters: anything that writes metadata has
+/// to run it too, before serializing. Otherwise a write can produce a file that
+/// this very function will refuse the next time anyone opens the store — a
+/// change that succeeds and then bricks it.
+pub fn validate(config: &StoreConfig) -> Result<(), Error> {
+    if !crate::kernel::identity::valid(&config.root_owner) {
+        return Err(Error::InvalidOwner);
+    }
+    if config.namespaces.is_empty() {
+        return Err(Error::InvalidNamespace);
+    }
+    if config.writers.iter().any(|writer| !valid_match(writer)) {
+        return Err(Error::InvalidActor);
+    }
+    validate_write_grants(config)
 }
 
 fn validate_write_grants(config: &StoreConfig) -> Result<(), Error> {
