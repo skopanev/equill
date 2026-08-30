@@ -4,6 +4,7 @@
 //! that will not take a file, an index that will not take a row — rather than
 //! simulating one, because the question is what the code does when the
 //! filesystem says no, and a mock cannot answer it.
+mod pending;
 mod recovery;
 
 use super::tests::{lesson, store};

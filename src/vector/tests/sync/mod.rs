@@ -90,8 +90,7 @@ impl SyncIndex for FakeIndex {
             &self.root,
             &self.config,
             physical,
-            // The revision the pass was given. Inventing one from the record
-            // count made every checkpoint claim an unpublished target.
+            // The revision given, not one invented from the record count.
             Some((records, digest, revision)),
         )?
         .commit()

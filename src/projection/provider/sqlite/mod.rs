@@ -11,5 +11,5 @@ mod stemming_tests;
 mod writer;
 
 pub use search::{MAX_SCAN, search};
-pub use sqlite::{initialize, mark_degraded, state, verify};
+pub use sqlite::{clear_degraded, initialize, mark_degraded, state, verify};
 pub use writer::{index, rebuild};

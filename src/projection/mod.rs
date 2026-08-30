@@ -108,6 +108,11 @@ pub fn catch_up_text(store_root: &Path) -> Result<usize, Error> {
         // behind rather than current.
         return Ok(indexed);
     }
+    // Every record the ledger holds is in the index. Whatever put this store
+    // into a degraded state has been indexed since — degradation is recorded
+    // per record and cleared by covering them, so leaving the marker up would
+    // report a store as broken for a failure it has already recovered from.
+    provider::sqlite::clear_degraded(store_root)?;
     let _ = std::fs::create_dir_all(store_root.join("projections/sqlite"));
     // After the pass, never before: a watermark written first would let a
     // failed pass claim coverage it does not have.

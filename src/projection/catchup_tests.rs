@@ -38,6 +38,11 @@ fn a_record_the_index_refuses_is_retried_and_never_reported_as_covered() {
     unseal(&database);
 
     assert_eq!(indexed, 0, "the sealed index accepted a record");
+    assert_eq!(
+        super::state(&root).expect("state"),
+        super::ProjectionState::Degraded,
+        "a record the index refused left the projection reported as healthy"
+    );
     let after = super::watermark(&root).expect("the previous position still stands");
     assert_eq!(
         after.indexed_records, 3,
@@ -56,6 +61,14 @@ fn a_record_the_index_refuses_is_retried_and_never_reported_as_covered() {
         "a completed pass did not publish its coverage"
     );
 
+    // Health follows coverage: the record that was refused is in the index now,
+    // so the marker that recorded its refusal has nothing left to describe.
+    assert_eq!(
+        super::state(&root).expect("state"),
+        super::ProjectionState::Ready,
+        "a store that caught up completely is still reported as degraded"
+    );
+
     let found = super::search(
         &root,
         &super::SearchRequest {
@@ -70,6 +83,77 @@ fn a_record_the_index_refuses_is_retried_and_never_reported_as_covered() {
         found.hits.len(),
         1,
         "the retried record is still not searchable"
+    );
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// A month boundary must not lose the records on either side of it.
+///
+/// The cursor into the ledger is a count, which is only sound if the sequence
+/// it counts into grows at the end. Two things make that true: the writer names
+/// each ledger by the month it is writing, so a new file is always the latest,
+/// and `read_all` sorts the ledgers rather than taking whatever order the
+/// directory hands back. Without the sort the new month can arrive anywhere in
+/// the sequence, and every record the cursor steps over is skipped for good —
+/// a fault no store shows until it has lived through the turn of a month.
+#[test]
+fn a_record_in_a_new_ledger_is_covered_rather_than_stepped_over() {
+    let root = store();
+    for index in 0..3 {
+        append_only(&root, lesson(&format!("lesson {index}")), "writer").expect("seed");
+    }
+    super::catch_up_text(&root).expect("first pass");
+
+    // The next month, written the way the writer would write it: its own
+    // ledger, named for its own month.
+    let existing = fs::read_dir(root.join("records"))
+        .expect("records")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .next()
+        .expect("a ledger");
+    let mut record: serde_json::Value = serde_json::from_str(
+        fs::read_to_string(&existing)
+            .expect("ledger")
+            .lines()
+            .next()
+            .expect("a record"),
+    )
+    .expect("json");
+    let object = record.as_object_mut().expect("object");
+    object.insert("id".into(), json!(Uuid::now_v7().to_string()));
+    object.insert("recorded_at".into(), json!("2099-01-01T00:00:00Z"));
+    object.insert(
+        "payload".into(),
+        json!({ "rule": "the record in the next ledger" }),
+    );
+    fs::write(
+        root.join("records/2099-01.jsonl"),
+        format!("{}\n", serde_json::to_string(&record).expect("line")),
+    )
+    .expect("next ledger");
+
+    let indexed = super::catch_up_text(&root).expect("second pass");
+    assert_eq!(indexed, 1, "the record in the new ledger was not indexed");
+    assert_eq!(
+        super::watermark(&root).expect("position").indexed_records,
+        4,
+        "the published coverage does not account for both ledgers"
+    );
+    let found = super::search(
+        &root,
+        &super::SearchRequest {
+            query: Some("next ledger".into()),
+            namespace: Some("agent.memory".into()),
+            type_name: Some("agent.lesson.v1".into()),
+            limit: 10,
+        },
+    )
+    .expect("search");
+    assert_eq!(
+        found.hits.len(),
+        1,
+        "the record in the new ledger is not searchable"
     );
     let _ = fs::remove_dir_all(&root);
 }

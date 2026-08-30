@@ -1,3 +1,5 @@
+mod recovery;
+
 use crate::defense::DefenseFinding;
 use crate::kernel::error::Error;
 use serde::Serialize;
@@ -35,7 +37,9 @@ pub struct WriteReceipt<'a> {
     pub defense_findings: &'a [DefenseFinding],
 }
 
-const PENDING: &str = "receipts/pending";
+pub(super) const PENDING: &str = "receipts/pending";
+
+pub use recovery::resolve_pending;
 
 pub struct StagedReceipt {
     pending: PathBuf,
@@ -84,59 +88,6 @@ impl Drop for StagedReceipt {
             let _ = fs::remove_file(&self.pending);
         }
     }
-}
-
-/// Finish any receipt a previous write left unfinished.
-///
-/// Called under the writer lock at the start of every write. A receipt is
-/// staged in `receipts/pending` and renamed into its month on commit, so
-/// anything still in that directory belongs to a transaction that did not
-/// finish — and since staging happens before the ledger append, the only way
-/// one survives is that the append succeeded and the rename did not.
-///
-/// The directory is empty in the ordinary case, which is what makes this
-/// affordable on every write: one listing of an empty directory, never a scan
-/// of the receipts a store has accumulated.
-///
-/// Failure here refuses the new write. That is deliberate: the store already
-/// holds a durable record whose receipt is unfinished, and accepting another
-/// write would bury it under one more.
-pub fn resolve_pending(store_root: &Path) -> Result<(), Error> {
-    let directory = store_root.join(PENDING);
-    let Ok(entries) = fs::read_dir(&directory) else {
-        return Ok(());
-    };
-    for entry in entries {
-        let path = entry?.path();
-        if path.extension().is_none_or(|value| value != "json") {
-            continue;
-        }
-        let staged: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
-        let (Some(recorded_at), Some(receipt_id)) = (
-            staged["recorded_at"].as_str(),
-            staged["receipt_id"].as_str(),
-        ) else {
-            return Err(Error::Integrity(format!(
-                "an unfinished receipt cannot be read and must be resolved by hand: {}",
-                path.display()
-            )));
-        };
-        let month = recorded_at.get(..7).ok_or_else(|| {
-            Error::Integrity(format!(
-                "an unfinished receipt has no month: {}",
-                path.display()
-            ))
-        })?;
-        let target = store_root
-            .join("receipts/writes")
-            .join(month)
-            .join(format!("{receipt_id}.json"));
-        if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::rename(&path, &target)?;
-    }
-    Ok(())
 }
 
 pub fn stage(

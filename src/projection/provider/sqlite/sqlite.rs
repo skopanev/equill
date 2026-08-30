@@ -174,7 +174,7 @@ pub(super) fn content(record: &StoredRecord) -> Result<String, Error> {
     ))
 }
 
-pub(super) fn clear_degraded(store_root: &Path) -> Result<(), Error> {
+pub fn clear_degraded(store_root: &Path) -> Result<(), Error> {
     let marker = store_root.join(DEGRADED);
     if marker.exists() {
         fs::remove_file(marker)?;
