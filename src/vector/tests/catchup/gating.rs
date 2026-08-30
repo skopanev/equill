@@ -106,3 +106,33 @@ fn a_failed_attempt_is_never_reported_as_a_current_index() {
         "a report that failed claimed the index was current: {report:?}"
     );
 }
+
+/// A worker killed between being started and taking its claim leaves the claim
+/// behind with nothing running. Waiting out the full stale window for that left
+/// a store idle for thirty seconds after any kill — long enough that a recovery
+/// test timing out at thirty seconds saw exactly that and blamed the worker.
+#[test]
+fn an_abandoned_claim_stops_blocking_once_nobody_is_working() {
+    let root = bare("abandoned-claim");
+    let issued = crate::vector::handoff_for_tests(&root).expect("claim");
+    assert!(crate::vector::handoff_path_for_tests(&root).is_file());
+
+    // Inside the grace period the claim is believed: a worker may still be on
+    // its way, and starting a second one would duplicate the work.
+    assert!(
+        crate::vector::handoff_claim_for_tests(&root)
+            .expect("claim")
+            .is_none(),
+        "a young claim must hold, or two writers would start two workers"
+    );
+
+    // Age it past the grace. Nothing holds the drain lock, so no worker ever
+    // took it, and the next caller must be free to start one.
+    crate::vector::age_handoff_for_tests(&root);
+    let replacement = crate::vector::handoff_claim_for_tests(&root).expect("claim");
+
+    assert!(
+        replacement.is_some_and(|id| id != issued),
+        "an abandoned claim must not keep a store idle"
+    );
+}

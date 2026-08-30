@@ -13,6 +13,19 @@ pub(crate) fn handoff_for_tests(store: &std::path::Path) -> Result<uuid::Uuid, E
 pub(crate) fn handoff_path_for_tests(store: &std::path::Path) -> std::path::PathBuf {
     catchup::handoff::path(store)
 }
+
+#[cfg(test)]
+pub(crate) fn handoff_claim_for_tests(
+    store: &std::path::Path,
+) -> Result<Option<uuid::Uuid>, Error> {
+    catchup::handoff::claim(store)
+}
+
+/// Backdate the claim so the startup grace has passed, without sleeping.
+#[cfg(test)]
+pub(crate) fn age_handoff_for_tests(store: &std::path::Path) {
+    catchup::handoff::age_for_tests(store);
+}
 mod embedder;
 mod embedding;
 mod hydrate;

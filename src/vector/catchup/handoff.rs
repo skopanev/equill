@@ -20,6 +20,16 @@ const ACTIVE: &str = "projections/qdrant/handoff-active.json";
 /// slow machine starting a process is never mistaken for a dead one.
 const STALE_AFTER_MS: u128 = 30_000;
 
+/// How long a claim is believed purely because it is young.
+///
+/// A claim exists from the moment a worker is started until that worker takes
+/// it, and during that gap there is nothing else to prove the worker is coming:
+/// no lock is held yet. This is the allowance for a fork, an exec and a link.
+/// Past it, a claim beside a free drain lock is a worker that never arrived —
+/// which is what a kill between start and consume leaves behind, and waiting
+/// the full stale window for it left a store idle for thirty seconds.
+const STARTING_GRACE_MS: u128 = 5_000;
+
 /// A single-use permission to run one catch-up, and the thing that stops two
 /// writers from starting two workers.
 ///
@@ -50,10 +60,14 @@ pub(crate) fn claim(store: &Path) -> Result<Option<Uuid>, Error> {
         .parent()
         .ok_or_else(|| vector_error("handoff directory is invalid"))?;
     fs::create_dir_all(directory)?;
-    // A claim that has not been taken up yet: somebody is starting a worker.
+    // A claim that has not been taken up yet. Somebody is starting a worker —
+    // or somebody started one that never got as far as taking it. Inside the
+    // grace period, believe it; past that, the drain lock decides, exactly as it
+    // does for a claim that WAS taken up.
     match read(&path)? {
-        Some(existing) if !stale(&existing) => return Ok(None),
-        // Stale: the child it was issued for is long gone. Clear it so the
+        Some(existing) if within_grace(&existing) => return Ok(None),
+        Some(existing) if !stale(&existing) && working(store) => return Ok(None),
+        // Abandoned: no worker took it and none is running. Clear it so the
         // exclusive create below can win.
         Some(_) => {
             let _ = fs::remove_file(&path);
@@ -149,6 +163,11 @@ fn working(store: &Path) -> bool {
     }
 }
 
+/// Whether a claim is young enough that a worker could still be on its way.
+fn within_grace(claim: &Claim) -> bool {
+    now_ms().saturating_sub(claim.issued_unix_ms) <= STARTING_GRACE_MS
+}
+
 fn stale(claim: &Claim) -> bool {
     now_ms().saturating_sub(claim.issued_unix_ms) > STALE_AFTER_MS
 }
@@ -167,6 +186,18 @@ fn create_exclusively(path: &Path, claim: &Claim) -> std::io::Result<()> {
     let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
     file.write_all(&bytes)?;
     file.sync_all()
+}
+
+/// Rewrite the claim as though it were issued long ago, so a test can reach the
+/// post-grace behaviour without waiting for it.
+#[cfg(test)]
+pub(crate) fn age_for_tests(store: &Path) {
+    let path = store.join(TICKET);
+    if let Some(mut claim) = read(&path).ok().flatten() {
+        claim.issued_unix_ms = claim.issued_unix_ms.saturating_sub(STARTING_GRACE_MS + 1);
+        let _ = fs::remove_file(&path);
+        let _ = create_exclusively(&path, &claim);
+    }
 }
 
 #[cfg(test)]

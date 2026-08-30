@@ -104,7 +104,18 @@ fn a_session_write_returns_before_the_projection_does() {
         if response.to_string().contains("\"queued\"") {
             queued += 1;
         }
+        // Checked on every call. A worker that died early would leave the rest
+        // of the measurement timing writes with nothing running, which is a
+        // different and much easier thing to be fast at.
+        assert!(
+            !failed_outcome(&root),
+            "the worker filed a failure at write {index}; it was not busy"
+        );
     }
+    assert!(
+        harness::children(&root) > 0,
+        "no worker is running at the end of the measurement"
+    );
 
     report("session record", &timings(taken));
     assert!(

@@ -17,7 +17,18 @@ fn a_long_lived_mcp_session_restarts_a_dead_worker() {
     let provider = SlowProvider::start();
     let root = store_against("mcp", &provider.endpoint());
     record(&root, 0);
-    assert!(alive(&root, Duration::from_secs(30)), "a worker is running");
+    assert!(
+        reaches_provider(&provider, Duration::from_secs(30)),
+        "the first worker never sent a request; stage {:?}",
+        provider.stage()
+    );
+    assert!(
+        alive(&root, Duration::from_secs(30)),
+        "a worker is running; stage {:?} requests={} {}",
+        provider.stage(),
+        provider.requests(),
+        state(&root)
+    );
     kill_workers(&root);
     assert!(settles(&root, Duration::from_secs(5)), "the worker is gone");
 
@@ -59,7 +70,10 @@ fn a_long_lived_mcp_session_restarts_a_dead_worker() {
     let _ = server.wait();
     assert!(
         restarted,
-        "a live MCP session never restarted the outstanding work"
+        "a live MCP session never restarted the outstanding work; stage {:?} requests={} {}",
+        provider.stage(),
+        provider.requests(),
+        state(&root)
     );
     provider.release();
     settles(&root, Duration::from_secs(10));
@@ -85,4 +99,33 @@ fn kill_workers(root: &Path) {
             &format!("vector drain --store {}", root.display()),
         ])
         .status();
+}
+
+/// Wait until the provider is holding a request from a worker.
+fn reaches_provider(provider: &SlowProvider, within: Duration) -> bool {
+    let deadline = Instant::now() + within;
+    while Instant::now() < deadline {
+        if provider.requests() > 0 {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    false
+}
+
+/// Test-owned state for one disposable store: counts and outcome words only.
+fn state(root: &Path) -> String {
+    let read = |name: &str| -> String {
+        std::fs::read_to_string(root.join("projections/qdrant").join(name))
+            .map(|text| text.chars().take(160).collect())
+            .unwrap_or_else(|_| "absent".into())
+    };
+    format!(
+        "desired={} cooldown={} last-drain={} handoff={} active={}",
+        read("desired.json"),
+        read("cooldown.json"),
+        read("last-drain.json"),
+        read("handoff.json"),
+        read("handoff-active.json")
+    )
 }
