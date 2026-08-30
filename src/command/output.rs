@@ -141,6 +141,16 @@ pub fn status(report: &StatusReport) -> String {
     for component in &report.components {
         write!(&mut output, "\n  {:<10} {}", component.state, component.id)
             .expect("writing to String cannot fail");
+        // `ready` on the left already says the component works. What a reader
+        // still needs is whether it has caught up, and only when it has not.
+        if let Some(pending) = component
+            .vector
+            .as_ref()
+            .and_then(|health| health.vector_pending_records)
+            .filter(|pending| *pending > 0)
+        {
+            write!(&mut output, " — {pending} processing").expect("writing to String cannot fail");
+        }
     }
     output
 }

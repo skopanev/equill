@@ -2,23 +2,12 @@ use super::super::Embedder;
 use super::super::config::VectorConfig;
 use super::super::model::{EmbeddingDocument, VectorPointMetadata, vector_error};
 use super::document::canonical;
-use super::rebuild::corpus;
 use super::sync::SyncIndex;
 use crate::kernel::error::Error;
 use crate::record::StoredRecord;
 use std::collections::{HashMap, HashSet};
 
 const SCAN_BATCH: usize = 256;
-
-pub(super) fn require_unchanged(store_root: &std::path::Path, expected: &str) -> Result<(), Error> {
-    let (_, recheck) = corpus(store_root)?;
-    if recheck != expected {
-        return Err(vector_error(
-            "the ledger changed during vector sync; rerun vector sync",
-        ));
-    }
-    Ok(())
-}
 
 pub(super) fn pending<I: SyncIndex>(
     config: &VectorConfig,

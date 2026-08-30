@@ -3,7 +3,7 @@ use super::super::embedding::EmbeddingRuntime;
 use super::super::model::{VectorPoint, VectorPointMetadata, vector_error};
 use super::super::progress::{VectorProgress, VectorProgressSink, emit};
 use super::super::{Embedder, VectorProjection, embed_batch};
-use super::delta::{pending, require_unchanged, verify_descriptor};
+use super::delta::{pending, verify_descriptor};
 use super::rebuild::corpus;
 use crate::kernel::error::Error;
 use crate::kernel::lock::StoreLock;
@@ -37,8 +37,7 @@ pub(crate) trait SyncIndex {
     ) -> Result<Vec<VectorPointMetadata>, Error>;
     fn upsert(&self, physical: &str, points: &[VectorPoint]) -> Result<(), Error>;
     fn ensure_active(&self, physical: &str) -> Result<(), Error>;
-    fn mark_degraded(&self, physical: &str) -> Result<(), Error>;
-    fn mark_ready(&self, physical: &str) -> Result<(), Error>;
+    fn mark_indexed(&self, physical: &str, records: usize, digest: &str) -> Result<(), Error>;
 }
 
 impl SyncIndex for VectorProjection {
@@ -62,12 +61,8 @@ impl SyncIndex for VectorProjection {
         self.ensure_active(physical)
     }
 
-    fn mark_degraded(&self, physical: &str) -> Result<(), Error> {
-        self.mark_degraded(physical)
-    }
-
-    fn mark_ready(&self, physical: &str) -> Result<(), Error> {
-        self.mark_ready(physical)
+    fn mark_indexed(&self, physical: &str, records: usize, digest: &str) -> Result<(), Error> {
+        self.mark_indexed(physical, records, digest)
     }
 }
 
@@ -152,10 +147,15 @@ where
     );
 
     if !documents.is_empty() {
-        let _lock = StoreLock::exclusive(store_root)?;
-        require_unchanged(store_root, &digest)?;
-        index.mark_degraded(&physical)?;
-        drop(_lock);
+        // Only the captured snapshot is processed. Whatever is appended while
+        // the model runs is the next call's tail, not a reason to fail this one
+        // — a store that is written to continuously would otherwise never
+        // finish a sync at all.
+        //
+        // The previous checkpoint stays Ready for the whole pass. Demoting it
+        // here would take semantic search offline for as long as the model runs
+        // and, worse, leave it offline if the pass failed — losing a working
+        // index to protect it from being slightly behind.
         emit(&mut progress, VectorProgress::LoadingModel);
         let embedder = load_embedder()?;
         verify_descriptor(config, &embedder)?;
@@ -186,11 +186,10 @@ where
     }
 
     let _lock = StoreLock::exclusive(store_root)?;
-    require_unchanged(store_root, &digest)?;
     index.ensure_active(&physical)?;
-    if super::super::state::read(store_root, Some(config))? != super::super::VectorState::Ready {
-        index.mark_ready(&physical)?;
-    }
+    // The checkpoint records what this pass actually covered, so the next one
+    // knows its tail and a reader can tell how far behind the index is.
+    index.mark_indexed(&physical, records.len(), &digest)?;
     drop(_lock);
     emit(
         &mut progress,

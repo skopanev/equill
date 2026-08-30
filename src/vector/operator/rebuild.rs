@@ -27,11 +27,13 @@ pub struct VectorRebuildReport {
 
 /// Rebuild is staged, then activated. Vectors go into a fresh physical
 /// collection while the alias keeps serving the previous one, so a failure
-/// anywhere before activation leaves the old answers in place and never marks
-/// the projection Ready. Embedding the whole corpus can take minutes, so the
-/// ledger is read without the writer lock and re-checked under it: if a record
-/// landed while we worked, the digest no longer matches and we refuse to
-/// activate a snapshot that is already behind.
+/// anywhere before activation leaves the old answers in place.
+///
+/// It indexes the snapshot it captured and activates exactly that boundary. It
+/// does not require the ledger to hold still: a store that is written to
+/// continuously would never satisfy such a condition, and refusing to activate
+/// would leave it with no index at all. Whatever arrives during the pass is the
+/// next sync's tail, and the checkpoint records where this one stopped.
 pub fn rebuild(store_root: &Path, actor: &str) -> Result<VectorRebuildReport, Error> {
     rebuild_with_progress(store_root, actor, None)
 }
@@ -57,7 +59,14 @@ pub fn rebuild_with_progress(
     emit(&mut progress, VectorProgress::LoadingModel);
     let embedder = EmbeddingRuntime::load(store_root, &vector_config)?;
 
-    let (records, digest) = corpus(store_root)?;
+    // The snapshot is captured under the writer lock so an append cannot land
+    // between reading the ledger and digesting it. The lock is released before
+    // embedding: holding it for the length of a model run would stop writes,
+    // which is the very thing this contract exists to avoid.
+    let (records, digest) = {
+        let _lock = StoreLock::exclusive(store_root)?;
+        corpus(store_root)?
+    };
     let physical = physical_name(&vector_config);
     emit(
         &mut progress,
@@ -95,13 +104,11 @@ pub fn rebuild_with_progress(
     }
 
     let _lock = StoreLock::exclusive(store_root)?;
-    let (_, recheck) = corpus(store_root)?;
-    if recheck != digest {
-        return Err(vector_error(
-            "the ledger changed while embedding; rerun the rebuild",
-        ));
-    }
-    projection.activate(&physical)?;
+    // The snapshot captured at the start is what this rebuild indexed. A store
+    // that is written to continuously would never satisfy "the ledger has not
+    // moved", so it is not asked to: whatever arrived meanwhile is the tail the
+    // next sync takes, and the checkpoint records exactly this boundary.
+    projection.activate(&physical, Some((records.len(), &digest)))?;
     drop(_lock);
     emit(
         &mut progress,

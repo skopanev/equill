@@ -14,7 +14,6 @@ use uuid::Uuid;
 struct FakeTransport {
     inner: Arc<Mutex<FakeState>>,
 }
-
 #[derive(Default)]
 struct FakeState {
     schemas: HashMap<String, CollectionSchema>,
@@ -227,11 +226,12 @@ fn activation_writes_ready_only_after_alias_success() {
     transport.inner.lock().unwrap().fail_retarget = true;
 
     assert!(
-        crate::vector::activate_collection(&root, &config, &collection, "equill_stage_1").is_err()
+        crate::vector::activate_collection(&root, &config, &collection, "equill_stage_1", None)
+            .is_err()
     );
     assert!(!root.join("projections/qdrant/state.json").exists());
     transport.inner.lock().unwrap().fail_retarget = false;
-    crate::vector::activate_collection(&root, &config, &collection, "equill_stage_1")
+    crate::vector::activate_collection(&root, &config, &collection, "equill_stage_1", None)
         .expect("activate with marker");
     assert_eq!(
         crate::vector::state::read(&root, Some(&config)).expect("state"),

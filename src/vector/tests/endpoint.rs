@@ -72,7 +72,31 @@ fn endpoint_gated_rebuild_then_semantic_answer() {
     );
 
     let appended = add(&root, "Batch vector updates after the writing session.");
-    assert_eq!(state(&root).unwrap(), VectorState::Degraded);
+    // An append leaves the index behind, not broken: health stays Ready and the
+    // tail is a countable number rather than an outage.
+    assert_eq!(state(&root).unwrap(), VectorState::Ready);
+    let lagging = crate::vector::freshness_of(&root).expect("freshness");
+    assert_eq!(lagging.freshness, crate::vector::VectorFreshness::Lagging);
+    assert_eq!(lagging.pending_records, Some(1));
+    // Strict vector still answers, from the checkpoint, and says it is behind.
+    let before_sync = crate::vector::search(
+        &root,
+        &crate::projection::SearchRequest {
+            query: Some("vector updates".into()),
+            namespace: None,
+            type_name: None,
+            limit: 5,
+        },
+        crate::vector::SearchStrategy::Vector,
+    )
+    .expect("a lagging index still answers");
+    assert_eq!(before_sync.answered_by, "vector");
+    assert_eq!(
+        before_sync.vector_freshness,
+        crate::vector::VectorFreshness::Lagging
+    );
+    assert_eq!(before_sync.vector_pending_records, Some(1));
+
     let first_sync = sync(&root, "owner").expect("incremental sync");
     let all_ids = corpus(&root)
         .unwrap()
@@ -85,6 +109,10 @@ fn endpoint_gated_rebuild_then_semantic_answer() {
     assert_eq!(metadata.len(), 4);
     assert!(metadata.iter().any(|item| item.record_id == appended));
     assert_eq!(state(&root).unwrap(), VectorState::Ready);
+    // Once the tail is indexed the same reading says current.
+    let caught_up = crate::vector::freshness_of(&root).expect("freshness");
+    assert_eq!(caught_up.freshness, crate::vector::VectorFreshness::Current);
+    assert_eq!(caught_up.pending_records, Some(0));
 
     let second_sync = sync(&root, "owner").expect("no-op sync");
     assert_eq!(

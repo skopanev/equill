@@ -10,7 +10,6 @@ mod sync;
 
 pub use configure::{VectorConfigReport, configure, disable};
 pub use document::canonical;
-#[cfg(test)]
 pub(crate) use rebuild::corpus;
 pub use rebuild::{VectorRebuildReport, rebuild, rebuild_with_progress};
 pub use search::{

@@ -1,12 +1,16 @@
-use super::super::model::{
-    EmbeddingDescriptor, EmbeddingDocument, VectorPoint, VectorPointMetadata, vector_error,
-};
-use super::super::operator::{SyncIndex, execute, execute_with_progress};
-use super::super::{Embedder, VectorConfig, VectorState, corpus, state};
+mod concurrency;
+mod endpoint_consistency;
+mod freshness;
+
 use crate::command::init;
 use crate::kernel::error::Error;
 use crate::record::{RecordDraft, append};
 use crate::schema::{self, TypeDefinition};
+use crate::vector::model::{
+    EmbeddingDescriptor, EmbeddingDocument, VectorPoint, VectorPointMetadata, vector_error,
+};
+use crate::vector::operator::{SyncIndex, execute, execute_with_progress};
+use crate::vector::{Embedder, VectorConfig, VectorState, corpus, state};
 use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
@@ -17,19 +21,19 @@ use uuid::Uuid;
 const PHYSICAL: &str = "equill_sync_active";
 
 #[derive(Clone)]
-struct FakeIndex {
+pub(super) struct FakeIndex {
     root: PathBuf,
     config: VectorConfig,
-    inner: Arc<Mutex<FakeState>>,
+    pub(super) inner: Arc<Mutex<FakeState>>,
 }
 
 #[derive(Default)]
-struct FakeState {
-    points: HashMap<Uuid, VectorPointMetadata>,
-    points_upserted: usize,
-    degraded_marks: usize,
-    ready_marks: usize,
-    fail_upsert: bool,
+pub(super) struct FakeState {
+    pub(super) points: HashMap<Uuid, VectorPointMetadata>,
+    pub(super) points_upserted: usize,
+    pub(super) ready_marks: usize,
+    pub(super) checkpoint: Option<(usize, String)>,
+    pub(super) fail_upsert: bool,
 }
 
 impl SyncIndex for FakeIndex {
@@ -71,18 +75,22 @@ impl SyncIndex for FakeIndex {
             .ok_or_else(|| vector_error("active collection changed"))
     }
 
-    fn mark_degraded(&self, physical: &str) -> Result<(), Error> {
-        self.inner.lock().unwrap().degraded_marks += 1;
-        super::super::state::write_degraded(&self.root, &self.config, physical)
-    }
-
-    fn mark_ready(&self, physical: &str) -> Result<(), Error> {
-        self.inner.lock().unwrap().ready_marks += 1;
-        super::super::state::stage_ready(&self.root, &self.config, physical)?.commit()
+    fn mark_indexed(&self, physical: &str, records: usize, digest: &str) -> Result<(), Error> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.ready_marks += 1;
+        inner.checkpoint = Some((records, digest.to_owned()));
+        drop(inner);
+        crate::vector::state::stage_ready(
+            &self.root,
+            &self.config,
+            physical,
+            Some((records, digest)),
+        )?
+        .commit()
     }
 }
 
-struct FakeEmbedder {
+pub(super) struct FakeEmbedder {
     descriptor: EmbeddingDescriptor,
     append_during_embed: Option<PathBuf>,
 }
@@ -143,14 +151,16 @@ fn sync_upserts_delta_then_noop_loads_no_embedder() {
     );
     let counts = index.inner.lock().unwrap();
     assert_eq!(counts.points_upserted, 1);
-    assert_eq!((counts.degraded_marks, counts.ready_marks), (1, 1));
+    // The checkpoint is written on every pass, including the no-op one: that is
+    // how a store nobody wrote to becomes current rather than staying lagging.
+    assert_eq!(counts.ready_marks, 2);
     drop(counts);
     assert_eq!(state(&root).unwrap(), VectorState::Ready);
     fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
-fn failed_upsert_keeps_ledger_and_state_degraded() {
+fn a_failed_pass_keeps_the_last_searchable_checkpoint() {
     let (root, config, index) = fixture("failure");
     index.inner.lock().unwrap().fail_upsert = true;
     let before = corpus(&root).unwrap();
@@ -158,24 +168,13 @@ fn failed_upsert_keeps_ledger_and_state_degraded() {
     assert!(execute(&root, &config, &index, || Ok(embedder(&config, None))).is_err());
     let after = corpus(&root).unwrap();
     assert_eq!((after.0.len(), after.1), (before.0.len(), before.1));
-    assert_eq!(state(&root).unwrap(), VectorState::Degraded);
+    // The previous checkpoint survives a failed pass: losing a working index
+    // to protect it from being slightly behind is the worse outcome.
+    assert_eq!(state(&root).unwrap(), VectorState::Ready);
     fs::remove_dir_all(root).unwrap();
 }
 
-#[test]
-fn concurrent_append_prevents_false_ready() {
-    let (root, config, index) = fixture("concurrent");
-    let result = execute(&root, &config, &index, || {
-        Ok(embedder(&config, Some(root.clone())))
-    });
-
-    assert!(result.is_err());
-    assert_eq!(corpus(&root).unwrap().0.len(), 2);
-    assert_eq!(state(&root).unwrap(), VectorState::Degraded);
-    fs::remove_dir_all(root).unwrap();
-}
-
-fn fixture(name: &str) -> (PathBuf, VectorConfig, FakeIndex) {
+pub(super) fn fixture(name: &str) -> (PathBuf, VectorConfig, FakeIndex) {
     let root = super::support::root(name);
     init::create(&root, "owner", "agent.memory").unwrap();
     schema::register(
@@ -198,7 +197,7 @@ fn fixture(name: &str) -> (PathBuf, VectorConfig, FakeIndex) {
     add(&root, "initial");
     super::support::write(&root, &super::support::config(&root));
     let config = super::super::config::load(&root).unwrap().unwrap();
-    super::super::state::stage_ready(&root, &config, PHYSICAL)
+    crate::vector::state::stage_ready(&root, &config, PHYSICAL, None)
         .unwrap()
         .commit()
         .unwrap();
@@ -210,7 +209,10 @@ fn fixture(name: &str) -> (PathBuf, VectorConfig, FakeIndex) {
     (root, config, index)
 }
 
-fn embedder(config: &VectorConfig, append_during_embed: Option<PathBuf>) -> FakeEmbedder {
+pub(super) fn embedder(
+    config: &VectorConfig,
+    append_during_embed: Option<PathBuf>,
+) -> FakeEmbedder {
     FakeEmbedder {
         descriptor: EmbeddingDescriptor {
             model_id: config.embedding.model_id.clone(),
@@ -224,7 +226,7 @@ fn embedder(config: &VectorConfig, append_during_embed: Option<PathBuf>) -> Fake
     }
 }
 
-fn add(root: &Path, rule: &str) {
+pub(super) fn add(root: &Path, rule: &str) {
     append(
         root,
         RecordDraft {

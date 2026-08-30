@@ -1,5 +1,5 @@
-use super::super::{VectorProjection, VectorState, configure, corpus, rebuild, state, sync};
-use super::endpoint::{add, artifacts, config, endpoint, store};
+use super::super::endpoint::{add, artifacts, config, endpoint, store};
+use crate::vector::{VectorProjection, VectorState, configure, corpus, rebuild, state, sync};
 use serde_json::Value;
 use std::fs;
 use std::sync::mpsc;
@@ -25,8 +25,8 @@ fn endpoint_gated_concurrency_and_outage_stay_degraded() {
     }
     // Ready is staged only as an observable test signal. Sync must demote it
     // after planning but before embedding; the append then lands after snapshot.
-    let vector_config = super::super::config::load(&root).unwrap().unwrap();
-    super::super::state::stage_ready(&root, &vector_config, &physical)
+    let vector_config = crate::vector::config::load(&root).unwrap().unwrap();
+    crate::vector::state::stage_ready(&root, &vector_config, &physical, None)
         .unwrap()
         .commit()
         .unwrap();

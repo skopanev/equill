@@ -86,20 +86,13 @@ pub fn append(
             record.id
         ))
     })?;
-    // The record is durable from here on. A stale vector index must never be a
-    // reason to fail or unwind that write.
-    let vector_note = crate::vector::note_stale(store_root);
-    let mut projection = match projection::index(store_root, &record, &digest, &ledger) {
+    let projection = match projection::index(store_root, &record, &digest, &ledger) {
         Ok(()) => ProjectionState::Ready,
         Err(error) => {
             projection::mark_degraded(store_root, &record, &error.to_string());
             ProjectionState::Degraded
         }
     };
-    if let Some(note) = vector_note {
-        projection::mark_degraded(store_root, &record, &note);
-        projection = ProjectionState::Degraded;
-    }
 
     // Advisory only, and computed after the record is durable: a similarity
     // check that could fail a write would be a worse trade than a missed hint.

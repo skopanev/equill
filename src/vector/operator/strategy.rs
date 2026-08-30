@@ -10,6 +10,13 @@ use std::path::Path;
 
 #[derive(Debug, Serialize)]
 pub struct StrategySearchReport {
+    /// Health and freshness, kept apart on purpose: an index can answer well
+    /// and still be behind, and a caller deserves to know which it got.
+    pub vector_freshness: crate::vector::VectorFreshness,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vector_indexed_records: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vector_pending_records: Option<usize>,
     pub ok: bool,
     pub strategy: SearchStrategy,
     /// What actually answered, which is not always what was asked for.
@@ -25,18 +32,6 @@ pub struct StrategySearchReport {
     pub hits: Vec<SearchHit>,
 }
 
-/// `fts` is the always-available baseline. `vector` is exact about failure: if
-/// the caller asked for semantics it gets an error rather than quietly worse
-/// answers. `hybrid` is the forgiving one — it prefers semantics, falls back to
-/// text, and says so in the report.
-/// An ordinary search answers with what is current. A record a later one
-/// replaced, and the tombstone that withdrew it, are both history: returning
-/// them here would hand a caller a claim its author has already taken back.
-/// `get` and a chain read keep showing them, because that is what auditing is.
-/// How many records in this scope a search must be prepared to skip: those a
-/// later record replaced, and the tombstones that withdrew them. Read from the
-/// canonical ledger rather than the projection, because lifecycle is the
-/// ledger's answer to give.
 /// Which records a later one replaced, read from the ledger. Asking the SQLite
 /// projection would make a semantic search fail whenever full text is missing
 /// or degraded, even with a healthy vector index — and lifecycle is not the
@@ -48,6 +43,10 @@ fn replaced_ids(store_root: &Path) -> Result<std::collections::HashSet<uuid::Uui
         .collect())
 }
 
+/// How many records in this scope a search must be prepared to skip: those a
+/// later record replaced, and the tombstones that withdrew them. Read from the
+/// canonical ledger rather than the projection, because lifecycle is the
+/// ledger's answer to give.
 fn history_slack(store_root: &Path, request: &SearchRequest) -> Result<u16, Error> {
     let records = crate::record::read_all(store_root)?;
     let replaced = records
@@ -93,6 +92,10 @@ fn history_slack(store_root: &Path, request: &SearchRequest) -> Result<u16, Erro
         })
 }
 
+/// An ordinary search answers with what is current. A record a later one
+/// replaced, and the tombstone that withdrew it, are both history: returning
+/// them here would hand a caller a claim its author has already taken back.
+/// `get` and a chain read keep showing them, because that is what auditing is.
 fn current_only(store_root: &Path, hits: &mut Vec<SearchHit>) -> Result<(), Error> {
     let replaced = replaced_ids(store_root)?;
     hits.retain(|hit| {
@@ -106,6 +109,10 @@ fn current_only(store_root: &Path, hits: &mut Vec<SearchHit>) -> Result<(), Erro
     Ok(())
 }
 
+/// `fts` is the always-available baseline. `vector` is exact about failure: if
+/// the caller asked for semantics it gets an error rather than quietly worse
+/// answers. `hybrid` is the forgiving one — it prefers semantics, falls back to
+/// text, and says so in the report.
 pub fn search(
     store_root: &Path,
     request: &SearchRequest,
@@ -123,7 +130,11 @@ pub fn search(
                 .collect::<Vec<_>>();
             current_only(store_root, &mut hits)?;
             hits.truncate(request.limit as usize);
+            let reading = crate::vector::freshness_of(store_root)?;
             Ok(StrategySearchReport {
+                vector_freshness: reading.freshness,
+                vector_indexed_records: reading.indexed_records,
+                vector_pending_records: reading.pending_records,
                 ok: true,
                 strategy,
                 answered_by: "vector",
@@ -148,6 +159,10 @@ fn semantic(
     store_root: &Path,
     request: &SearchRequest,
 ) -> Result<(Vec<StoredRecord>, Vec<RejectedHit>), Error> {
+    // Health, not freshness: a lagging index still answers from the points it
+    // has. Refusing here would mean one append silences semantic search until
+    // the next sync, which is exactly what a continuously written store cannot
+    // afford. The report says how far behind the answer is.
     if super::super::state(store_root)? != VectorState::Ready {
         return Err(vector_error("vector projection is not ready"));
     }
@@ -187,7 +202,11 @@ fn text_only(
     // Full text and the filter-only scan exclude history in the query itself,
     // so there is nothing left here to filter out.
     let report = projection::search(store_root, request)?;
+    let reading = crate::vector::freshness_of(store_root)?;
     Ok(StrategySearchReport {
+        vector_freshness: reading.freshness,
+        vector_indexed_records: reading.indexed_records,
+        vector_pending_records: reading.pending_records,
         ok: report.ok,
         strategy,
         answered_by: "fts",

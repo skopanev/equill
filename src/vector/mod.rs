@@ -6,7 +6,6 @@ mod model;
 mod operator;
 mod progress;
 mod provider;
-mod staleness;
 mod state;
 
 use crate::kernel::error::Error;
@@ -22,7 +21,6 @@ pub use model::{
     CollectionReport, DistanceMetric, EmbeddingDescriptor, EmbeddingDocument, INPUT_SCHEMA,
     VectorPoint, VectorSearchHit, VectorSearchRequest, VectorState,
 };
-#[cfg(test)]
 pub(crate) use operator::corpus;
 pub use operator::{
     QueryEmbedder, RejectedHit, SearchStrategy, StrategySearchReport, VectorConfigReport,
@@ -30,7 +28,7 @@ pub use operator::{
     disable, rebuild, rebuild_with_progress, retrieve, search, sync, sync_with_progress, verify,
 };
 pub use progress::{VectorProgress, VectorProgressSink};
-pub use staleness::{mark_stale, note_stale};
+pub use state::{Freshness, VectorFreshness, freshness};
 
 pub struct VectorProjection {
     store: PathBuf,
@@ -64,8 +62,16 @@ impl VectorProjection {
         hydrate::from_ledger(&self.store, request, candidates)
     }
 
-    pub fn activate(&self, physical: &str) -> Result<(), Error> {
-        activate_collection(&self.store, &self.config, &self.collection, physical)
+    /// The snapshot the index was built from travels with activation, so the
+    /// checkpoint and the collection it describes are committed together.
+    pub fn activate(&self, physical: &str, snapshot: Option<(usize, &str)>) -> Result<(), Error> {
+        activate_collection(
+            &self.store,
+            &self.config,
+            &self.collection,
+            physical,
+            snapshot,
+        )
     }
 
     pub(crate) fn active_collection(&self) -> Result<String, Error> {
@@ -84,14 +90,13 @@ impl VectorProjection {
         self.collection.require_active(physical)
     }
 
-    pub(crate) fn mark_degraded(&self, physical: &str) -> Result<(), Error> {
-        self.collection.require_active(physical)?;
-        state::write_degraded(&self.store, &self.config, physical)
-    }
-
-    pub(crate) fn mark_ready(&self, physical: &str) -> Result<(), Error> {
-        self.collection.require_active(physical)?;
-        state::stage_ready(&self.store, &self.config, physical)?.commit()
+    pub(crate) fn mark_indexed(
+        &self,
+        physical: &str,
+        records: usize,
+        digest: &str,
+    ) -> Result<(), Error> {
+        state::stage_ready(&self.store, &self.config, physical, Some((records, digest)))?.commit()
     }
 }
 
@@ -100,8 +105,9 @@ fn activate_collection<T: Transport>(
     config: &VectorConfig,
     collection: &Collection<T>,
     physical: &str,
+    snapshot: Option<(usize, &str)>,
 ) -> Result<(), Error> {
-    let marker = state::stage_ready(store, config, physical)?;
+    let marker = state::stage_ready(store, config, physical, snapshot)?;
     let change = collection.activate(physical)?;
     if let Err(error) = marker.commit() {
         if collection.restore(&change).is_err() {
@@ -112,6 +118,13 @@ fn activate_collection<T: Transport>(
         return Err(error);
     }
     Ok(())
+}
+
+/// Freshness for a caller that already knows the store: the config is loaded
+/// once here rather than re-read by every reporting surface.
+pub fn freshness_of(store: &Path) -> Result<Freshness, Error> {
+    let config = config::load(store)?;
+    state::freshness(store, config.as_ref())
 }
 
 pub fn state(store: &Path) -> Result<VectorState, Error> {
