@@ -22,6 +22,15 @@ pub struct Desired {
 /// committed, so a failure here can never unmake a record: the caller reports
 /// it and the next write or an explicit sync picks the tail up.
 pub fn publish(store: &Path, records: usize, corpus_sha256: &str) -> Result<(), Error> {
+    // A target only ever moves forward. Callers publish under the writer lock,
+    // so this should never trigger — but a watermark that can go backwards
+    // turns a drain into a loop that never agrees with itself, and that is not
+    // a failure worth discovering in production.
+    if let Some(current) = read(store)?
+        && current.records > records
+    {
+        return Ok(());
+    }
     let path = store.join(DESIRED);
     let directory = path
         .parent()

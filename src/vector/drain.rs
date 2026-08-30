@@ -48,8 +48,20 @@ fn publish_and_drain(store: &Path, actor: &str) -> Result<DrainReport, Error> {
     {
         return Ok(idle());
     }
-    let (records, digest) = operator::corpus(store)?;
-    desired::publish(store, records.len(), &digest)?;
+    // The snapshot and its publication happen under the writer lock. Reading
+    // the ledger without it let two writers interleave: one captured N, the
+    // other committed and published N+1, and the first then overwrote the
+    // watermark back to N — after which the drain compared an index at N+1
+    // against a target of N and never agreed with itself.
+    //
+    // The lock is released before the drain lock is taken, so the order between
+    // the two is always writer-then-drain and no writer ever waits on an
+    // embedding run.
+    {
+        let _writers = StoreLock::exclusive(store)?;
+        let (records, digest) = operator::corpus(store)?;
+        desired::publish(store, records.len(), &digest)?;
+    }
     let Some(lease) = TryLock::acquire(store, LOCK)? else {
         // Somebody is draining. The watermark is already published, so their
         // final check will see this tail.
@@ -90,7 +102,7 @@ fn publish_and_drain(store: &Path, actor: &str) -> Result<DrainReport, Error> {
     }
 }
 
-fn caught_up(store: &Path) -> Result<bool, Error> {
+pub(super) fn caught_up(store: &Path) -> Result<bool, Error> {
     let Some(target) = desired::read(store)? else {
         return Ok(true);
     };

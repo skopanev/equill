@@ -7,7 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
-fn store(name: &str) -> PathBuf {
+pub(super) fn store(name: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!("equill-drain-{name}-{}", Uuid::now_v7()));
     init::create(&root, "owner", "agent.memory").expect("initialize");
     schema::register(
@@ -30,7 +30,7 @@ fn store(name: &str) -> PathBuf {
     root
 }
 
-fn add(root: &Path, rule: &str) {
+pub(super) fn add(root: &Path, rule: &str) {
     append(
         root,
         RecordDraft {
@@ -89,7 +89,7 @@ fn an_unreachable_provider_leaves_the_record_written() {
 
 /// Writing configures a target the drain can chase. Pointing it at a port
 /// nothing listens on keeps the test hermetic: no container, no network peer.
-fn configure_unreachable(root: &Path) {
+pub(super) fn configure_unreachable(root: &Path) {
     let models = root.join("models");
     fs::create_dir_all(&models).expect("model directory");
     let artifact = |name: &str, body: &str| {

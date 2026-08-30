@@ -1,6 +1,7 @@
 mod config;
 mod document;
 mod drain;
+mod drain_races;
 mod embedding;
 mod endpoint;
 mod hydration;
