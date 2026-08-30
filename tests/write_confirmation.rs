@@ -89,10 +89,14 @@ fn write(session: &mut Session, root: &Path, index: usize) -> Duration {
         response["error"].is_null(),
         "write {index} failed: {response}"
     );
+    // Exactly queued, not "queued or disabled". Every store in this file is
+    // configured with a projection, so accepting disabled would let the whole
+    // measurement pass if that configuration ever went missing — the assertion
+    // would then be proving nothing while looking green.
     let body = response.to_string();
     assert!(
-        body.contains("\"queued\"") || body.contains("\"disabled\""),
-        "write {index} did not report a projection state: {response}"
+        body.contains("\"projection\":\"queued\""),
+        "write {index} did not report projection=queued: {response}"
     );
     elapsed
 }
