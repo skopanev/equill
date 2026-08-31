@@ -44,7 +44,7 @@ struct Pending {
 /// The store already holds an unresolved transaction; accepting another write
 /// would bury it under one more.
 pub fn resolve_pending(store_root: &Path) -> Result<(), Error> {
-    let directory = store_root.join(PENDING);
+    let directory = super::path::within(store_root, PENDING)?;
     let entries = match fs::read_dir(&directory) {
         Ok(entries) => entries,
         // Only absence means there is nothing pending. A directory that exists
@@ -54,22 +54,17 @@ pub fn resolve_pending(store_root: &Path) -> Result<(), Error> {
         Err(error) => return Err(error.into()),
     };
     for entry in entries {
-        resolve_one(store_root, &entry?.path())?;
+        // A listing hands back names. Turning one into a path is where a name
+        // that is not a name would do its damage, so it is checked there, and
+        // the whole chain down to it is walked rather than assumed.
+        let name = super::path::plain_name(&entry?.path())?;
+        let stage = super::path::file_within(store_root, &format!("{PENDING}/{name}"))?;
+        resolve_one(store_root, &stage)?;
     }
     Ok(())
 }
 
 fn resolve_one(store_root: &Path, path: &Path) -> Result<(), Error> {
-    // A regular file, and one this store wrote. `symlink_metadata` does not
-    // follow, which is the point: a link placed in the staging directory would
-    // otherwise be read through and then RENAMED into the receipts, finishing
-    // something from outside the store as though it belonged to it.
-    if !fs::symlink_metadata(path)?.is_file() {
-        return Err(refuse(
-            path,
-            "it is not a regular file, so it did not come from a staged write",
-        ));
-    }
     let bytes = fs::read(path)?;
     let staged: Pending = serde_json::from_slice(&bytes)
         .map_err(|error| refuse(path, &format!("it cannot be read: {error}")))?;
@@ -139,7 +134,6 @@ fn resolve_one(store_root: &Path, path: &Path) -> Result<(), Error> {
             path,
             "the record it names is in the ledger with different contents",
         )),
-        Held::Twice => Err(refuse(path, "the record it names is in the ledger twice")),
     }
 }
 
@@ -151,9 +145,12 @@ fn coordinate(month: &str, receipt_id: Uuid) -> String {
 fn finalize(store_root: &Path, path: &Path, month: &str, receipt_id: Uuid) -> Result<(), Error> {
     // The same construction the quarantine note records, so that "where this
     // receipt belongs" has one definition rather than two that agree by habit.
-    let target = store_root.join(coordinate(month, receipt_id));
+    let target = super::path::within(store_root, &coordinate(month, receipt_id))?;
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent)?;
+        // Created, then checked: create_dir_all is content with a link that
+        // already resolves to a directory, and this is the rename's destination.
+        super::path::within(store_root, &format!("receipts/writes/{month}"))?;
     }
     Ok(fs::rename(path, &target)?)
 }

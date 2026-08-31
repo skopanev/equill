@@ -94,7 +94,7 @@ fn in_month_order(mut ledgers: Vec<std::path::PathBuf>) -> Vec<std::path::PathBu
     ledgers
 }
 
-fn verify_record(
+pub(crate) fn verify_record(
     store_root: &Path,
     config: &store::StoreConfig,
     record: &StoredRecord,

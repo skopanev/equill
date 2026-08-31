@@ -1,7 +1,10 @@
 //! Asking a ledger shard whether it holds a record, under the writer lock.
 use super::super::StoredRecord;
+use super::path;
 use crate::kernel::digest::sha256_hex;
 use crate::kernel::error::Error;
+use crate::kernel::store;
+use std::collections::HashSet;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
@@ -10,7 +13,6 @@ use uuid::Uuid;
 pub(super) enum Held {
     Once,
     Never,
-    Twice,
     Mismatched,
 }
 
@@ -34,7 +36,7 @@ pub(super) fn ledger_holds(
     record_id: Uuid,
     digest: &str,
 ) -> Result<Held, Error> {
-    let path = store_root.join("records").join(format!("{month}.jsonl"));
+    let path = path::within(store_root, &format!("records/{month}.jsonl"))?;
     let contents = match fs::read_to_string(&path) {
         Ok(contents) => contents,
         // No shard at all is a real answer: the append never created one.
@@ -44,8 +46,10 @@ pub(super) fn ledger_holds(
     if !contents.is_empty() && !contents.ends_with('\n') {
         return Err(damaged(&path, "its final line was never finished"));
     }
+    let config = store::load(store_root)?;
     let mut found = 0;
     let mut matched = 0;
+    let mut seen = HashSet::new();
     for line in contents.lines() {
         if line.trim().is_empty() {
             return Err(damaged(&path, "it holds a blank line"));
@@ -59,6 +63,18 @@ pub(super) fn ledger_holds(
                 &format!("it holds a line that is not a record: {error}"),
             )
         })?;
+        // The store's own verifier, not a weaker one written here. A line can
+        // parse into the right shape and still carry an actor this store does
+        // not recognize or a payload its schema refuses, and a shard holding
+        // one of those is not a shard this store wrote.
+        super::super::verify::verify_record(store_root, &config, &record)
+            .map_err(|error| damaged(&path, &format!("it holds an invalid record: {error}")))?;
+        // Any repeated identifier, not only a repeat of the one being asked
+        // about: a shard that names any record twice contradicts itself, and an
+        // answer read out of it would inherit the contradiction.
+        if !seen.insert(record.id) {
+            return Err(damaged(&path, "it holds the same record identifier twice"));
+        }
         if record.id != record_id {
             continue;
         }
@@ -72,8 +88,7 @@ pub(super) fn ledger_holds(
     Ok(match (found, matched) {
         (0, _) => Held::Never,
         (1, 1) => Held::Once,
-        (1, _) => Held::Mismatched,
-        _ => Held::Twice,
+        _ => Held::Mismatched,
     })
 }
 

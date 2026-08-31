@@ -61,14 +61,16 @@ pub(super) fn quarantine(
     coordinate: String,
     bytes: &[u8],
 ) -> Result<(), Error> {
-    let directory = store_root.join(ABANDONED);
-    let fresh = !directory.is_dir();
-    fs::create_dir_all(&directory)?;
+    let fresh = !super::path::within(store_root, ABANDONED)?.is_dir();
+    fs::create_dir_all(store_root.join(ABANDONED))?;
+    // Created, then walked: create_dir_all accepts a link that already resolves
+    // to a directory, and this is where a file is about to be renamed into.
+    let directory = super::path::within(store_root, ABANDONED)?;
     if fresh {
         // A directory entry is no more durable than a file's. If this is the
         // first abandonment the store has ever had, the directory holding the
         // note has to survive too.
-        publish(&store_root.join(PARENT))?;
+        publish(&super::path::within(store_root, PARENT)?)?;
     }
     let note = serde_json::to_vec(&Note {
         schema: SCHEMA,
@@ -77,12 +79,18 @@ pub(super) fn quarantine(
         reason: "pre_append_crash",
         recovered_at: jiff::Timestamp::now().to_string(),
     })?;
-    let temporary = directory.join(format!(".{receipt_id}.tmp-{}", std::process::id()));
+    // A name nothing can have anticipated, claimed with create_new. A
+    // predictable temporary name is a place to leave a link and wait: the write
+    // would follow it out of the store, and the rename would publish whatever
+    // it found there as this store's own record of what happened.
+    let temporary =
+        super::path::within(store_root, &format!("{ABANDONED}/.{}.json", Uuid::now_v7()))?;
     if let Err(error) = write_durably(&temporary, &note) {
         let _ = fs::remove_file(&temporary);
         return Err(error);
     }
-    if fs::rename(&temporary, directory.join(format!("{receipt_id}.json"))).is_err() {
+    let target = super::path::within(store_root, &format!("{ABANDONED}/{receipt_id}.json"))?;
+    if fs::rename(&temporary, &target).is_err() {
         let _ = fs::remove_file(&temporary);
         return Err(Error::Integrity(
             "an abandoned stage could not be recorded".into(),
@@ -99,11 +107,7 @@ pub(super) fn quarantine(
 }
 
 fn write_durably(path: &Path, bytes: &[u8]) -> Result<(), Error> {
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(path)?;
+    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
     file.write_all(bytes)?;
     Ok(file.sync_all()?)
 }

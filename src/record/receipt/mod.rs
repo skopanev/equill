@@ -1,4 +1,5 @@
 mod abandoned;
+mod path;
 mod recovery;
 mod shard;
 
@@ -44,6 +45,7 @@ pub(super) const PENDING: &str = "receipts/pending";
 pub use recovery::resolve_pending;
 
 pub struct StagedReceipt {
+    root: PathBuf,
     pending: PathBuf,
     final_path: PathBuf,
     relative: String,
@@ -80,6 +82,10 @@ impl StagedReceipt {
         if let Some(directory) = self.final_path.parent() {
             fs::create_dir_all(directory)?;
         }
+        // Re-walked here, not trusted from staging: the month directory is
+        // created by this call, and what create_dir_all accepts is not what
+        // this store is willing to rename into.
+        path::within(&self.root, &self.relative)?;
         Ok(fs::rename(&self.pending, &self.final_path)?)
     }
 }
@@ -101,12 +107,16 @@ pub fn stage(
     // Recovery has to find unfinished work without reading a month that may
     // hold every receipt the store has ever written, and a directory that is
     // empty except during a failure is the cheapest possible place to look.
-    let directory = store_root.join(PENDING);
-    fs::create_dir_all(&directory)?;
+    fs::create_dir_all(store_root.join(PENDING))?;
+    // Walked after creating: every directory this write will touch has to be
+    // one the store owns, and create_dir_all is satisfied by a link that
+    // already resolves. The staged file is claimed with create_new below, so a
+    // name already taken is refused rather than followed.
+    path::within(store_root, PENDING)?;
     let relative = format!("receipts/writes/{month}/{}.json", receipt.receipt_id);
-    let final_path = store_root.join(&relative);
+    let final_path = path::within(store_root, &relative)?;
     let handle = format!("{PENDING}/{}.json", receipt.receipt_id);
-    let pending = store_root.join(&handle);
+    let pending = path::within(store_root, &handle)?;
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -115,6 +125,7 @@ pub fn stage(
     file.write_all(b"\n")?;
     file.sync_all()?;
     Ok(StagedReceipt {
+        root: store_root.to_owned(),
         pending,
         final_path,
         relative,

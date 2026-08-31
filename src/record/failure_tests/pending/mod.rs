@@ -5,6 +5,7 @@
 //! to tell those apart by asking the ledger, because finishing the second kind
 //! would produce a committed receipt attesting to a record that does not exist
 //! — a document more convincing than the truth it contradicts.
+mod confinement;
 mod refusals;
 
 use super::super::tests::{lesson, store};
