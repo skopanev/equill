@@ -34,10 +34,9 @@ pub fn persist(store: &Path, receipt: &ContextReceipt) -> Result<String, Error> 
 
 /// Turn a finished retrieval into the answer a caller sees.
 ///
-/// Shared by the registered-profile path and the native contract so that the
-/// two produce the same receipt, the same digest and the same selection —
-/// which is what lets a caller compare them at all, and what keeps "one call"
-/// from meaning "a second way of answering".
+/// Shared by every path that assembles context, so that they produce the same
+/// receipt, the same digest and the same selection — which is what lets a
+/// caller compare two answers at all.
 pub fn bundle(
     store_root: &Path,
     profile: VersionCoordinate,
@@ -67,16 +66,19 @@ pub fn bundle(
         empty,
         unmatched_coordinates: retrieved.unmatched_coordinates,
     };
-    // Filing the receipt is a side effect of answering, not part of it: the
-    // whole receipt is in the answer either way, and a store that cannot be
-    // written to can still be read. What that does NOT cover is a receipt
-    // whose bytes disagree with one already filed under the same digest —
-    // that is not "could not write", it is the store contradicting itself,
-    // and swallowing it would turn an integrity fault into a quiet field.
+    // One failure is tolerated and no others: the store would not take the
+    // file. That is what a read-only store looks like, and reading is not a
+    // privilege that depends on being able to write.
+    //
+    // Everything else is fatal. A receipt whose bytes disagree with one already
+    // filed under the same digest is the store contradicting itself; a receipt
+    // that will not serialize is a bug here. Neither is a store without room,
+    // and reporting either as "not persisted" would turn a fault into a field
+    // that reads like a disk being full.
     let receipt_path = match persist(store_root, &receipt) {
         Ok(path) => Some(path),
-        Err(error @ Error::Integrity(_)) => return Err(error),
-        Err(_) => None,
+        Err(Error::Io(_)) => None,
+        Err(error) => return Err(error),
     };
     let selected_record_ids = receipt.included.iter().map(|item| item.id).collect();
     Ok(ContextBundle {

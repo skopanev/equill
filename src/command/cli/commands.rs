@@ -105,8 +105,8 @@ pub enum Command {
         /// Initialized store directory.
         #[arg(long)]
         store: PathBuf,
-        /// Registered context profile identifier. Leave it out and name a
-        /// role, a project and a process instead, to ask for a role contract.
+        /// Registered context profile identifier. Leave it out to use the one
+        /// the store nominates, if it nominates one.
         #[arg(long)]
         profile: Option<String>,
         /// Context request JSON file. Use it for scripted requests; for a

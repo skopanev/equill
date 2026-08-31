@@ -59,9 +59,18 @@ pub fn context(
     let text = if fields.is_empty() && matches!(format, command::cli::FormatArg::Jsonl) {
         bundle.content.clone()
     } else {
-        let selected = record::read_all(&store)?
+        // In the order the selection made, not the order the ledger holds. A
+        // selector that asked for a particular order means it for every way of
+        // printing the answer; filtering the ledger by a set of ids throws that
+        // order away and hands back whatever the ledger happened to keep.
+        let mut by_id: std::collections::HashMap<_, _> = record::read_all(&store)?
             .into_iter()
-            .filter(|item| bundle.selected_record_ids.contains(&item.id))
+            .map(|item| (item.id, item))
+            .collect();
+        let selected = bundle
+            .selected_record_ids
+            .iter()
+            .filter_map(|id| by_id.remove(id))
             .collect::<Vec<_>>();
         command::present::records(&selected, super::shape(format), &fields)?
     };

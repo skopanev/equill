@@ -21,7 +21,7 @@ pub fn catalog() -> Value {
                 "where": { "type": "array", "items": { "type": "string" } },
                 "strict": { "type": "boolean" }
             }})),
-        tool("context", "Assemble bounded context: a registered profile, or a role contract named by role, project and process.",
+        tool("context", "Assemble bounded context from a profile: the one named here, or the one the store nominates.",
             json!({ "type": "object", "properties": {
                 "profile": { "type": "string" },
                 "project": { "type": "string" },
@@ -168,10 +168,8 @@ fn assemble(
     arguments: &Value,
 ) -> Result<Value, Error> {
     let filter = filter::Filter::parse(&strings(arguments, "where"), flag(arguments, "strict"))?;
-    // The same two questions the CLI asks, decided the same way: a named
-    // profile answers what it was registered for, and its absence means the
-    // caller is asking for a role contract. Deciding it here rather than in a
-    // shared helper would be a second place where the surfaces could drift.
+    // Decided the same way as the CLI: the caller names a profile, or the
+    // store does.
     let profile = match optional(arguments, "profile") {
         Some(named) => named,
         None => context::default_profile(store)?,
