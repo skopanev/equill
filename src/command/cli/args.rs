@@ -148,16 +148,16 @@ mod tests {
         ])
         .expect("named coordinates");
 
-        let Command::Context {
+        let Command::Context { coordinate, .. } = cli.command else {
+            panic!("context command");
+        };
+        let crate::command::cli::args::CoordinateArgs {
             project,
             role,
             phase,
             harness,
             ..
-        } = cli.command
-        else {
-            panic!("context command");
-        };
+        } = coordinate;
         assert_eq!(project.as_deref(), Some("finik"));
         assert_eq!(role.as_deref(), Some("backend"));
         assert_eq!(phase.as_deref(), Some("unit"));
@@ -215,4 +215,28 @@ impl VectorCommand {
             | Self::Drain { .. } => None,
         }
     }
+}
+
+/// The coordinate shorthands, grouped because they are one idea: naming a
+/// coordinate on the command line instead of writing `--coordinate key=value`.
+///
+/// Together rather than loose in the command, so that adding the next one is a
+/// line here rather than another field on an already wide variant.
+#[derive(Debug, clap::Args)]
+pub struct CoordinateArgs {
+    /// Project coordinate shorthand for `--coordinate project=VALUE`.
+    #[arg(long, conflicts_with = "request")]
+    pub project: Option<String>,
+    /// Role coordinate shorthand for `--coordinate role=VALUE`.
+    #[arg(long, conflicts_with = "request")]
+    pub role: Option<String>,
+    /// Phase coordinate shorthand for `--coordinate phase=VALUE`.
+    #[arg(long, conflicts_with = "request")]
+    pub phase: Option<String>,
+    /// Harness coordinate shorthand for `--coordinate harness=VALUE`.
+    #[arg(long, conflicts_with = "request")]
+    pub harness: Option<String>,
+    /// Process coordinate shorthand for `--coordinate process=VALUE`.
+    #[arg(long, conflicts_with = "request")]
+    pub process: Option<String>,
 }

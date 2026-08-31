@@ -66,43 +66,35 @@ pub fn assemble(
         .map(|selector| crate::schema::load(store_root, &selector.type_name))
         .collect::<Result<Vec<_>, _>>()?;
     crate::filter::validate(filter, &scope)?;
-    let retrieved = retrieval::retrieve(store_root, &profile, &selectors, &request, filter)?;
-    let budgeted = budget::apply(retrieved.candidates, &profile.budget, retrieved.excluded)?;
+    let mut retrieved = retrieval::retrieve(store_root, &profile, &selectors, &request, filter)?;
+    let budgeted = budget::apply(
+        std::mem::take(&mut retrieved.candidates),
+        &profile.budget,
+        std::mem::take(&mut retrieved.excluded),
+    )?;
     if budgeted.required_overflow > 0 {
         return Err(Error::Context(format!(
             "required context exceeds the {} unit limit: {} record(s) excluded",
             budgeted.required_limit, budgeted.required_overflow
         )));
     }
-    let bundle_digest = sha256_hex(budgeted.content.as_bytes());
-    let degraded = budgeted.degraded || !retrieved.degraded_strategies.is_empty();
-    let empty = budgeted.selected.is_empty();
-    let receipt = model::ContextReceipt {
-        schema: "equill.context-receipt.v1",
-        profile: profile_coordinate,
-        selectors: selector_coordinates,
+    receipt::bundle(
+        store_root,
+        profile_coordinate,
+        selector_coordinates,
         request_digest,
-        included: budgeted.selected.clone(),
-        excluded: budgeted.excluded,
-        strategies: retrieved.strategies,
-        budget: profile.budget,
-        used: budgeted.used,
-        bundle_digest: bundle_digest.clone(),
-        projection: retrieved.projection,
-        degraded_strategies: retrieved.degraded_strategies,
-        degraded,
-        empty,
-        unmatched_coordinates: retrieved.unmatched_coordinates,
-    };
-    let receipt_path = receipt::persist(store_root, &receipt)?;
-    let selected_record_ids = receipt.included.iter().map(|item| item.id).collect();
-    Ok(ContextBundle {
-        ok: true,
-        content: budgeted.content,
-        bundle_digest,
-        selected_record_ids,
-        receipt,
-        receipt_path,
+        profile.budget,
+        retrieved,
+        budgeted,
+    )
+}
+
+/// The profile this store nominates, or a refusal that says so plainly.
+pub fn default_profile(store: &Path) -> Result<String, Error> {
+    store::load(store)?.default_context_profile.ok_or_else(|| {
+        Error::Context(
+            "this store nominates no default context profile; name one with --profile".into(),
+        )
     })
 }
 

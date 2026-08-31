@@ -21,9 +21,14 @@ pub fn catalog() -> Value {
                 "where": { "type": "array", "items": { "type": "string" } },
                 "strict": { "type": "boolean" }
             }})),
-        tool("context", "Assemble bounded context for a registered profile.",
-            json!({ "type": "object", "required": ["profile"], "properties": {
+        tool("context", "Assemble bounded context: a registered profile, or a role contract named by role, project and process.",
+            json!({ "type": "object", "properties": {
                 "profile": { "type": "string" },
+                "project": { "type": "string" },
+                "role": { "type": "string" },
+                "phase": { "type": "string" },
+                "harness": { "type": "string" },
+                "process": { "type": "string" },
                 "query": { "type": "string" },
                 "coordinates": { "type": "array", "items": { "type": "string" } },
                 "tags": { "type": "array", "items": { "type": "string" } },
@@ -163,15 +168,31 @@ fn assemble(
     arguments: &Value,
 ) -> Result<Value, Error> {
     let filter = filter::Filter::parse(&strings(arguments, "where"), flag(arguments, "strict"))?;
+    // The same two questions the CLI asks, decided the same way: a named
+    // profile answers what it was registered for, and its absence means the
+    // caller is asking for a role contract. Deciding it here rather than in a
+    // shared helper would be a second place where the surfaces could drift.
+    let profile = match optional(arguments, "profile") {
+        Some(named) => named,
+        None => context::default_profile(store)?,
+    };
+    // The shorthands the CLI offers, spelled the same way here so the two
+    // surfaces cannot drift into asking different questions.
+    let mut coordinates = strings(arguments, "coordinates");
+    for key in ["project", "role", "phase", "harness", "process"] {
+        if let Some(value) = optional(arguments, key) {
+            coordinates.push(format!("{key}={value}"));
+        }
+    }
     let request = context::inline_request(
         optional(arguments, "query"),
-        strings(arguments, "coordinates"),
+        coordinates,
         strings(arguments, "tags"),
         Vec::new(),
         optional(arguments, "at"),
         flag(arguments, "include_superseded"),
     )?;
-    let bundle = context::assemble(store, text(arguments, "profile")?, request, actor, &filter)?;
+    let bundle = context::assemble(store, &profile, request, actor, &filter)?;
     telemetry::record_query(
         store,
         "mcp.context",

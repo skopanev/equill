@@ -1,6 +1,7 @@
 use super::matching;
 use super::model::{
-    ContextProfile, ContextRequest, ExcludedCoordinate, ExclusionReason, Selector, Strategy, Tier,
+    ContextProfile, ContextRequest, ExcludedCoordinate, ExclusionReason, Expectation, RankOrder,
+    Selector, Strategy, Tier,
 };
 use crate::filter::Filter;
 use crate::kernel::error::Error;
@@ -95,11 +96,18 @@ pub fn retrieve(
         let selector = selector_map[record.type_name.as_str()];
         match matching::classify(&record, selector, request, &fts) {
             Some((tier, matched)) => candidates.push(Candidate {
+                // Negated for an ascending selector so that one comparator
+                // still orders every candidate. The number is never shown; it
+                // exists to sort by, and sorting is all it is used for.
                 rank: selector
                     .rank_pointer
                     .as_ref()
                     .and_then(|pointer| record.payload.pointer(pointer))
-                    .and_then(serde_json::Value::as_f64),
+                    .and_then(serde_json::Value::as_f64)
+                    .map(|value| match selector.rank_order {
+                        RankOrder::Asc => -value,
+                        RankOrder::Desc => value,
+                    }),
                 record,
                 tier,
                 score: matched.len(),
@@ -123,6 +131,7 @@ pub fn retrieve(
             .then_with(|| right.record.observed_at.cmp(&left.record.observed_at))
             .then_with(|| left.record.id.cmp(&right.record.id))
     });
+    require(&candidates, selectors)?;
     excluded.sort_by_key(|item| item.id);
     Ok(Retrieval {
         candidates,
@@ -160,4 +169,33 @@ fn fts_hits(
         ids.extend(report.hits.into_iter().map(|hit| hit.record.id));
     }
     Ok(ids)
+}
+
+/// Hold each selector to what the profile said it must find.
+///
+/// Checked here, where the candidates are, and before anything is budgeted or
+/// rendered: a refusal has to happen instead of an answer, not alongside a
+/// partial one.
+fn require(candidates: &[Candidate], selectors: &[Selector]) -> Result<(), Error> {
+    for selector in selectors {
+        let found = candidates
+            .iter()
+            .filter(|candidate| candidate.record.type_name == selector.type_name)
+            .count();
+        let wanted = match selector.expect {
+            Expectation::Any => continue,
+            Expectation::Some if found >= 1 => continue,
+            Expectation::One if found == 1 => continue,
+            Expectation::Some => "at least one record",
+            Expectation::One => "exactly one record",
+        };
+        // Coordinates, not just a complaint: which selector, over which type,
+        // what it expected and what it found. An error that says only that
+        // something went wrong sends the reader looking in the wrong place.
+        return Err(Error::Context(format!(
+            "selector {} over {} expected {wanted} and found {found}",
+            selector.id, selector.type_name
+        )));
+    }
+    Ok(())
 }

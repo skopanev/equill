@@ -3,6 +3,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use uuid::Uuid;
+mod selection;
+
+pub use selection::{CoordinateMode, Expectation, RankOrder, Selector, Strategy, Tier};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -91,54 +94,6 @@ impl ContextBudget {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Selector {
-    pub id: String,
-    pub version: String,
-    #[serde(rename = "type")]
-    pub type_name: String,
-    pub strategies: Vec<Strategy>,
-    #[serde(default)]
-    pub required_tags: Vec<String>,
-    #[serde(default)]
-    pub core_tags: Vec<String>,
-    #[serde(default)]
-    pub kind_pointer: Option<String>,
-    #[serde(default)]
-    pub expires_at_pointer: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rank_pointer: Option<String>,
-    #[serde(default)]
-    pub coordinate_pointers: BTreeMap<String, String>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub coordinate_modes: BTreeMap<String, CoordinateMode>,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CoordinateMode {
-    Exact,
-    SetOrWildcard,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Strategy {
-    Exact,
-    Tag,
-    Recency,
-    Fts,
-}
-
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Tier {
-    Required,
-    Core,
-    Relevant,
-}
-
 #[derive(Clone, Debug, Serialize)]
 pub struct SelectedCoordinate {
     pub id: Uuid,
@@ -219,7 +174,15 @@ pub struct ContextBundle {
     pub bundle_digest: String,
     pub selected_record_ids: Vec<Uuid>,
     pub receipt: ContextReceipt,
-    pub receipt_path: String,
+    /// Whether the receipt was written to the store as well as returned.
+    ///
+    /// Reading is not a privilege that depends on being able to write. A store
+    /// mounted read-only still answers questions, and it says plainly that the
+    /// receipt it handed back is the only copy — rather than refusing the
+    /// answer it had already assembled because it could not file a copy of it.
+    pub receipt_persisted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub receipt_path: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

@@ -5,6 +5,12 @@ use clap::Subcommand;
 use std::path::PathBuf;
 
 #[derive(Debug, Subcommand)]
+// One variant is much larger than the rest because one command takes many more
+// options than the rest. The lint is about the cost of moving a large enum
+// around; this one is parsed once per process and matched once. Boxing it would
+// buy nothing and would put a Box between clap's derive and every field it
+// fills.
+#[allow(clippy::large_enum_variant)]
 pub enum Command {
     /// Create a store, its root owner, and its first namespace.
     Init {
@@ -99,9 +105,10 @@ pub enum Command {
         /// Initialized store directory.
         #[arg(long)]
         store: PathBuf,
-        /// Registered context profile identifier.
+        /// Registered context profile identifier. Leave it out and name a
+        /// role, a project and a process instead, to ask for a role contract.
         #[arg(long)]
-        profile: String,
+        profile: Option<String>,
         /// Context request JSON file. Use it for scripted requests; for a
         /// one-off question `--query` and the coordinate flags are enough.
         #[arg(
@@ -118,18 +125,8 @@ pub enum Command {
         /// Request coordinate as `key=value`. Repeatable.
         #[arg(long = "coordinate")]
         coordinates: Vec<String>,
-        /// Project coordinate shorthand for `--coordinate project=VALUE`.
-        #[arg(long, conflicts_with = "request")]
-        project: Option<String>,
-        /// Role coordinate shorthand for `--coordinate role=VALUE`.
-        #[arg(long, conflicts_with = "request")]
-        role: Option<String>,
-        /// Phase coordinate shorthand for `--coordinate phase=VALUE`.
-        #[arg(long, conflicts_with = "request")]
-        phase: Option<String>,
-        /// Harness coordinate shorthand for `--coordinate harness=VALUE`.
-        #[arg(long, conflicts_with = "request")]
-        harness: Option<String>,
+        #[command(flatten)]
+        coordinate: CoordinateArgs,
         /// Request tag. Repeatable.
         #[arg(long = "tag")]
         tags: Vec<String>,

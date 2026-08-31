@@ -21,6 +21,13 @@ pub struct StoreConfig {
     pub created_at_unix_ms: u128,
     /// Top-level fields this build does not know about.
     ///
+    /// The profile a context call uses when the caller does not name one.
+    ///
+    /// The store knows what it is for; a caller should not have to repeat that
+    /// back to it on every question. Absent means there is no default and the
+    /// caller must name a profile, which is what every store did before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_context_profile: Option<String>,
     /// A store written by a newer Equill may carry keys this one has never heard
     /// of. Reading them is not enough: anything that rewrites the metadata has to
     /// write them back, or an ordinary grant silently deletes state the newer

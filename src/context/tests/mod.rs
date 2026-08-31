@@ -1,6 +1,7 @@
 mod budget;
 mod coordinates;
 mod degraded;
+mod expectation;
 mod fixtures;
 mod inline;
 mod lifecycle;

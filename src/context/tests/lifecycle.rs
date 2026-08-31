@@ -76,6 +76,7 @@ fn unchanged_request_is_byte_stable_and_filters_lifecycle() {
     assert_eq!(first.bundle_digest, second.bundle_digest);
     assert_eq!(first.selected_record_ids, vec![live, relevant]);
     assert_eq!(first.receipt_path, second.receipt_path);
+    assert!(first.receipt_persisted && second.receipt_persisted);
     for (id, reason) in [
         (old, ExclusionReason::Superseded),
         (future, ExclusionReason::InvalidAtRequestTime),

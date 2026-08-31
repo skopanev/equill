@@ -71,6 +71,7 @@ mod tests {
 
     fn config() -> StoreConfig {
         StoreConfig {
+            default_context_profile: None,
             format_version: 1,
             root_owner: "owner".into(),
             namespaces: vec!["agent.memory".into()],
