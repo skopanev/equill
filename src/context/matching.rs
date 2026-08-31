@@ -116,16 +116,18 @@ fn coordinates_match(record: &StoredRecord, selector: &Selector, request: &Conte
 /// silently dropped every record whose role was a plain string. Nothing said
 /// so; the rows were simply absent.
 ///
-/// Absence is universal on either side. A record that does not name a role
-/// applies to all of them, and a request that does not ask about roles is not
-/// asking to be narrowed.
+/// Absence is universal on the RECORD side only: a record that does not name a
+/// role applies to all of them. A request that is not asking about roles says
+/// so by leaving the coordinate out, which never reaches here. An explicit null
+/// in the request is a different statement — it asks for the records that name
+/// no role — and it keeps meaning that.
 pub(super) fn set_or_wildcard(
     actual: Option<&serde_json::Value>,
     expected: &serde_json::Value,
 ) -> bool {
     use serde_json::Value::{Array, Null};
     match (actual, expected) {
-        (None | Some(Null), _) | (_, Null) => true,
+        (None | Some(Null), _) => true,
         // Two sets meet if they share anything at all. Not equality: a record
         // for ["lane", "backend"] answers a request about ["backend", "kyc"].
         (Some(Array(held)), Array(wanted)) => held.iter().any(|value| wanted.contains(value)),

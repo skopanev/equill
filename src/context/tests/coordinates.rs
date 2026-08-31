@@ -40,20 +40,32 @@ fn one_value_answers_the_same_value_and_no_other() {
     assert!(!held(json!("pm")).is_answered_by(&json!("gm")));
 }
 
-/// Nothing said on either side narrows nothing.
+/// A record that names no role applies to every role.
 ///
-/// A record that does not name a role applies to every role; a request that
-/// does not name one is not asking to be narrowed. Both directions, because
-/// this matcher is symmetric and an asymmetry here would be the same class of
-/// bug in a quieter place.
+/// This is the record side, and it is universal in every shape the request can
+/// take — that is what makes the fix a widening of the shapes handled rather
+/// than of the answer.
 #[test]
-fn absence_asks_nothing_of_the_other_side() {
+fn a_record_that_names_no_role_answers_anything() {
     assert!(set_or_wildcard(None, &json!("pm")));
     assert!(set_or_wildcard(None, &json!(["pm", "gm"])));
     assert!(held(Value::Null).is_answered_by(&json!("pm")));
     assert!(held(Value::Null).is_answered_by(&json!(["pm", "gm"])));
-    assert!(held(json!("pm")).is_answered_by(&Value::Null));
-    assert!(held(json!(["lane", "backend"])).is_answered_by(&Value::Null));
+}
+
+/// The request side is NOT universal, and deliberately so.
+///
+/// A caller that is not asking about roles leaves the coordinate out, and that
+/// never reaches this function. Writing null in the request is a different
+/// statement — it asks for the records that name no role — and it has always
+/// meant that. Making it universal too would have been symmetric and would have
+/// quietly widened every stored query that used it.
+#[test]
+fn an_explicit_null_request_still_asks_for_the_records_that_name_nothing() {
+    assert!(held(Value::Null).is_answered_by(&Value::Null));
+    assert!(set_or_wildcard(None, &Value::Null));
+    assert!(!held(json!("pm")).is_answered_by(&Value::Null));
+    assert!(!held(json!(["lane", "backend"])).is_answered_by(&Value::Null));
 }
 
 /// The controls: a role nobody asked about is not pulled in, in any of the four
