@@ -5,6 +5,7 @@
 //! simulating one, because the question is what the code does when the
 //! filesystem says no, and a mock cannot answer it.
 mod durability;
+mod ledger_link;
 mod pending;
 mod recovery;
 

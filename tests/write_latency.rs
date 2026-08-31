@@ -9,9 +9,20 @@ mod harness;
 use harness::{settles, store};
 use std::time::{Duration, Instant};
 
-/// The write must still return promptly; this is a smoke ceiling, not the
-/// owner's threshold.
-const MAX: Duration = Duration::from_millis(100);
+/// A ceiling that separates the two things this test is between: a write that
+/// went to the provider, and a write that ran on a busy machine.
+///
+/// The failure being closed took 22 to 31 SECONDS, because it waited on a
+/// provider that was not there. Anything in that class is orders of magnitude
+/// over this. A tight number here would instead be measuring the machine — a
+/// debug-build CLI invocation timed while the rest of the suite runs — and it
+/// did: 63-80ms alone, over 100ms once in three runs under full parallel load.
+/// A ceiling that fails for that reason teaches everyone to rerun until green.
+///
+/// The owner-facing numbers are measured where the owner's contract lives, at
+/// the MCP boundary in tests/write_confirmation.rs, in release, serialized
+/// against other measurements.
+const MAX: Duration = Duration::from_secs(2);
 
 /// The exact failure shape 0.2.9 shipped, closed against the real binary.
 ///

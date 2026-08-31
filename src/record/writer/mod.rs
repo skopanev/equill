@@ -110,7 +110,9 @@ fn confirm(
     let digest = sha256_hex(&line);
     line.push(b'\n');
     let ledger = format!("records/{month}.jsonl");
-    let path = store_root.join(&ledger);
+    // The one path whose loss cannot be repaired: a stray receipt can be
+    // rebuilt from the ledger, a stray record from nothing.
+    let path = crate::kernel::path::within(store_root, &ledger)?;
     let receipt = WriteReceipt {
         receipt_id: record.id,
         status: WriteStatus::Appended,
@@ -174,7 +176,7 @@ fn confirm(
     let staged = receipt::stage(store_root, &month, &receipt)?;
     let receipt_path = staged.relative().to_owned();
     let handle = staged.handle().to_owned();
-    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+    let mut file = OpenOptions::new().create(true).append(true).open(&path)?;
     file.write_all(&line)?;
     file.sync_data()?;
     lifecycle.record(&record, super::lifecycle::keys_of(&record, &claiming));
