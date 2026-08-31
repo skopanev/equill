@@ -110,11 +110,14 @@ fn coordinates_match(record: &StoredRecord, selector: &Selector, request: &Conte
 /// Both sides can be one value or several, and the rule is symmetric in that:
 /// a record listing the roles it applies to and a request naming the roles it
 /// cares about are the same kind of statement, and either can be written either
-/// way. The previous version handled only one of the four combinations — a
-/// record holding a set against a request holding a scalar — so a request for
-/// `["lane", "backend"]` compared an array to a string, found them unequal, and
-/// silently dropped every record whose role was a plain string. Nothing said
-/// so; the rows were simply absent.
+/// way. Two of the four already worked: one value against one value, and a
+/// record holding a set against a request holding one value. A request holding
+/// a set fell through to equality — which compares an array to a string and
+/// finds them unequal — so it dropped every record whose role was a plain
+/// string. Two sets matched only when the arrays were exactly equal, which made
+/// the order they were written in significant; that one is worse than a plain
+/// failure, because it answered correctly often enough to hide itself. Nothing
+/// reported either case. The rows were simply absent.
 ///
 /// Absence is universal on the RECORD side only: a record that does not name a
 /// role applies to all of them. A request that is not asking about roles says
