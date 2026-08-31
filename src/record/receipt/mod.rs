@@ -41,7 +41,7 @@ pub struct WriteReceipt<'a> {
 
 pub(super) const PENDING: &str = "receipts/pending";
 pub(super) const WRITES: &str = "receipts/writes";
-const RECEIPTS: &str = "receipts";
+pub(super) const RECEIPTS: &str = "receipts";
 
 #[cfg(test)]
 pub(crate) use abandoned::seam as quarantine_seam;
@@ -86,15 +86,23 @@ impl StagedReceipt {
             .rsplit_once('/')
             .map(|(head, _)| head)
             .unwrap_or_default();
-        let fresh = !crate::kernel::path::within(&self.root, month)?.is_dir();
+        let writes = crate::kernel::path::within(&self.root, WRITES)?;
+        let fresh_writes = !writes.is_dir();
+        let fresh_month = !crate::kernel::path::within(&self.root, month)?.is_dir();
         let directory = crate::kernel::path::prepare(&self.root, month)?;
         let target = crate::kernel::path::within(&self.root, &self.relative)?;
         fs::rename(&self.pending, &target)?;
-        if fresh {
+        // Outermost first: until `receipts/writes` is durable there is nowhere
+        // for the month to be, and until the month is durable there is nowhere
+        // for the receipt to be.
+        if fresh_writes {
             crate::kernel::path::publish(
-                &crate::kernel::path::within(&self.root, WRITES)?,
-                crate::kernel::path::Step::MonthCreated,
+                &crate::kernel::path::within(&self.root, RECEIPTS)?,
+                crate::kernel::path::Step::WritesCreated,
             )?;
+        }
+        if fresh_month {
+            crate::kernel::path::publish(&writes, crate::kernel::path::Step::MonthCreated)?;
         }
         // A rename is a name in a directory, and a name is no more durable than
         // the directory holding it. Published here rather than left to chance:

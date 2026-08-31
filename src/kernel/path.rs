@@ -125,6 +125,15 @@ pub(crate) enum Step {
     /// describes. A crash after the append with no stage on disk leaves a
     /// durable record that recovery has nothing to finish.
     Staged,
+    /// The name of `receipts/writes` itself, the first time a store needs it.
+    ///
+    /// A store is initialized with `receipts` but not with `receipts/writes`,
+    /// so the first receipt creates two levels at once. Publishing the month's
+    /// name makes the month durable and says nothing about the name of the
+    /// directory holding it — and a crash that took `writes` would take the
+    /// month and the receipt with it, while the stage's removal, published
+    /// afterwards, survived.
+    WritesCreated,
     /// The name of a month directory that did not exist before this write.
     ///
     /// Published before the receipt inside it, because a receipt whose month

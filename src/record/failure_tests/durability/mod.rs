@@ -2,12 +2,13 @@
 //!
 //! A committed receipt is a name in a directory, and a name is no more durable
 //! than the directory holding it. These assert the ORDER of the publications
-//! and the difference between a month that has to be created and one that is
-//! already there — an assertion that could not tell those apart would pass
+//! and the difference between a directory that has to be created and one that
+//! is already there — an assertion that could not tell those apart would pass
 //! whether the work happened always, never, or exactly when it should.
+mod receipts;
+
+use super::super::append_only;
 use super::super::tests::{lesson, store};
-use super::super::{append, append_only};
-use super::{ledger_file, month_directory};
 use std::fs;
 
 /// A committed receipt is a name in a directory, and a name is no more durable
@@ -30,6 +31,7 @@ fn a_committed_receipt_publishes_its_directories_before_reporting_success() {
         [
             Step::PendingCreated,
             Step::Staged,
+            Step::WritesCreated,
             Step::MonthCreated,
             Step::Committed,
             Step::Drained
@@ -77,68 +79,6 @@ fn a_committed_receipt_publishes_its_directories_before_reporting_success() {
     assert!(
         matches!(refused, crate::kernel::error::Error::PostCommit(_)),
         "an unpublished rename was reported as a completed write: {refused:?}"
-    );
-    reset();
-    let _ = fs::remove_dir_all(&root);
-}
-
-/// A month whose name could not be published has no receipt in it.
-#[test]
-fn a_fresh_month_that_cannot_be_published_is_not_reported_as_committed() {
-    use crate::kernel::path::{Step, fail, reset};
-
-    let root = store();
-    reset();
-    fail(Step::MonthCreated);
-    let refused = append_only(&root, lesson("the first record of its month"), "writer")
-        .expect_err("a month whose name could not be made durable");
-    assert!(
-        matches!(refused, crate::kernel::error::Error::PostCommit(_)),
-        "an unpublished month came back as a completed write: {refused:?}"
-    );
-    reset();
-    let _ = fs::remove_dir_all(&root);
-}
-
-/// Recovery finishes a receipt into a month that may not exist any more.
-///
-/// The same first-creation case as an ordinary write, on the path that runs
-/// after a crash — which is exactly when a month directory can be missing.
-#[test]
-fn recovery_publishes_the_name_of_a_month_it_has_to_create() {
-    use crate::kernel::path::{Step, reset, steps};
-
-    let root = store();
-    append(&root, lesson("the record the stage describes"), "writer").expect("seed");
-    let month = month_directory(&root);
-    let contents = fs::read_to_string(ledger_file(&root)).expect("ledger");
-    let line = contents.lines().next_back().expect("a record");
-    let value: serde_json::Value = serde_json::from_str(line).expect("json");
-    let id = value["id"].as_str().expect("id");
-    // The receipt and its whole month, gone the way a crash could take them.
-    fs::remove_dir_all(&month).expect("remove the month");
-    fs::create_dir_all(root.join("receipts/pending")).expect("pending");
-    fs::write(
-        root.join(format!("receipts/pending/{id}.json")),
-        serde_json::to_vec(&serde_json::json!({
-            "receipt_id": id,
-            "status": "appended",
-            "record_id": id,
-            "recorded_at": value["recorded_at"],
-            "record_sha256": crate::kernel::digest::sha256_hex(line.as_bytes()),
-            "durable": true,
-        }))
-        .expect("json"),
-    )
-    .expect("stage");
-
-    reset();
-    append_only(&root, lesson("the write that triggers recovery"), "writer").expect("write");
-    assert_eq!(
-        steps().first(),
-        Some(&Step::MonthCreated),
-        "recovery created a month without publishing its name: {:?}",
-        steps()
     );
     reset();
     let _ = fs::remove_dir_all(&root);
