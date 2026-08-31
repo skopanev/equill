@@ -52,6 +52,7 @@ fn index_record(
     let evidence = serde_json::to_string(&record.evidence)?;
     let tags = serde_json::to_string(&record.tags)?;
     let content = sqlite::content(record)?;
+    let revoked = i64::from(withdrawn(record));
     let transaction = connection
         .transaction()
         .map_err(|error| sqlite::projection_error("start index transaction", error))?;
@@ -70,6 +71,7 @@ fn index_record(
                 evidence,
                 tags,
                 record.supersedes.map(|id| id.to_string()),
+                revoked,
                 sha256,
                 ledger,
             ],
@@ -78,6 +80,7 @@ fn index_record(
     if inserted == 0 {
         verify_existing(&transaction, record, sha256)?;
     }
+    mark_lifecycle(&transaction, record)?;
     transaction
         .execute(
             "DELETE FROM records_fts WHERE id = ?1",
@@ -93,6 +96,37 @@ fn index_record(
     transaction
         .commit()
         .map_err(|error| sqlite::projection_error("commit index transaction", error))
+}
+
+/// Lifecycle, written where the fact appears rather than derived on every read.
+///
+/// A record is history when a later record replaced it or a tombstone withdrew
+/// it. Both are decided by records already in the store, so this is a
+/// projection of the ledger and a rebuild reproduces it exactly. Reads used to
+/// answer the same question by walking the whole ledger, which made the cost of
+/// a bounded page a function of how much history the store held.
+fn mark_lifecycle(
+    transaction: &rusqlite::Transaction<'_>,
+    record: &StoredRecord,
+) -> Result<(), Error> {
+    if let Some(replaced) = record.supersedes {
+        transaction
+            .execute(queries::MARK_SUPERSEDED, [replaced.to_string()])
+            .map_err(|error| sqlite::projection_error("mark superseded record", error))?;
+    }
+    transaction
+        .execute(queries::MARK_IF_ALREADY_REPLACED, [record.id.to_string()])
+        .map_err(|error| sqlite::projection_error("mark replaced record", error))?;
+    Ok(())
+}
+
+/// The tags a tombstone leaves. The legacy spelling is still honoured: a store
+/// written before the namespaced tag must not come back to life on a rebuild.
+fn withdrawn(record: &StoredRecord) -> bool {
+    record
+        .tags
+        .iter()
+        .any(|tag| tag == crate::record::REVOKED_TAG || tag == "status:revoked")
 }
 
 fn verify_existing(

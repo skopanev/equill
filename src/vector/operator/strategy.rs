@@ -45,80 +45,40 @@ pub struct StrategySearchReport {
     pub hits: Vec<SearchHit>,
 }
 
-/// Which records a later one replaced, read from the ledger. Asking the SQLite
-/// projection would make a semantic search fail whenever full text is missing
-/// or degraded, even with a healthy vector index — and lifecycle is not the
-/// text projection's fact to own.
-fn replaced_ids(store_root: &Path) -> Result<std::collections::HashSet<uuid::Uuid>, Error> {
-    Ok(crate::record::read_all(store_root)?
-        .iter()
-        .filter_map(|record| record.supersedes)
-        .collect())
-}
-
-/// How many records in this scope a search must be prepared to skip: those a
-/// later record replaced, and the tombstones that withdrew them. Read from the
-/// canonical ledger rather than the projection, because lifecycle is the
-/// ledger's answer to give.
-fn history_slack(store_root: &Path, request: &SearchRequest) -> Result<u16, Error> {
-    let records = crate::record::read_all(store_root)?;
-    let replaced = records
-        .iter()
-        .filter_map(|record| record.supersedes)
-        .collect::<std::collections::HashSet<_>>();
-    let history = records
-        .iter()
-        .filter(|record| {
-            request
-                .namespace
-                .as_ref()
-                .is_none_or(|value| &record.namespace == value)
-        })
-        .filter(|record| {
-            request
-                .type_name
-                .as_ref()
-                .is_none_or(|value| &record.type_name == value)
-        })
-        .filter(|record| {
-            replaced.contains(&record.id)
-                || record
-                    .tags
-                    .iter()
-                    .any(|tag| tag == crate::record::REVOKED_TAG || tag == "status:revoked")
-        })
-        .count();
+/// How many records in this scope a semantic page must be prepared to skip:
+/// those a later record replaced, and the tombstones that withdrew them. Read
+/// from the projection's indexed lifecycle, which is a projection of the same
+/// ledger facts and answers without walking it.
+pub(crate) fn history_slack(store_root: &Path, request: &SearchRequest) -> Result<u16, Error> {
+    let history = crate::projection::history_in_scope(
+        store_root,
+        &crate::projection::LifecycleScope {
+            namespace: request.namespace.clone(),
+            type_name: request.type_name.clone(),
+        },
+    )?
+    .history;
     let needed = usize::from(request.limit).saturating_add(history);
-    u16::try_from(needed)
-        .ok()
-        .filter(|pool| *pool <= crate::projection::MAX_SCAN)
-        .ok_or_else(|| {
-            // Silently returning a short page here would look like "no more
-            // matches" when the truth is "more history than we can scan past".
-            vector_error(&format!(
-                "this scope holds {history} superseded or withdrawn records, so a page of {} \
-                 would need to scan {needed}, past the {} the engine will scan; narrow it by \
-                 namespace or type",
-                request.limit,
-                crate::projection::MAX_SCAN
-            ))
-        })
+    // An index request is a u16, so that is the bound. This used to refuse the
+    // query outright once the pool passed the projection's scan cap, telling
+    // the caller to narrow by namespace or type — a refusal to serve an answer
+    // that existed, over a number the caller never chose.
+    Ok(u16::try_from(needed).unwrap_or(u16::MAX))
 }
 
 /// An ordinary search answers with what is current. A record a later one
 /// replaced, and the tombstone that withdrew it, are both history: returning
 /// them here would hand a caller a claim its author has already taken back.
 /// `get` and a chain read keep showing them, because that is what auditing is.
-fn current_only(store_root: &Path, hits: &mut Vec<SearchHit>) -> Result<(), Error> {
-    let replaced = replaced_ids(store_root)?;
-    hits.retain(|hit| {
-        !replaced.contains(&hit.record.id)
-            && !hit
-                .record
-                .tags
-                .iter()
-                .any(|tag| tag == crate::record::REVOKED_TAG || tag == "status:revoked")
-    });
+///
+/// A record the projection has not indexed yet is left alone rather than
+/// dropped: silence about a record is not evidence against it, and a read that
+/// discarded everything the projection had not caught up on would lose live
+/// answers exactly when the store is busiest.
+pub(crate) fn current_only(store_root: &Path, hits: &mut Vec<SearchHit>) -> Result<(), Error> {
+    let ids = hits.iter().map(|hit| hit.record.id).collect::<Vec<_>>();
+    let history = crate::projection::historic(store_root, &ids)?.history;
+    hits.retain(|hit| !history.contains(&hit.record.id));
     Ok(())
 }
 

@@ -53,7 +53,10 @@ fn old_projection_requires_rebuild_and_rebuild_uses_porter() {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .expect("rebuilt schema");
-    assert_eq!(version, "2");
+    // Compared against the schema the build declares rather than a literal: a
+    // version bump is how an old projection gets refused, so pinning the number
+    // here would turn every bump into a failing test about nothing.
+    assert_eq!(version, super::schema::VERSION);
     assert!(create_sql.contains("porter unicode61 remove_diacritics 2"));
     fs::remove_dir_all(root).expect("cleanup");
 }

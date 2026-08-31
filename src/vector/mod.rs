@@ -57,6 +57,10 @@ pub use operator::{
     VectorIndex, VectorRebuildReport, VectorSyncReport, VerifiedHits, canonical, configure,
     disable, rebuild, rebuild_with_progress, retrieve, search, sync, sync_with_progress, verify,
 };
+// Exposed for the lifecycle fixtures, which drive the two read-path helpers
+// directly: they are the whole subject of those tests.
+#[cfg(test)]
+pub(crate) use operator::{current_only, history_slack};
 pub use progress::{VectorProgress, VectorProgressSink};
 pub use report::freshness;
 pub use state::{Freshness, VectorFreshness};

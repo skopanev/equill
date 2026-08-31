@@ -10,7 +10,10 @@ use crate::record::StoredRecord;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-pub use model::{ProjectionState, RebuildReport, SearchHit, SearchReport, SearchRequest};
+pub use model::{
+    HistoricRecords, HistoryCount, LifecycleScope, ProjectionState, RebuildReport, SearchHit,
+    SearchReport, SearchRequest,
+};
 pub use provider::sqlite::MAX_SCAN;
 
 const WATERMARK: &str = "projections/sqlite/watermark.json";
@@ -44,6 +47,18 @@ pub fn mark_degraded(store_root: &Path, record: &StoredRecord, reason: &str) {
 pub fn search(store_root: &Path, request: &SearchRequest) -> Result<SearchReport, Error> {
     store::load(store_root)?;
     provider::sqlite::search(store_root, request)
+}
+
+/// Which of these records the projection knows to be history. Answered from
+/// indexed lifecycle rather than from the ledger.
+pub fn historic(store_root: &Path, ids: &[uuid::Uuid]) -> Result<HistoricRecords, Error> {
+    provider::sqlite::historic(store_root, ids)
+}
+
+/// How much of a scope is history. What a semantic page has to be prepared to
+/// skip, counted without reading a record.
+pub fn history_in_scope(store_root: &Path, scope: &LifecycleScope) -> Result<HistoryCount, Error> {
+    provider::sqlite::history_in_scope(store_root, scope)
 }
 
 pub fn verify(store_root: &Path, records: &[StoredRecord]) -> Result<usize, Error> {

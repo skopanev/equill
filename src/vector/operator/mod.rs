@@ -19,6 +19,8 @@ pub use search::{
     QueryEmbedder, RejectedHit, SearchStrategy, VectorIndex, VerifiedHits, retrieve, verify,
 };
 pub use strategy::{StrategySearchReport, finalize, search};
+#[cfg(test)]
+pub(crate) use strategy::{current_only, history_slack};
 pub(crate) use sync::catch_up;
 pub use sync::{VectorSyncReport, sync, sync_with_progress};
 #[cfg(test)]

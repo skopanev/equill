@@ -4,6 +4,7 @@ mod document;
 mod embedding;
 mod endpoint;
 mod hydration;
+mod lifecycle;
 mod search;
 mod support;
 mod sync;
