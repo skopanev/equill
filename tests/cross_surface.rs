@@ -132,3 +132,32 @@ fn the_published_digest_distinguishes_two_different_questions() {
     );
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// A matcher that widens passes every test about what it returns, and fails
+/// only a test about what it does not.
+///
+/// Asking for one role must not drag in another. Checked through every door,
+/// because a control that only ran on one surface would leave the others free
+/// to widen quietly.
+#[test]
+fn asking_for_one_role_does_not_return_another() {
+    let root = fixture("control");
+    let pm = cli_json(&root, &["project=finik", "role=pm"]);
+    let gm = cli_json(&root, &["project=finik", "role=gm"]);
+
+    // The roleless records are universal and belong to both answers; the named
+    // ones must not cross over.
+    let only_pm: Vec<_> = pm.ids.difference(&gm.ids).cloned().collect();
+    let only_gm: Vec<_> = gm.ids.difference(&pm.ids).cloned().collect();
+    assert_eq!(only_pm.len(), 1, "asking for pm returned {only_pm:?}");
+    assert_eq!(only_gm.len(), 1, "asking for gm returned {only_gm:?}");
+    assert_eq!(
+        pm.ids.intersection(&gm.ids).count(),
+        ROLELESS,
+        "the two answers share something other than the roleless records"
+    );
+    // And the same through the other two doors, so no surface widens alone.
+    assert_eq!(mcp(&root, &["project=finik", "role=pm"]), pm);
+    assert_eq!(cli_text(&root, &["project=finik", "role=pm"]), pm.ids);
+    let _ = std::fs::remove_dir_all(root);
+}
