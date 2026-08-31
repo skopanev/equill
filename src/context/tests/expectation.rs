@@ -172,3 +172,41 @@ fn the_default_expectation_still_allows_an_empty_answer() {
     assert!(ask(&root).expect("no refusal").is_empty());
     let _ = fs::remove_dir_all(&root);
 }
+
+/// A health check asks nothing, so a request's expectation has nothing to
+/// apply to.
+///
+/// `expect: one` says an answer must name exactly one record. Doctor makes no
+/// request — it walks the registry to see whether the profiles are well formed
+/// — so a store that holds two of something is not a broken profile there. It
+/// used to be: the check ran the retrieval with no coordinates, the selector
+/// saw everything, and a healthy store reported a fault it did not have.
+#[test]
+fn a_health_check_does_not_apply_a_requests_expectation() {
+    let root = store("doctor-one", "desc", "one");
+    for confidence in [0.1, 0.2] {
+        records::append_ranked(&root, "step", confidence, "2026-01-01T00:00:00Z");
+    }
+
+    // The control first, so this cannot pass by the expectation having been
+    // dropped everywhere: asking still refuses, because two is not one.
+    assert!(
+        ask(&root).is_err(),
+        "two records satisfied a selector that expects one"
+    );
+
+    let report = crate::command::doctor::report(Some(&root), true, false).expect("doctor");
+    assert_eq!(
+        report.context_profile_faults, 0,
+        "a health check counted a store's contents as a broken profile"
+    );
+
+    // And the other side of the same expectation: nothing to find is still a
+    // refusal when somebody asks, and still not a fault when nobody does.
+    let empty = store("doctor-one-empty", "desc", "one");
+    assert!(ask(&empty).is_err(), "an empty answer satisfied `one`");
+    let report = crate::command::doctor::report(Some(&empty), true, false).expect("doctor");
+    assert_eq!(report.context_profile_faults, 0);
+    let _ = fs::remove_dir_all(&root);
+    let _ = fs::remove_dir_all(&empty);
+}

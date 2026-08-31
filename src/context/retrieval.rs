@@ -26,12 +26,29 @@ pub struct Retrieval {
     pub projection: ProjectionState,
 }
 
+/// Whether a selector's `expect` has anything to apply to.
+///
+/// `expect` describes the answer to a question: exactly one process, at least
+/// one role. A health check asks nothing — it walks the registry to see whether
+/// the profiles are well formed — so a store that happens to hold two of
+/// something is not a broken profile there, it is a store the profile would
+/// narrow if anybody asked. Enforcing cardinality with no request to enforce it
+/// for turned a healthy store into a failing doctor.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Cardinality {
+    /// Somebody asked. The count is part of the answer being right.
+    Answering,
+    /// Nobody asked. Everything else about the profile is still checked.
+    Diagnosing,
+}
+
 pub fn retrieve(
     store: &std::path::Path,
     profile: &ContextProfile,
     selectors: &[Selector],
     request: &ContextRequest,
     filter: &Filter,
+    cardinality: Cardinality,
 ) -> Result<Retrieval, Error> {
     let at: jiff::Timestamp = request
         .at
@@ -131,7 +148,9 @@ pub fn retrieve(
             .then_with(|| right.record.observed_at.cmp(&left.record.observed_at))
             .then_with(|| left.record.id.cmp(&right.record.id))
     });
-    require(&candidates, selectors)?;
+    if cardinality == Cardinality::Answering {
+        require(&candidates, selectors)?;
+    }
     excluded.sort_by_key(|item| item.id);
     Ok(Retrieval {
         candidates,

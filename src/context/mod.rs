@@ -66,7 +66,14 @@ pub fn assemble(
         .map(|selector| crate::schema::load(store_root, &selector.type_name))
         .collect::<Result<Vec<_>, _>>()?;
     crate::filter::validate(filter, &scope)?;
-    let mut retrieved = retrieval::retrieve(store_root, &profile, &selectors, &request, filter)?;
+    let mut retrieved = retrieval::retrieve(
+        store_root,
+        &profile,
+        &selectors,
+        &request,
+        filter,
+        retrieval::Cardinality::Answering,
+    )?;
     let budgeted = budget::apply(
         std::mem::take(&mut retrieved.candidates),
         &profile.budget,
@@ -120,12 +127,18 @@ pub fn profile_faults(store_root: &Path) -> Result<usize, Error> {
             coordinates: Default::default(),
             include_superseded: false,
         };
+        // No coordinates, because nobody asked anything: this walks the
+        // registry to see whether the profiles are well formed. What that can
+        // still find is a profile whose required tier cannot fit its own
+        // budget, which is a fault of the profile rather than of the store's
+        // contents — and is checked below exactly as before.
         let retrieved = retrieval::retrieve(
             store_root,
             &profile,
             &selectors,
             &request,
             &Filter::default(),
+            retrieval::Cardinality::Diagnosing,
         )?;
         let budgeted = budget::apply(retrieved.candidates, &profile.budget, retrieved.excluded)?;
         if budgeted.required_overflow > 0 {
