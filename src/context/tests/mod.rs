@@ -1,4 +1,5 @@
 mod budget;
+mod coordinates;
 mod degraded;
 mod fixtures;
 mod inline;

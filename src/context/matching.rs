@@ -105,13 +105,33 @@ fn coordinates_match(record: &StoredRecord, selector: &Selector, request: &Conte
     })
 }
 
-fn set_or_wildcard(actual: Option<&serde_json::Value>, expected: &serde_json::Value) -> bool {
-    match actual {
-        None | Some(serde_json::Value::Null) => true,
-        Some(serde_json::Value::Array(values)) if !expected.is_array() => {
-            values.iter().any(|value| value == expected)
-        }
-        Some(value) => value == expected,
+/// Does what a record holds at a coordinate satisfy what the request asked for?
+///
+/// Both sides can be one value or several, and the rule is symmetric in that:
+/// a record listing the roles it applies to and a request naming the roles it
+/// cares about are the same kind of statement, and either can be written either
+/// way. The previous version handled only one of the four combinations — a
+/// record holding a set against a request holding a scalar — so a request for
+/// `["lane", "backend"]` compared an array to a string, found them unequal, and
+/// silently dropped every record whose role was a plain string. Nothing said
+/// so; the rows were simply absent.
+///
+/// Absence is universal on either side. A record that does not name a role
+/// applies to all of them, and a request that does not ask about roles is not
+/// asking to be narrowed.
+pub(super) fn set_or_wildcard(
+    actual: Option<&serde_json::Value>,
+    expected: &serde_json::Value,
+) -> bool {
+    use serde_json::Value::{Array, Null};
+    match (actual, expected) {
+        (None | Some(Null), _) | (_, Null) => true,
+        // Two sets meet if they share anything at all. Not equality: a record
+        // for ["lane", "backend"] answers a request about ["backend", "kyc"].
+        (Some(Array(held)), Array(wanted)) => held.iter().any(|value| wanted.contains(value)),
+        (Some(Array(held)), wanted) => held.contains(wanted),
+        (Some(held), Array(wanted)) => wanted.contains(held),
+        (Some(held), wanted) => held == wanted,
     }
 }
 
