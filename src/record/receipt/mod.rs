@@ -40,6 +40,8 @@ pub struct WriteReceipt<'a> {
 }
 
 pub(super) const PENDING: &str = "receipts/pending";
+pub(super) const WRITES: &str = "receipts/writes";
+const RECEIPTS: &str = "receipts";
 
 #[cfg(test)]
 pub(crate) use abandoned::seam as quarantine_seam;
@@ -84,9 +86,16 @@ impl StagedReceipt {
             .rsplit_once('/')
             .map(|(head, _)| head)
             .unwrap_or_default();
+        let fresh = !crate::kernel::path::within(&self.root, month)?.is_dir();
         let directory = crate::kernel::path::prepare(&self.root, month)?;
         let target = crate::kernel::path::within(&self.root, &self.relative)?;
         fs::rename(&self.pending, &target)?;
+        if fresh {
+            crate::kernel::path::publish(
+                &crate::kernel::path::within(&self.root, WRITES)?,
+                crate::kernel::path::Step::MonthCreated,
+            )?;
+        }
         // A rename is a name in a directory, and a name is no more durable than
         // the directory holding it. Published here rather than left to chance:
         // until this returns, the receipt is not committed, and this call must
@@ -120,7 +129,14 @@ pub fn stage(
     // protect an ancestor — by then `create_dir_all` has used it — and a
     // refusal that has already made a directory outside the store is still a
     // side effect outside the store.
-    crate::kernel::path::prepare(store_root, PENDING)?;
+    let fresh = !crate::kernel::path::within(store_root, PENDING)?.is_dir();
+    let staging = crate::kernel::path::prepare(store_root, PENDING)?;
+    if fresh {
+        crate::kernel::path::publish(
+            &crate::kernel::path::within(store_root, RECEIPTS)?,
+            crate::kernel::path::Step::PendingCreated,
+        )?;
+    }
     let relative = format!("receipts/writes/{month}/{}.json", receipt.receipt_id);
     crate::kernel::path::within(store_root, &relative)?;
     let handle = format!("{PENDING}/{}.json", receipt.receipt_id);
@@ -132,6 +148,11 @@ pub fn stage(
     serde_json::to_writer(&mut file, receipt)?;
     file.write_all(b"\n")?;
     file.sync_all()?;
+    // The staged receipt's own name, published before the ledger is touched.
+    // The append comes after this returns, so a crash between them must leave a
+    // stage with no record — which recovery reads as a pre-append crash — and
+    // never a record with no stage, which it cannot finish at all.
+    crate::kernel::path::publish(&staging, crate::kernel::path::Step::Staged)?;
     Ok(StagedReceipt {
         root: store_root.to_owned(),
         pending,

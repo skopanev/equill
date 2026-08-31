@@ -119,6 +119,20 @@ pub(crate) fn publish(directory: &Path, step: Step) -> Result<(), Error> {
 /// published at all.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Step {
+    /// The name of the staging directory, the first time a store has one.
+    PendingCreated,
+    /// The staged receipt's own name, before the ledger holds the record it
+    /// describes. A crash after the append with no stage on disk leaves a
+    /// durable record that recovery has nothing to finish.
+    Staged,
+    /// The name of a month directory that did not exist before this write.
+    ///
+    /// Published before the receipt inside it, because a receipt whose month
+    /// directory did not survive is a receipt that did not survive — while the
+    /// removal of its stage, published afterwards, would have. That leaves a
+    /// durable record with neither a receipt nor the stage to rebuild one from,
+    /// which is the outcome the whole mechanism exists to prevent.
+    MonthCreated,
     /// The receipt at its final coordinate.
     Committed,
     /// The staging directory, after the receipt left it.

@@ -145,9 +145,17 @@ fn coordinate(month: &str, receipt_id: Uuid) -> String {
 fn finalize(store_root: &Path, path: &Path, month: &str, receipt_id: Uuid) -> Result<(), Error> {
     // The same construction the quarantine note records, so that "where this
     // receipt belongs" has one definition rather than two that agree by habit.
-    let directory = crate::kernel::path::prepare(store_root, &format!("receipts/writes/{month}"))?;
+    let relative = format!("receipts/writes/{month}");
+    let fresh = !crate::kernel::path::within(store_root, &relative)?.is_dir();
+    let directory = crate::kernel::path::prepare(store_root, &relative)?;
     let target = crate::kernel::path::within(store_root, &coordinate(month, receipt_id))?;
     fs::rename(path, &target)?;
+    if fresh {
+        crate::kernel::path::publish(
+            &crate::kernel::path::within(store_root, super::WRITES)?,
+            crate::kernel::path::Step::MonthCreated,
+        )?;
+    }
     crate::kernel::path::publish(&directory, crate::kernel::path::Step::Committed)?;
     crate::kernel::path::publish(
         &crate::kernel::path::within(store_root, PENDING)?,

@@ -116,7 +116,6 @@ fn a_receipt_that_cannot_commit_is_finished_before_the_next_write() {
     );
     let _ = fs::remove_dir_all(&root);
 }
-
 /// What is written after the receipt is not part of the promise.
 ///
 /// The lifecycle state and the published target both follow the commit. Both
@@ -159,42 +158,5 @@ fn a_marker_that_cannot_be_written_does_not_fail_a_completed_write() {
             .is_some(),
         "the state was not rebuilt"
     );
-    let _ = fs::remove_dir_all(&root);
-}
-
-/// A committed receipt is a name in a directory, and a name is no more durable
-/// than the directory holding it.
-///
-/// So the directories are published before this reports success, and the order
-/// is asserted rather than assumed: the destination first, because that is what
-/// makes the receipt exist, and the staging directory second, because that is
-/// what makes it stop existing where it was. The failure injection is the other
-/// half — an unpublished rename must not come back as a completed write.
-#[test]
-fn a_committed_receipt_publishes_its_directories_before_reporting_success() {
-    use crate::kernel::path::{Step, fail, reset, steps};
-
-    let root = store();
-    reset();
-    append_only(&root, lesson("the record under test"), "writer").expect("write");
-    assert_eq!(
-        steps(),
-        [Step::Committed, Step::Drained],
-        "the directories a receipt depends on were not published, or not in order"
-    );
-
-    reset();
-    fail(Step::Committed);
-    let refused = append_only(
-        &root,
-        lesson("the write that cannot be published"),
-        "writer",
-    )
-    .expect_err("a commit whose directory could not be published");
-    assert!(
-        matches!(refused, crate::kernel::error::Error::PostCommit(_)),
-        "an unpublished rename was reported as a completed write: {refused:?}"
-    );
-    reset();
     let _ = fs::remove_dir_all(&root);
 }
