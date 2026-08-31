@@ -61,16 +61,16 @@ pub(super) fn quarantine(
     coordinate: String,
     bytes: &[u8],
 ) -> Result<(), Error> {
-    let fresh = !super::path::within(store_root, ABANDONED)?.is_dir();
-    fs::create_dir_all(store_root.join(ABANDONED))?;
-    // Created, then walked: create_dir_all accepts a link that already resolves
-    // to a directory, and this is where a file is about to be renamed into.
-    let directory = super::path::within(store_root, ABANDONED)?;
+    let fresh = !crate::kernel::path::within(store_root, ABANDONED)?.is_dir();
+    let directory = crate::kernel::path::prepare(store_root, ABANDONED)?;
     if fresh {
         // A directory entry is no more durable than a file's. If this is the
         // first abandonment the store has ever had, the directory holding the
         // note has to survive too.
-        publish(&super::path::within(store_root, PARENT)?)?;
+        crate::kernel::path::publish(
+            &crate::kernel::path::within(store_root, PARENT)?,
+            crate::kernel::path::Step::Committed,
+        )?;
     }
     let note = serde_json::to_vec(&Note {
         schema: SCHEMA,
@@ -84,12 +84,22 @@ pub(super) fn quarantine(
     // would follow it out of the store, and the rename would publish whatever
     // it found there as this store's own record of what happened.
     let temporary =
-        super::path::within(store_root, &format!("{ABANDONED}/.{}.json", Uuid::now_v7()))?;
-    if let Err(error) = write_durably(&temporary, &note) {
+        crate::kernel::path::within(store_root, &format!("{ABANDONED}/.{}.json", temp_id()))?;
+    // Opened first, and only then owned. A failed `create_new` means the name
+    // was already taken by something this call did not make, and removing it
+    // would destroy a file on the strength of having collided with it.
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)?;
+    if let Err(error) = write_durably(&mut file, &note) {
+        drop(file);
         let _ = fs::remove_file(&temporary);
         return Err(error);
     }
-    let target = super::path::within(store_root, &format!("{ABANDONED}/{receipt_id}.json"))?;
+    drop(file);
+    let target =
+        crate::kernel::path::within(store_root, &format!("{ABANDONED}/{receipt_id}.json"))?;
     if fs::rename(&temporary, &target).is_err() {
         let _ = fs::remove_file(&temporary);
         return Err(Error::Integrity(
@@ -99,20 +109,49 @@ pub(super) fn quarantine(
     // The rename, published. Until this returns, the note is a name in a
     // directory that may not survive, and the stage must not be removed on the
     // strength of it.
-    publish(&directory)?;
+    crate::kernel::path::publish(&directory, crate::kernel::path::Step::Committed)?;
     fs::remove_file(stage)?;
     // And the removal, published, so the next run does not find the stage again
     // and do this a second time.
-    publish(stage.parent().unwrap_or(store_root))
+    crate::kernel::path::publish(
+        stage.parent().unwrap_or(store_root),
+        crate::kernel::path::Step::Drained,
+    )
 }
 
-fn write_durably(path: &Path, bytes: &[u8]) -> Result<(), Error> {
-    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
+fn write_durably(file: &mut File, bytes: &[u8]) -> Result<(), Error> {
     file.write_all(bytes)?;
     Ok(file.sync_all()?)
 }
 
-/// Make a directory's contents — its names, not its files — survive a crash.
-fn publish(directory: &Path) -> Result<(), Error> {
-    Ok(File::open(directory)?.sync_all()?)
+/// The name of the file a note is written through.
+///
+/// Fresh every time, so nothing can be waiting under it. A test can pin it,
+/// because "what happens when this name is already taken" is otherwise not a
+/// question that can be asked deterministically.
+fn temp_id() -> Uuid {
+    #[cfg(test)]
+    if let Some(pinned) = seam::pinned() {
+        return pinned;
+    }
+    Uuid::now_v7()
+}
+
+#[cfg(test)]
+pub(crate) mod seam {
+    use std::cell::RefCell;
+    use uuid::Uuid;
+
+    thread_local! {
+        static PINNED: RefCell<Option<Uuid>> = const { RefCell::new(None) };
+    }
+
+    /// Make the next note use this name, so a collision can be arranged.
+    pub(crate) fn pin_temp(id: Uuid) {
+        PINNED.with(|pinned| *pinned.borrow_mut() = Some(id));
+    }
+
+    pub(super) fn pinned() -> Option<Uuid> {
+        PINNED.with(|pinned| pinned.borrow_mut().take())
+    }
 }

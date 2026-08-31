@@ -152,7 +152,7 @@ fn refused_and_stage_kept(root: &Path, id: Uuid, injected: &str) {
 /// the write. Pointing it here instead would leave the sentinel sitting where
 /// recovery looks for staged receipts, and every one of these tests would pass
 /// on "that is not a receipt" while proving nothing about links.
-fn elsewhere(name: &str) -> PathBuf {
+pub(super) fn elsewhere(name: &str) -> PathBuf {
     let path = std::env::temp_dir().join(format!(
         "equill-outside-{name}-{}-{}",
         std::process::id(),
@@ -163,14 +163,14 @@ fn elsewhere(name: &str) -> PathBuf {
     path
 }
 
-fn link(target: &Path, at: &Path) {
+pub(super) fn link(target: &Path, at: &Path) {
     if let Some(parent) = at.parent() {
         fs::create_dir_all(parent).expect("parent");
     }
     std::os::unix::fs::symlink(target, at).expect("link");
 }
 
-fn intact_sentinel(outside: &Path) {
+pub(super) fn intact_sentinel(outside: &Path) {
     assert_eq!(
         fs::read(outside.join("sentinel")).expect("the sentinel is gone"),
         SENTINEL,
@@ -178,7 +178,7 @@ fn intact_sentinel(outside: &Path) {
     );
 }
 
-fn intact(outside: &Path) {
+pub(super) fn intact(outside: &Path) {
     assert_eq!(
         fs::read(outside.join("sentinel")).expect("the sentinel is gone"),
         SENTINEL,
@@ -221,7 +221,7 @@ fn last_record(root: &Path) -> (Uuid, String) {
     )
 }
 
-fn clean(root: &Path, outside: &Path) {
+pub(super) fn clean(root: &Path, outside: &Path) {
     let _ = fs::remove_file(root.join("records"));
     let _ = fs::remove_dir_all(root);
     let _ = fs::remove_dir_all(outside);

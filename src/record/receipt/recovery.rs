@@ -44,7 +44,7 @@ struct Pending {
 /// The store already holds an unresolved transaction; accepting another write
 /// would bury it under one more.
 pub fn resolve_pending(store_root: &Path) -> Result<(), Error> {
-    let directory = super::path::within(store_root, PENDING)?;
+    let directory = crate::kernel::path::within(store_root, PENDING)?;
     let entries = match fs::read_dir(&directory) {
         Ok(entries) => entries,
         // Only absence means there is nothing pending. A directory that exists
@@ -57,8 +57,8 @@ pub fn resolve_pending(store_root: &Path) -> Result<(), Error> {
         // A listing hands back names. Turning one into a path is where a name
         // that is not a name would do its damage, so it is checked there, and
         // the whole chain down to it is walked rather than assumed.
-        let name = super::path::plain_name(&entry?.path())?;
-        let stage = super::path::file_within(store_root, &format!("{PENDING}/{name}"))?;
+        let name = crate::kernel::path::plain_name(&entry?.path())?;
+        let stage = crate::kernel::path::file_within(store_root, &format!("{PENDING}/{name}"))?;
         resolve_one(store_root, &stage)?;
     }
     Ok(())
@@ -145,14 +145,14 @@ fn coordinate(month: &str, receipt_id: Uuid) -> String {
 fn finalize(store_root: &Path, path: &Path, month: &str, receipt_id: Uuid) -> Result<(), Error> {
     // The same construction the quarantine note records, so that "where this
     // receipt belongs" has one definition rather than two that agree by habit.
-    let target = super::path::within(store_root, &coordinate(month, receipt_id))?;
-    if let Some(parent) = target.parent() {
-        fs::create_dir_all(parent)?;
-        // Created, then checked: create_dir_all is content with a link that
-        // already resolves to a directory, and this is the rename's destination.
-        super::path::within(store_root, &format!("receipts/writes/{month}"))?;
-    }
-    Ok(fs::rename(path, &target)?)
+    let directory = crate::kernel::path::prepare(store_root, &format!("receipts/writes/{month}"))?;
+    let target = crate::kernel::path::within(store_root, &coordinate(month, receipt_id))?;
+    fs::rename(path, &target)?;
+    crate::kernel::path::publish(&directory, crate::kernel::path::Step::Committed)?;
+    crate::kernel::path::publish(
+        &crate::kernel::path::within(store_root, PENDING)?,
+        crate::kernel::path::Step::Drained,
+    )
 }
 
 /// The month a timestamp belongs to, or nothing.

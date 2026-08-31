@@ -1,5 +1,4 @@
 mod abandoned;
-mod path;
 mod recovery;
 mod shard;
 
@@ -42,12 +41,13 @@ pub struct WriteReceipt<'a> {
 
 pub(super) const PENDING: &str = "receipts/pending";
 
+#[cfg(test)]
+pub(crate) use abandoned::seam as quarantine_seam;
 pub use recovery::resolve_pending;
 
 pub struct StagedReceipt {
     root: PathBuf,
     pending: PathBuf,
-    final_path: PathBuf,
     relative: String,
     handle: String,
     /// Whether the pending file is somebody else's problem now — either because
@@ -79,14 +79,23 @@ impl StagedReceipt {
     /// be allowed to exist.
     pub fn commit(mut self) -> Result<(), Error> {
         self.settled = true;
-        if let Some(directory) = self.final_path.parent() {
-            fs::create_dir_all(directory)?;
-        }
-        // Re-walked here, not trusted from staging: the month directory is
-        // created by this call, and what create_dir_all accepts is not what
-        // this store is willing to rename into.
-        path::within(&self.root, &self.relative)?;
-        Ok(fs::rename(&self.pending, &self.final_path)?)
+        let month = self
+            .relative
+            .rsplit_once('/')
+            .map(|(head, _)| head)
+            .unwrap_or_default();
+        let directory = crate::kernel::path::prepare(&self.root, month)?;
+        let target = crate::kernel::path::within(&self.root, &self.relative)?;
+        fs::rename(&self.pending, &target)?;
+        // A rename is a name in a directory, and a name is no more durable than
+        // the directory holding it. Published here rather than left to chance:
+        // until this returns, the receipt is not committed, and this call must
+        // not report that it is.
+        crate::kernel::path::publish(&directory, crate::kernel::path::Step::Committed)?;
+        crate::kernel::path::publish(
+            &crate::kernel::path::within(&self.root, PENDING)?,
+            crate::kernel::path::Step::Drained,
+        )
     }
 }
 
@@ -107,16 +116,15 @@ pub fn stage(
     // Recovery has to find unfinished work without reading a month that may
     // hold every receipt the store has ever written, and a directory that is
     // empty except during a failure is the cheapest possible place to look.
-    fs::create_dir_all(store_root.join(PENDING))?;
-    // Walked after creating: every directory this write will touch has to be
-    // one the store owns, and create_dir_all is satisfied by a link that
-    // already resolves. The staged file is claimed with create_new below, so a
-    // name already taken is refused rather than followed.
-    path::within(store_root, PENDING)?;
+    // Walked before it is created, not only after. Walking afterwards cannot
+    // protect an ancestor — by then `create_dir_all` has used it — and a
+    // refusal that has already made a directory outside the store is still a
+    // side effect outside the store.
+    crate::kernel::path::prepare(store_root, PENDING)?;
     let relative = format!("receipts/writes/{month}/{}.json", receipt.receipt_id);
-    let final_path = path::within(store_root, &relative)?;
+    crate::kernel::path::within(store_root, &relative)?;
     let handle = format!("{PENDING}/{}.json", receipt.receipt_id);
-    let pending = path::within(store_root, &handle)?;
+    let pending = crate::kernel::path::within(store_root, &handle)?;
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -127,7 +135,6 @@ pub fn stage(
     Ok(StagedReceipt {
         root: store_root.to_owned(),
         pending,
-        final_path,
         relative,
         handle,
         settled: false,

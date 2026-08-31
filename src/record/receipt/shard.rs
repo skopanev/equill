@@ -1,6 +1,6 @@
 //! Asking a ledger shard whether it holds a record, under the writer lock.
 use super::super::StoredRecord;
-use super::path;
+
 use crate::kernel::digest::sha256_hex;
 use crate::kernel::error::Error;
 use crate::kernel::store;
@@ -36,7 +36,7 @@ pub(super) fn ledger_holds(
     record_id: Uuid,
     digest: &str,
 ) -> Result<Held, Error> {
-    let path = path::within(store_root, &format!("records/{month}.jsonl"))?;
+    let path = crate::kernel::path::within(store_root, &format!("records/{month}.jsonl"))?;
     let contents = match fs::read_to_string(&path) {
         Ok(contents) => contents,
         // No shard at all is a real answer: the append never created one.
