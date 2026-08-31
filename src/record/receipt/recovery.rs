@@ -12,7 +12,7 @@
 //! So nothing here is inferred. The ledger shard the receipt names is the only
 //! thing that settles it, and it is asked directly.
 use super::PENDING;
-use crate::kernel::digest::sha256_hex;
+use super::shard::{Held, canonical_digest, ledger_holds};
 use crate::kernel::error::Error;
 use serde::Deserialize;
 use std::fs;
@@ -111,6 +111,14 @@ fn resolve_one(store_root: &Path, path: &Path) -> Result<(), Error> {
     if record_id != staged.receipt_id {
         return Err(refuse(path, "it names a record other than its own"));
     }
+    // The digest decides whether the ledger's answer is the right one, so a
+    // digest that cannot be a digest makes the question unanswerable. Checked
+    // before the shard is opened: otherwise a stage carrying nonsense here and
+    // naming a record that is genuinely absent would come out as an ordinary
+    // pre-append crash, and be quarantined as though it had been understood.
+    if !canonical_digest(digest) {
+        return Err(refuse(path, "the digest it states is not a sha256"));
+    }
 
     match ledger_holds(store_root, &month, record_id, digest)? {
         Held::Once => finalize(store_root, path, &month, staged.receipt_id),
@@ -119,7 +127,13 @@ fn resolve_one(store_root: &Path, path: &Path) -> Result<(), Error> {
             // durable, so no receipt may say otherwise. The file is moved aside
             // rather than deleted: it is evidence of an interrupted write, and
             // the next write is entitled to proceed once it is out of the way.
-            super::abandoned::quarantine(store_root, path, staged.receipt_id, &bytes)
+            super::abandoned::quarantine(
+                store_root,
+                path,
+                staged.receipt_id,
+                coordinate(&month, staged.receipt_id),
+                &bytes,
+            )
         }
         Held::Mismatched => Err(refuse(
             path,
@@ -129,72 +143,15 @@ fn resolve_one(store_root: &Path, path: &Path) -> Result<(), Error> {
     }
 }
 
-enum Held {
-    Once,
-    Never,
-    Twice,
-    Mismatched,
-}
-
-/// Ask the one ledger shard the receipt names, and no other.
-fn ledger_holds(
-    store_root: &Path,
-    month: &str,
-    record_id: Uuid,
-    digest: &str,
-) -> Result<Held, Error> {
-    let path = store_root.join("records").join(format!("{month}.jsonl"));
-    let contents = match fs::read_to_string(&path) {
-        Ok(contents) => contents,
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Held::Never),
-        Err(error) => return Err(error.into()),
-    };
-    // Only completed lines are records; a trailing fragment with no newline is a
-    // write in progress, exactly as the ledger reader treats it.
-    let complete = match contents.rfind('\n') {
-        Some(end) => &contents[..=end],
-        None => "",
-    };
-    let wanted = record_id.to_string();
-    let mut found = 0;
-    let mut matched = 0;
-    for line in complete.lines() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        // A shard that cannot be read cannot answer whether it holds the
-        // record, and "cannot answer" is not "does not hold". Reading a parse
-        // failure as absence would file a durable record's receipt as an
-        // abandoned stage — losing the receipt for a record that is really there.
-        let record: serde_json::Value = serde_json::from_str(line).map_err(|error| {
-            Error::Integrity(format!(
-                "the ledger shard an unfinished receipt names cannot be read: {}: {error}",
-                path.display()
-            ))
-        })?;
-        if record["id"].as_str() != Some(wanted.as_str()) {
-            continue;
-        }
-        found += 1;
-        // The digest is taken over the serialized record exactly as the writer
-        // hashed it: the ledger line without its newline.
-        if sha256_hex(line.as_bytes()) == digest {
-            matched += 1;
-        }
-    }
-    Ok(match (found, matched) {
-        (0, _) => Held::Never,
-        (1, 1) => Held::Once,
-        (1, _) => Held::Mismatched,
-        _ => Held::Twice,
-    })
+/// Where a receipt belongs: the path the store reports on a successful write.
+fn coordinate(month: &str, receipt_id: Uuid) -> String {
+    format!("receipts/writes/{month}/{receipt_id}.json")
 }
 
 fn finalize(store_root: &Path, path: &Path, month: &str, receipt_id: Uuid) -> Result<(), Error> {
-    let target = store_root
-        .join("receipts/writes")
-        .join(month)
-        .join(format!("{receipt_id}.json"));
+    // The same construction the quarantine note records, so that "where this
+    // receipt belongs" has one definition rather than two that agree by habit.
+    let target = store_root.join(coordinate(month, receipt_id));
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent)?;
     }

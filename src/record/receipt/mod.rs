@@ -1,5 +1,6 @@
 mod abandoned;
 mod recovery;
+mod shard;
 
 use crate::defense::DefenseFinding;
 use crate::kernel::error::Error;

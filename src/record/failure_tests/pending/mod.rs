@@ -83,8 +83,8 @@ fn an_abandoned_stage_leaves_a_note_and_nothing_else() {
     assert_eq!(
         keys,
         [
+            "coordinate",
             "reason",
-            "receipt_id",
             "recovered_at",
             "schema",
             "stage_sha256"
@@ -92,7 +92,18 @@ fn an_abandoned_stage_leaves_a_note_and_nothing_else() {
         "the note carries fields beyond what an abandoned stage is allowed to keep"
     );
     assert_eq!(note["reason"], "pre_append_crash");
-    assert_eq!(note["receipt_id"], orphan.to_string());
+    assert_eq!(note["schema"], "equill.receipt-quarantine.v1");
+    // The coordinate the receipt would have occupied, in the form a successful
+    // write reports back — not a bare id.
+    let month = ledger_file(&root)
+        .file_stem()
+        .expect("month")
+        .to_string_lossy()
+        .into_owned();
+    assert_eq!(
+        note["coordinate"],
+        format!("receipts/writes/{month}/{orphan}.json")
+    );
     assert_eq!(
         note["stage_sha256"],
         crate::kernel::digest::sha256_hex(&staged),
@@ -117,7 +128,7 @@ fn an_abandoned_stage_leaves_a_note_and_nothing_else() {
     // at a second time, and a note claiming otherwise would be the lie. What
     // must not move is what the note says about the transaction.
     let again = note_for(&root, orphan);
-    for field in ["schema", "receipt_id", "stage_sha256", "reason"] {
+    for field in ["schema", "coordinate", "stage_sha256", "reason"] {
         assert_eq!(
             again[field], note[field],
             "repeating the recovery changed {field}"
