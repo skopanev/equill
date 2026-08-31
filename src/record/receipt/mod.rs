@@ -1,3 +1,4 @@
+mod abandoned;
 mod recovery;
 
 use crate::defense::DefenseFinding;

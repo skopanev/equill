@@ -90,8 +90,7 @@ impl SyncIndex for FakeIndex {
             &self.root,
             &self.config,
             physical,
-            // The revision given, not one invented from the record count.
-            Some((records, digest, revision)),
+            Some((records, digest, revision)), // given, not invented from a count
         )?
         .commit()
     }

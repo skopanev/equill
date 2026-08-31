@@ -20,8 +20,6 @@ use std::io::ErrorKind;
 use std::path::Path;
 use uuid::Uuid;
 
-const ABANDONED: &str = "receipts/abandoned";
-
 /// The fields of a staged receipt that recovery is allowed to act on.
 #[derive(Deserialize)]
 struct Pending {
@@ -62,7 +60,18 @@ pub fn resolve_pending(store_root: &Path) -> Result<(), Error> {
 }
 
 fn resolve_one(store_root: &Path, path: &Path) -> Result<(), Error> {
-    let staged: Pending = serde_json::from_slice(&fs::read(path)?)
+    // A regular file, and one this store wrote. `symlink_metadata` does not
+    // follow, which is the point: a link placed in the staging directory would
+    // otherwise be read through and then RENAMED into the receipts, finishing
+    // something from outside the store as though it belonged to it.
+    if !fs::symlink_metadata(path)?.is_file() {
+        return Err(refuse(
+            path,
+            "it is not a regular file, so it did not come from a staged write",
+        ));
+    }
+    let bytes = fs::read(path)?;
+    let staged: Pending = serde_json::from_slice(&bytes)
         .map_err(|error| refuse(path, &format!("it cannot be read: {error}")))?;
     // The name is part of the claim. A receipt whose filename disagrees with
     // its contents names two different transactions, and neither can be trusted.
@@ -110,7 +119,7 @@ fn resolve_one(store_root: &Path, path: &Path) -> Result<(), Error> {
             // durable, so no receipt may say otherwise. The file is moved aside
             // rather than deleted: it is evidence of an interrupted write, and
             // the next write is entitled to proceed once it is out of the way.
-            quarantine(store_root, path, staged.receipt_id)
+            super::abandoned::quarantine(store_root, path, staged.receipt_id, &bytes)
         }
         Held::Mismatched => Err(refuse(
             path,
@@ -140,13 +149,29 @@ fn ledger_holds(
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Held::Never),
         Err(error) => return Err(error.into()),
     };
+    // Only completed lines are records; a trailing fragment with no newline is a
+    // write in progress, exactly as the ledger reader treats it.
+    let complete = match contents.rfind('\n') {
+        Some(end) => &contents[..=end],
+        None => "",
+    };
     let wanted = record_id.to_string();
     let mut found = 0;
     let mut matched = 0;
-    for line in contents.lines() {
-        let Ok(record) = serde_json::from_str::<serde_json::Value>(line) else {
+    for line in complete.lines() {
+        if line.trim().is_empty() {
             continue;
-        };
+        }
+        // A shard that cannot be read cannot answer whether it holds the
+        // record, and "cannot answer" is not "does not hold". Reading a parse
+        // failure as absence would file a durable record's receipt as an
+        // abandoned stage — losing the receipt for a record that is really there.
+        let record: serde_json::Value = serde_json::from_str(line).map_err(|error| {
+            Error::Integrity(format!(
+                "the ledger shard an unfinished receipt names cannot be read: {}: {error}",
+                path.display()
+            ))
+        })?;
         if record["id"].as_str() != Some(wanted.as_str()) {
             continue;
         }
@@ -174,15 +199,6 @@ fn finalize(store_root: &Path, path: &Path, month: &str, receipt_id: Uuid) -> Re
         fs::create_dir_all(parent)?;
     }
     Ok(fs::rename(path, &target)?)
-}
-
-fn quarantine(store_root: &Path, path: &Path, receipt_id: Uuid) -> Result<(), Error> {
-    let directory = store_root.join(ABANDONED);
-    fs::create_dir_all(&directory)?;
-    Ok(fs::rename(
-        path,
-        directory.join(format!("{receipt_id}.json")),
-    )?)
 }
 
 /// The month a timestamp belongs to, or nothing.
