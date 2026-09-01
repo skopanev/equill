@@ -32,3 +32,10 @@ codegen-units = 1
 lto = "thin"
 panic = "abort"
 strip = true
+
+# One target rather than another top-level file: the directory cap counts
+# files, and a test that needs its own fixture, its own observation helpers and
+# three groups of assertions is four files however it is spelled.
+[[test]]
+name = "read_only_actor"
+path = "tests/readonly/main.rs"

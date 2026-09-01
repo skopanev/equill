@@ -1,6 +1,6 @@
 //! What the store refuses to be talked into, and what it says it holds.
-use super::super::harness::session::Session;
-use super::{READER, plain_store, run, state, store};
+use crate::harness::session::Session;
+use crate::{READER, plain_store, run, state, store};
 use std::fs;
 
 /// Two ways to end governance, both refused where they are written.
@@ -160,8 +160,8 @@ fn a_store_that_governed_under_the_old_vocabulary_still_governs() {
 #[test]
 fn a_session_refuses_the_held_actor_and_changes_nothing() {
     let root = store();
-    let watermark = root.join("projections/sqlite/watermark.json");
-    fs::remove_file(&watermark).expect("watermark");
+    // Behind, and configured, so there is a catch-up for the guard to prevent.
+    crate::lagging::prepare(&root);
     let before = state(&root);
 
     let mut session = Session::open_as(&root, READER);
@@ -180,8 +180,33 @@ fn a_session_refuses_the_held_actor_and_changes_nothing() {
         "the session refused without the contract: {said}"
     );
 
+    assert!(
+        !crate::lagging::starts(&root),
+        "the refused call started a catch-up on its way to being refused"
+    );
     drop(session);
     assert_eq!(before, state(&root), "the refused call changed the store");
-    assert!(!watermark.exists(), "the refused call caught the index up");
+
+    // The control: the same store, in the same state, an actor that may.
+    crate::lagging::unmute(&root);
+    let mut session = Session::open_as(&root, "lane");
+    let (_, response) = session.tool(
+        "record",
+        serde_json::json!({ "draft": {
+            "namespace": "agent.memory",
+            "type": "agent.lesson.v1",
+            "observed_at": "2026-01-01T00:00:00Z",
+            "payload": { "rule": "a lesson the session may write" }
+        }}),
+    );
+    assert!(
+        !response.to_string().contains("PM_WRITE_DENIED"),
+        "the control was refused: {response}"
+    );
+    drop(session);
+    assert!(
+        crate::lagging::starts(&root),
+        "nothing resumes for anybody here, so the refusal proved nothing"
+    );
     let _ = fs::remove_dir_all(&root);
 }

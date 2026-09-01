@@ -82,7 +82,16 @@ fn a_hold_list_that_could_not_be_enforced_or_undone_is_refused() {
         metadata["read_only"] = held.clone();
         let config: StoreConfig =
             serde_json::from_value(metadata).expect("metadata parses either way");
-        assert!(validate(&config).is_err(), "{why}: {held} was accepted");
+        let said = validate(&config)
+            .expect_err(&format!("{why}: {held} was accepted"))
+            .to_string();
+        // The reason has to be about the store's file. The generic actor
+        // error blames EQUILL_ACTOR, which points at the environment of
+        // whoever ran the command instead of the list that is actually wrong.
+        assert!(
+            said.contains("read_only") && !said.contains("EQUILL_ACTOR"),
+            "{why}: refused as {said:?}"
+        );
     }
 }
 

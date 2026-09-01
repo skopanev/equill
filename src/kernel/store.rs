@@ -105,20 +105,40 @@ pub fn validate(config: &StoreConfig) -> Result<(), Error> {
 fn validate_read_only(config: &StoreConfig) -> Result<(), Error> {
     let mut seen = std::collections::BTreeSet::new();
     for actor in &config.read_only {
+        // Each refusal names `read_only` and the name it objected to. The
+        // generic actor error reads "EQUILL_ACTOR is not a stable identity",
+        // which points at the environment of whoever is running the command —
+        // and the fault is in the store's own file, which they may not have
+        // written.
+        //
         // Exact names only: `*` here would hold every actor including the
         // owner, and nothing could then lift it.
-        if actor == "*" || !crate::kernel::identity::valid(actor) {
-            return Err(Error::InvalidActor);
+        if actor == "*" {
+            return Err(Error::Governance(
+                "read_only in store.json may not name `*`: it would hold every \
+                 actor including the owner, and nothing could lift it"
+                    .to_owned(),
+            ));
+        }
+        if !crate::kernel::identity::valid(actor) {
+            return Err(Error::Governance(format!(
+                "read_only in store.json names {actor:?}, which is not a stable identity"
+            )));
         }
         // The owner governs, and governance is what lifts a hold. Holding the
         // owner leaves a store nobody can recover.
         if actor == &config.root_owner {
-            return Err(Error::InvalidOwner);
+            return Err(Error::Governance(format!(
+                "read_only in store.json names the owner {actor}: the owner \
+                 governs, and governance is what lifts a hold"
+            )));
         }
         // A name twice is a list that disagrees with itself about how many
         // actors it holds, and the report that counts them would say two.
         if !seen.insert(actor) {
-            return Err(Error::InvalidActor);
+            return Err(Error::Governance(format!(
+                "read_only in store.json names {actor} twice"
+            )));
         }
     }
     Ok(())

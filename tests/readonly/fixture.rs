@@ -3,13 +3,7 @@
 //! A store that grants everyone with a wildcard and then names the one actor
 //! that may not append: without the wildcard the refusal under test would never
 //! be reached, and the tests would pass on an actor who simply was not a writer.
-mod authority;
-mod inspect;
-mod resume;
-
-pub use inspect::{readback, state};
-
-use super::harness;
+use crate::harness;
 use serde_json::json;
 use std::fs;
 use std::path::{Path, PathBuf};

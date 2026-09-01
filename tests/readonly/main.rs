@@ -8,10 +8,17 @@
 //!
 //! The fixture opens the store with that wildcard on purpose. A test where the
 //! actor simply was not a writer would pass without the refusal existing.
+mod authority;
+mod fixture;
+#[path = "../harness/mod.rs"]
 mod harness;
-mod readonly;
+mod inspect;
+mod lagging;
+mod resume;
 
-use readonly::{READER, existing_record, readback, run, state, store, write};
+pub use fixture::{READER, existing_record, plain_store, run, store, write};
+pub use inspect::{readback, state};
+
 use serde_json::json;
 use std::fs;
 

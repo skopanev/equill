@@ -1,5 +1,5 @@
 //! Looking at a store closely enough to say nothing moved.
-use super::{READER, run};
+use crate::{READER, run};
 use std::fs;
 use std::path::{Path, PathBuf};
 
