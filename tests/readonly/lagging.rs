@@ -49,6 +49,33 @@ pub fn starts(root: &Path) -> bool {
     false
 }
 
+/// Clear the trace and confirm it stays cleared.
+///
+/// One wait is not enough. The seed runs more than one worker — the command
+/// starts a catch-up and the writer starts another — and they fail at their
+/// own pace, so a trace can land after the first has been waited for and
+/// cleared. Clearing once and measuring immediately reads that straggler as
+/// "the refused call started a catch-up": that is exactly how this test went
+/// red with both guards in place, and only when the suite ran in parallel,
+/// where everything is slower and the straggler had further to fall behind.
+///
+/// So: clear, watch for the length of a measurement, and if anything appears,
+/// clear again. Silence for a whole window is the store actually being quiet.
+fn quiesce(root: &Path) {
+    for _ in 0..5 {
+        unmute(root);
+        // Both, and in this order: no worker still running for this store, and
+        // no trace appearing for a whole measurement afterwards. Either alone
+        // has been observed lying — `settles` reports an empty machine while a
+        // fork is still on its way, and a cleared trace says nothing about the
+        // worker that has not failed yet.
+        if harness::settles(root, Duration::from_secs(30)) && !starts(root) {
+            return;
+        }
+    }
+    panic!("the store never went quiet, so a later trace could not be attributed");
+}
+
 /// Leave the store configured, behind, and quiet: the next command that may
 /// resume will, and nothing is left over to be mistaken for it.
 pub fn prepare(root: &Path) {
@@ -105,5 +132,5 @@ pub fn prepare(root: &Path) {
     // to be current, so the next command that may resume will.
     let _ = fs::remove_file(root.join("projections/qdrant/state.json"));
     let _ = fs::remove_file(root.join("projections/sqlite/watermark.json"));
-    unmute(root);
+    quiesce(root);
 }

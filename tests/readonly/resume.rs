@@ -3,15 +3,24 @@ use crate::lagging;
 use crate::{READER, existing_record, run, state, store};
 use std::time::Duration;
 
-/// A refused command does not start the catch-up it would otherwise trigger.
+/// A refused command line call does not start the catch-up it would trigger.
 ///
 /// WHAT THIS SHOWS, exactly: a held actor's refused command does not SPAWN a
 /// vector catch-up. It is not a claim about data safety — in all runs, refused
 /// or not, the ledger and the projection are unchanged, because nothing ever
 /// reaches the endpoint. What the guard buys is that a read-only actor does not
 /// spend the store's workers or move its bookkeeping.
+///
+/// WHICH GUARD THIS HOLDS: the one in `lib.rs`, on the command line. The name
+/// used to say only "a refused command", which promised the whole property and
+/// delivered half of it: remove the guard in `mcp/mod.rs` and this stays green,
+/// so a reader who deleted it would conclude the property was untouched. The
+/// session's own guard is held by
+/// `authority::a_refused_session_call_changes_nothing_and_starts_no_catch_up`,
+/// and removing either guard reddens that one — the server is started through
+/// the command line, so it sits behind both.
 #[test]
-fn a_refused_command_does_not_catch_the_index_up() {
+fn a_refused_command_line_call_does_not_start_a_catch_up() {
     let root = store();
     let target = existing_record(&root);
     lagging::prepare(&root);

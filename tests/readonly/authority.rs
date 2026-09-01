@@ -157,8 +157,12 @@ fn a_store_that_governed_under_the_old_vocabulary_still_governs() {
 /// on every call. For a call about to be refused that resume is a write the
 /// refusal did not prevent — the same fault as on the command line, reached
 /// through a different door.
+///
+/// WHICH GUARD THIS HOLDS: both. The server is started through the command
+/// line, so removing either guard reddens this test — it is the only one that
+/// reddens when the guard in `mcp/mod.rs` goes.
 #[test]
-fn a_session_refuses_the_held_actor_and_changes_nothing() {
+fn a_refused_session_call_changes_nothing_and_starts_no_catch_up() {
     let root = store();
     // Behind, and configured, so there is a catch-up for the guard to prevent.
     crate::lagging::prepare(&root);
