@@ -12,6 +12,7 @@ pub enum Error {
     InvalidSchema(String),
     InvalidType(String),
     Compact(String),
+    CommandRejected(String),
     Context(String),
     Filter(String),
     /// A governance call that is refused for a reason the caller has to read:
@@ -45,6 +46,7 @@ impl Display for Error {
             Self::InvalidSchema(reason) => write!(formatter, "invalid schema: {reason}"),
             Self::InvalidType(reason) => write!(formatter, "invalid record type: {reason}"),
             Self::Compact(reason) => write!(formatter, "compaction failed: {reason}"),
+            Self::CommandRejected(_) => write!(formatter, "command rejected one or more records"),
             Self::Context(reason) => write!(formatter, "context failed: {reason}"),
             Self::Filter(reason) => write!(formatter, "filter is not usable: {reason}"),
             Self::Integrity(reason) => write!(formatter, "integrity check failed: {reason}"),
@@ -76,6 +78,15 @@ impl Display for Error {
                 formatter,
                 "store exists with different ownership or namespace"
             ),
+        }
+    }
+}
+
+impl Error {
+    pub fn command_output(&self) -> Option<&str> {
+        match self {
+            Self::CommandRejected(output) => Some(output),
+            _ => None,
         }
     }
 }

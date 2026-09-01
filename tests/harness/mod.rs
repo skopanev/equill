@@ -113,9 +113,8 @@ pub fn store(name: &str) -> PathBuf {
     root
 }
 
-/// One record, on ONE line. A pretty-printed draft is read as eight malformed
-/// JSONL rows, which the writer reports as rejected while still exiting zero —
-/// so this must be compact, and the caller must check more than the exit code.
+/// One compact record. Pretty-printed drafts are covered at the process boundary
+/// by `record_input`; performance fixtures stay compact to keep setup cheap.
 pub fn draft(root: &Path, index: usize) -> PathBuf {
     let path = root.join(format!("draft-{index}.json"));
     write_line(
@@ -154,8 +153,7 @@ pub fn record_with(binary: &Path, root: &Path, index: usize) -> Duration {
         "record {index} failed: {}",
         String::from_utf8_lossy(&out.stderr)
     );
-    // Exit code alone is not enough: a batch with every line rejected still
-    // exits zero, which is how a broken fixture can look like a passing test.
+    // Keep the receipt assertion as a second signal beside the process status.
     let seen = String::from_utf8_lossy(&out.stdout);
     assert!(
         !seen.contains("\"rejected\""),

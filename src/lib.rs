@@ -68,7 +68,12 @@ where
             if record::is_batch(&input)? {
                 let report = record::append_batch(&store, &input, &actor)?;
                 let text = format!("{} stored, {} rejected", report.stored, report.rejected);
-                return command::output::render(json, &report, text);
+                let output = command::output::render(json, &report, text)?;
+                return if report.ok && report.stored > 0 {
+                    Ok(output)
+                } else {
+                    Err(kernel::error::Error::CommandRejected(output))
+                };
             }
             let report = record::append_file(&store, &input, &actor)?;
             command::output::render(json, &report, command::output::record(&report))

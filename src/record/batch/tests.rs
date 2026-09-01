@@ -54,16 +54,16 @@ fn a_rejected_line_stops_only_itself_and_names_its_reason() {
         "payload": { "rule": 42 }
     })
     .to_string();
-    fs::write(&source, line("First.") + &bad + "\n" + &line("Third.")).expect("input");
+    fs::write(&source, bad + "\n" + &line("Second.") + &line("Third.")).expect("input");
 
     let report = append_batch(&root, &source, "owner").expect("batch");
 
     assert!(!report.ok);
     assert_eq!(report.stored, 2);
     assert_eq!(report.rejected, 1);
-    assert_eq!(report.records[1].line, 2);
-    assert!(report.records[1].id.is_none());
-    let reason = report.records[1].error.as_deref().expect("reason");
+    assert_eq!(report.records[0].line, 1);
+    assert!(report.records[0].id.is_none());
+    let reason = report.records[0].error.as_deref().expect("reason");
     assert!(reason.contains("does not match"), "{reason}");
     assert_eq!(crate::record::read_all(&root).expect("records").len(), 2);
     fs::remove_dir_all(root).expect("cleanup");
@@ -80,5 +80,21 @@ fn one_record_is_not_a_batch() {
 
     assert!(!is_batch(&single).expect("single"));
     assert!(is_batch(&many).expect("many"));
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+#[test]
+fn a_malformed_first_jsonl_row_does_not_hide_later_records() {
+    let root = store();
+    let source = root.join("malformed-first.jsonl");
+    fs::write(&source, "{not-json\n".to_owned() + &line("Still stored.")).expect("input");
+
+    assert!(is_batch(&source).expect("batch shape"));
+    let report = append_batch(&root, &source, "owner").expect("batch receipt");
+
+    assert_eq!(report.stored, 1);
+    assert_eq!(report.rejected, 1);
+    assert_eq!(report.records[0].line, 1);
+    assert!(report.records[0].error.is_some());
     fs::remove_dir_all(root).expect("cleanup");
 }

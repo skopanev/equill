@@ -5,6 +5,10 @@ fn main() {
         // frame into a stream a client is parsing.
         Ok(output) if output.is_empty() => {}
         Ok(output) => println!("{output}"),
+        Err(error) if error.command_output().is_some() => {
+            println!("{}", error.command_output().expect("checked output"));
+            std::process::exit(1);
+        }
         Err(error) => {
             eprintln!("equill: {error}");
             std::process::exit(1);

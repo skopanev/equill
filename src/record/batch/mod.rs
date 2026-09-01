@@ -76,11 +76,17 @@ pub fn append_batch(store_root: &Path, source: &Path, actor: &str) -> Result<Bat
 /// single-record file keeps behaving exactly as it did.
 pub fn is_batch(source: &Path) -> Result<bool, Error> {
     let contents = fs::read_to_string(source)?;
-    Ok(contents
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .count()
-        > 1)
+    if serde_json::from_str::<RecordDraft>(&contents).is_ok() {
+        return Ok(false);
+    }
+    let mut lines = 0;
+    let mut object_line = false;
+    for line in contents.lines().filter(|line| !line.trim().is_empty()) {
+        lines += 1;
+        object_line |=
+            serde_json::from_str::<serde_json::Value>(line).is_ok_and(|value| value.is_object());
+    }
+    Ok(lines > 1 && object_line)
 }
 
 fn write(store_root: &Path, line: &str, actor: &str) -> Result<AppendReport, Error> {
