@@ -72,3 +72,31 @@ fn a_non_query_command_also_restarts_outstanding_work() {
         "an ordinary non-query command restarts the work"
     );
 }
+
+/// The starter seam hands itself back too, and hands back what it replaced.
+///
+/// Both properties in one measurement, because the interesting failure needs
+/// both: an inner seam that panics has to leave the OUTER stand-in installed.
+/// Clearing to none instead would drop the outer body onto the real spawn, and
+/// a unit test would start launching processes to prove a point about
+/// bookkeeping.
+#[test]
+fn a_panicking_starter_seam_restores_the_one_around_it() {
+    let root = configured("starter-seam");
+    reset_starts();
+    with_starter(counting_starter, || {
+        let escaped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            with_starter(failing_starter, || panic!("the inner body fails"))
+        }));
+        assert!(escaped.is_err(), "the panic was supposed to escape");
+        // Still the counting starter, not the real spawn and not the failing
+        // one: the write is handed off and counted here.
+        after_commit(&root, 1);
+    });
+    assert_eq!(
+        starts(),
+        1,
+        "the inner seam did not give the outer stand-in back"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}

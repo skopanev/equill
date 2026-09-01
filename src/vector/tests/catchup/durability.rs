@@ -144,3 +144,56 @@ fn a_worker_that_cannot_converge_stops_at_its_deadline() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A panicking body gives the stand-in back.
+///
+/// Measured through the consequence, not through the slot: after a panic
+/// inside the seam, an ordinary run has to reach the unreachable provider and
+/// fail there. Before the guard it reported "stopped at its bound" instead —
+/// it was still running the substitute, which is what makes a leak so much
+/// worse than a second failure: a leaked pass turns a provider that is down
+/// into one that succeeds.
+#[test]
+fn a_panicking_body_hands_the_pass_back() {
+    let root = super::harness::bare("seam-panic");
+    crate::vector::desired::publish(&root, 9_999).expect("target");
+    let escaped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        crate::vector::catchup::bounds::with_pass(a_pass_that_never_converges, || {
+            panic!("the body fails, as a failing assertion would")
+        })
+    }));
+    assert!(escaped.is_err(), "the panic was supposed to escape");
+
+    let report = run_once(&root);
+    assert_eq!(
+        report.attempt_error.as_deref(),
+        Some("projection failed: vector qdrant: list aliases failed"),
+        "the substitution outlived the panic and answered for the provider"
+    );
+}
+
+/// A seam inside a seam hands back what the outer one installed.
+///
+/// Restoring to none instead would leave the outer body running against
+/// production for the rest of its own test — the failure that looks like the
+/// outer seam never worked.
+#[test]
+fn a_nested_seam_restores_the_one_around_it() {
+    let root = super::harness::bare("seam-nested");
+    crate::vector::desired::publish(&root, 9_999).expect("target");
+    let report =
+        crate::vector::catchup::bounds::with_bounds(2, std::time::Duration::from_secs(5), || {
+            crate::vector::catchup::bounds::with_pass(a_pass_that_never_converges, || {
+                // An inner seam over the same slot, entered and left before
+                // the outer body does its work.
+                crate::vector::catchup::bounds::with_pass(a_pass_that_never_converges, || {});
+                run_once(&root)
+            })
+        });
+    assert_eq!(
+        report.attempt_error.as_deref(),
+        Some("drain stopped at its bound without converging"),
+        "the inner seam cleared the outer one instead of restoring it"
+    );
+    assert_eq!(report.passes, 2, "the outer bound was lost with it");
+}

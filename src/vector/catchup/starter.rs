@@ -20,10 +20,8 @@ thread_local! {
 
 #[cfg(test)]
 pub(crate) fn with_starter<T>(starter: Starter, body: impl FnOnce() -> T) -> T {
-    STARTER.with(|slot| slot.set(Some(starter)));
-    let outcome = body();
-    STARTER.with(|slot| slot.set(None));
-    outcome
+    let _restore = super::seam::Restore::install(&STARTER, starter);
+    body()
 }
 
 pub(super) fn starter() -> Starter {

@@ -28,10 +28,8 @@ thread_local! {
 
 #[cfg(test)]
 pub(crate) fn with_bounds<T>(passes: usize, deadline: Duration, body: impl FnOnce() -> T) -> T {
-    BOUNDS.with(|slot| slot.set(Some((passes, deadline))));
-    let outcome = body();
-    BOUNDS.with(|slot| slot.set(None));
-    outcome
+    let _restore = super::seam::Restore::install(&BOUNDS, (passes, deadline));
+    body()
 }
 
 pub(super) fn bounds() -> (usize, Duration) {
@@ -59,10 +57,8 @@ thread_local! {
 
 #[cfg(test)]
 pub(crate) fn with_pass<T>(pass: Pass, body: impl FnOnce() -> T) -> T {
-    PASS.with(|slot| slot.set(Some(pass)));
-    let outcome = body();
-    PASS.with(|slot| slot.set(None));
-    outcome
+    let _restore = super::seam::Restore::install(&PASS, pass);
+    body()
 }
 
 pub(super) fn pass() -> Pass {
