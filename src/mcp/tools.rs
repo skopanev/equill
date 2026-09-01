@@ -145,7 +145,11 @@ fn search(store: &Path, log_queries: bool, arguments: &Value) -> Result<Value, E
     // could match — and an approximate-neighbour index returns near matches,
     // not every qualifying record. This is the CLI's `--all` rule reaching the
     // surface that has no `--all`: the promise is made by the filter instead.
-    let strategy = if exhaustive {
+    // A question gets both halves, even alongside a filter: the filter narrows
+    // what may be returned, it does not turn the question into an enumeration.
+    // A request with no question at all is an enumeration, and only text can
+    // walk the scope it asks for.
+    let strategy = if query.is_none() {
         vector::SearchStrategy::Fts
     } else {
         vector::SearchStrategy::Hybrid

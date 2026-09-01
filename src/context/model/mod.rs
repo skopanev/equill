@@ -158,6 +158,31 @@ pub struct ContextReceipt {
     pub degraded_strategies: Vec<Strategy>,
     pub degraded: bool,
     pub empty: bool,
+    /// Absent unless a hybrid selector ran; see `SemanticAnswer`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub semantic: Option<SemanticAnswer>,
+}
+
+/// What the semantic half of a hybrid selector actually did.
+///
+/// Present only when a profile asked for hybrid, and absent — not defaulted —
+/// otherwise, so a text-only bundle serializes to the same bytes it always did
+/// and keeps the digest a caller may already hold.
+#[derive(Clone, Debug, Serialize)]
+pub struct SemanticAnswer {
+    /// `hybrid` when both halves ran, `fts` when the index could not answer.
+    pub answered_by: String,
+    /// Why text stood in, when it did.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+    /// How far behind the index was, kept apart from whether it answered: an
+    /// index can answer well and still be stale, and a caller comparing two
+    /// bundles needs both facts to know why they differ.
+    pub vector_freshness: crate::vector::VectorFreshness,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vector_indexed_records: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vector_pending_records: Option<usize>,
 }
 
 #[derive(Clone, Debug, Serialize)]

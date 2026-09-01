@@ -1,5 +1,6 @@
 mod catchup;
 mod config;
+mod cross_surface_hybrid;
 mod document;
 mod embedding;
 mod endpoint;

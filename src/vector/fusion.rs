@@ -8,10 +8,11 @@ use crate::projection::SearchHit;
 use std::collections::HashMap;
 use uuid::Uuid;
 
-/// Damps the first place's advantage so one list cannot decide the answer
-/// alone: with `K` this large, being first in one list and absent from the
-/// other beats being second in both only barely, which is the point of fusing
-/// at all.
+/// Damps the head of each list so one search cannot decide the answer alone.
+/// With `K` this large the gap between adjacent ranks is small, so agreement
+/// dominates position: second place in both lists scores about twice a lone
+/// first place, and the top of one list cannot outvote a record the other
+/// search also found.
 const K: u128 = 60;
 
 /// One record's standing, as an exact fraction.

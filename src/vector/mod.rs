@@ -62,7 +62,7 @@ pub use operator::{
 // Exposed for the lifecycle fixtures, which drive the two read-path helpers
 // directly: they are the whole subject of those tests.
 #[cfg(test)]
-pub(crate) use operator::{current_only, history_slack};
+pub(crate) use operator::{current_only, history_slack, with_semantic_half};
 pub use progress::{VectorProgress, VectorProgressSink};
 pub use report::freshness;
 pub use state::{Freshness, VectorFreshness};

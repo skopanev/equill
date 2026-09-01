@@ -6,6 +6,7 @@ mod document;
 mod index;
 mod rebuild;
 mod search;
+mod semantic;
 mod strategy;
 mod sync;
 
@@ -25,3 +26,8 @@ pub(crate) use sync::catch_up;
 pub use sync::{VectorSyncReport, sync, sync_with_progress};
 #[cfg(test)]
 pub(crate) use sync::{execute, execute_with_progress};
+
+// Exposed for the cross-surface fixture, which supplies the semantic half so
+// the merge can be checked without a live index.
+#[cfg(test)]
+pub(crate) use semantic::with_semantic_half;

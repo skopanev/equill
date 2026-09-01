@@ -23,6 +23,7 @@ pub struct Retrieval {
     pub excluded: Vec<ExcludedCoordinate>,
     pub strategies: Vec<Strategy>,
     pub degraded_strategies: Vec<Strategy>,
+    pub semantic: Option<super::model::SemanticAnswer>,
     pub projection: ProjectionState,
 }
 
@@ -159,6 +160,7 @@ pub fn retrieve(
         unmatched_coordinates,
         strategies,
         degraded_strategies,
+        semantic: semantic.answer,
         projection,
     })
 }

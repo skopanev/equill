@@ -49,8 +49,17 @@ pub fn bundle(
     let bundle_digest = sha256_hex(budgeted.content.as_bytes());
     let degraded = budgeted.degraded || !retrieved.degraded_strategies.is_empty();
     let empty = budgeted.selected.is_empty();
+    // The version names the shape, so a receipt that carries the semantic
+    // account says so in its own schema rather than leaving a reader to
+    // discover an unfamiliar field. A text-only bundle stays v1 byte for byte,
+    // and the digest a caller already holds keeps meaning what it meant.
+    let schema = if retrieved.semantic.is_some() {
+        "equill.context-receipt.v2"
+    } else {
+        "equill.context-receipt.v1"
+    };
     let receipt = ContextReceipt {
-        schema: "equill.context-receipt.v1",
+        schema,
         profile,
         selectors,
         request_digest,
@@ -64,6 +73,7 @@ pub fn bundle(
         degraded_strategies: retrieved.degraded_strategies,
         degraded,
         empty,
+        semantic: retrieved.semantic,
         unmatched_coordinates: retrieved.unmatched_coordinates,
     };
     // One failure is tolerated and no others: the store would not take the

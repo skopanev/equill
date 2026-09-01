@@ -5,8 +5,8 @@
 //! set, today and tomorrow. A semantic half does not promise that — an
 //! approximate index returns what it has indexed so far — so a profile has to
 //! ask for it by name, and the receipt has to say what it got.
-use super::model::ContextRequest;
 use super::model::Selector;
+use super::model::{ContextRequest, SemanticAnswer};
 use crate::kernel::error::Error;
 use crate::projection::SearchRequest;
 use crate::vector::{self, SearchStrategy};
@@ -20,20 +20,17 @@ const PER_SELECTOR: u16 = 100;
 /// What a hybrid pass found, and how honestly it can be described.
 pub struct SemanticHits {
     pub ids: HashSet<uuid::Uuid>,
-    /// What answered: `hybrid` when both halves ran, `fts` when the index could
-    /// not and text stood in. Recorded rather than inferred, because a caller
-    /// comparing two bundles needs to know which of them saw semantics at all.
-    pub answered_by: Option<&'static str>,
-    /// Present when the semantic half was unavailable and text answered for it.
-    pub fallback: Option<String>,
+    /// What the bundle may claim about its own assembly. `None` when no hybrid
+    /// selector ran at all, which is what keeps a text-only receipt the shape
+    /// it has always been.
+    pub answer: Option<SemanticAnswer>,
 }
 
 impl SemanticHits {
     fn empty() -> Self {
         SemanticHits {
             ids: HashSet::new(),
-            answered_by: None,
-            fallback: None,
+            answer: None,
         }
     }
 }
@@ -70,11 +67,17 @@ pub fn hits(
         // The weakest answer wins the label. One selector served by text alone
         // makes the bundle partly text-answered, and saying `hybrid` because
         // another selector managed it would overstate what the caller holds.
-        if report.answered_by == "fts" {
-            found.answered_by = Some("fts");
-            found.fallback = found.fallback.or(report.fallback);
-        } else if found.answered_by.is_none() {
-            found.answered_by = Some("hybrid");
+        let degraded = report.answered_by == "fts";
+        let answer = found.answer.get_or_insert(SemanticAnswer {
+            answered_by: report.answered_by.to_owned(),
+            fallback: report.fallback.clone(),
+            vector_freshness: report.vector_freshness,
+            vector_indexed_records: report.vector_indexed_records,
+            vector_pending_records: report.vector_pending_records,
+        });
+        if degraded {
+            answer.answered_by = "fts".to_owned();
+            answer.fallback = answer.fallback.take().or(report.fallback);
         }
         found
             .ids

@@ -1,10 +1,8 @@
-use super::super::model::{VectorSearchRequest, VectorState, vector_error};
-use super::super::{EmbeddingRuntime, VectorProjection};
-use super::search as retrieval;
+use super::super::model::VectorState;
 use super::search::{RejectedHit, SearchStrategy};
+use super::semantic::semantic;
 use crate::kernel::error::Error;
 use crate::projection::{self, SearchHit, SearchRequest};
-use crate::record::StoredRecord;
 use serde::Serialize;
 use std::path::Path;
 
@@ -82,10 +80,6 @@ pub(crate) fn current_only(store_root: &Path, hits: &mut Vec<SearchHit>) -> Resu
     Ok(())
 }
 
-/// `fts` is the always-available baseline. `vector` is exact about failure: if
-/// the caller asked for semantics it gets an error rather than quietly worse
-/// answers. `hybrid` is the forgiving one — it prefers semantics, falls back to
-/// text, and says so in the report.
 /// Settles what a result set may claim about itself, in one place, so a caller
 /// on either surface gets the same answer to "is this all of it".
 ///
@@ -103,6 +97,10 @@ pub fn finalize(report: &mut StrategySearchReport, matched: usize, pool: usize, 
     report.truncated = report.returned_count < matched || (!provable && matched >= pool);
 }
 
+/// `fts` is the always-available baseline. `vector` is exact about failure: if
+/// the caller asked for semantics it gets an error rather than quietly worse
+/// answers. `hybrid` is the forgiving one — it prefers semantics, falls back to
+/// text, and says so in the report.
 pub fn search(
     store_root: &Path,
     request: &SearchRequest,
@@ -157,43 +155,6 @@ pub fn search(
         ),
         Err(error) => Err(error),
     }
-}
-
-fn semantic(
-    store_root: &Path,
-    request: &SearchRequest,
-) -> Result<(Vec<StoredRecord>, Vec<RejectedHit>), Error> {
-    // Health, not freshness: a lagging index still answers from the points it
-    // has. Refusing here would mean one append silences semantic search until
-    // the next sync, which is exactly what a continuously written store cannot
-    // afford. The report says how far behind the answer is.
-    if super::super::state(store_root)? != VectorState::Ready {
-        return Err(vector_error("vector projection is not ready"));
-    }
-    let config = super::super::config::load(store_root)?
-        .filter(|config| config.enabled)
-        .ok_or_else(|| vector_error("vector projection is not configured"))?;
-    let projection = VectorProjection::open(store_root)?
-        .ok_or_else(|| vector_error("vector projection is not configured"))?;
-    let embedder = EmbeddingRuntime::load(store_root, &config)?;
-    // The index ranks history alongside current records, so the page must be
-    // asked for with room for however much history could precede it. A guessed
-    // multiple is not that: five withdrawn records ahead of one live match
-    // would empty a page of one again. The slack is counted, from the ledger —
-    // the index itself is not the authority on what a record's lifecycle says.
-    let overfetch = history_slack(store_root, request)?;
-    let verified = retrieval::retrieve(
-        &projection,
-        &embedder,
-        request.query.as_deref().unwrap_or_default(),
-        VectorSearchRequest {
-            vector: Vec::new(),
-            namespaces: request.namespace.clone().into_iter().collect(),
-            type_names: request.type_name.clone().into_iter().collect(),
-            limit: overfetch,
-        },
-    )?;
-    Ok((verified.records, verified.rejected))
 }
 
 fn text_only(
