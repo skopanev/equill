@@ -1,4 +1,7 @@
 use crate::kernel::digest::sha256_hex;
+use crate::projection::SearchRequest;
+use crate::record::StoredRecord;
+use crate::vector::RejectedHit;
 use crate::vector::VectorProgress;
 use serde_json::{Value, json};
 use std::fs;
@@ -116,4 +119,69 @@ pub(crate) fn stage_lagging_index(root: &std::path::Path, indexed: usize) {
         .expect("marker JSON"),
     )
     .expect("write marker");
+}
+
+pub fn cli(root: &std::path::Path) -> Result<String, crate::kernel::error::Error> {
+    crate::command::query::search(
+        true,
+        root.to_path_buf(),
+        Some("deployment".into()),
+        None,
+        None,
+        10,
+        None,
+        Vec::new(),
+        false,
+        crate::command::cli::FormatArg::Jsonl,
+        Vec::new(),
+        false,
+    )
+}
+
+/// A second substitute that names a different record, so the two are told
+/// apart by the answer rather than by which function was installed.
+pub fn first_only(
+    store_root: &std::path::Path,
+    _request: &SearchRequest,
+) -> Result<(Vec<StoredRecord>, Vec<RejectedHit>), crate::kernel::error::Error> {
+    let mut records = crate::record::read_all(store_root)?;
+    records.truncate(1);
+    Ok((records, Vec::new()))
+}
+
+pub fn request() -> SearchRequest {
+    SearchRequest {
+        query: Some("deployment".into()),
+        namespace: None,
+        type_name: None,
+        limit: 10,
+    }
+}
+
+pub fn failing(
+    _store_root: &std::path::Path,
+    _request: &SearchRequest,
+) -> Result<(Vec<StoredRecord>, Vec<crate::vector::RejectedHit>), crate::kernel::error::Error> {
+    Err(crate::vector::model::vector_error(
+        "index unreachable in this test",
+    ))
+}
+
+pub fn half(
+    store_root: &std::path::Path,
+    _request: &SearchRequest,
+) -> Result<(Vec<StoredRecord>, Vec<crate::vector::RejectedHit>), crate::kernel::error::Error> {
+    Ok((staged(store_root), Vec::new()))
+}
+
+/// The substitute names ONE record, and text will find all of them.
+///
+/// A half that returned everything would be indistinguishable from no merge at
+/// all: the counts would match whether the text list was consulted or quietly
+/// dropped. With a strict subset, only a real union reaches the full count, and
+/// the one record both halves name is the one whose position proves the
+/// fusion — agreement has to outrank a record that leads only the text list.
+pub fn staged(store_root: &std::path::Path) -> Vec<StoredRecord> {
+    let mut records = crate::record::read_all(store_root).expect("ledger");
+    records.split_off(records.len() - 1)
 }

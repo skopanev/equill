@@ -6,47 +6,9 @@
 //! return that day. The text half is real: it comes from the store's own
 //! projection, so the merge is exercised against a list nobody staged.
 use super::catchup::{add, store};
-use crate::projection::SearchRequest;
-use crate::record::StoredRecord;
+use super::support::{cli, failing, first_only, half, request, staged};
 use crate::vector::{SearchStrategy, search, with_semantic_half};
 use std::fs;
-
-/// The substitute names ONE record, and text will find all of them.
-///
-/// A half that returned everything would be indistinguishable from no merge at
-/// all: the counts would match whether the text list was consulted or quietly
-/// dropped. With a strict subset, only a real union reaches the full count, and
-/// the one record both halves name is the one whose position proves the
-/// fusion — agreement has to outrank a record that leads only the text list.
-fn staged(store_root: &std::path::Path) -> Vec<StoredRecord> {
-    let mut records = crate::record::read_all(store_root).expect("ledger");
-    records.split_off(records.len() - 1)
-}
-
-fn half(
-    store_root: &std::path::Path,
-    _request: &SearchRequest,
-) -> Result<(Vec<StoredRecord>, Vec<crate::vector::RejectedHit>), crate::kernel::error::Error> {
-    Ok((staged(store_root), Vec::new()))
-}
-
-fn failing(
-    _store_root: &std::path::Path,
-    _request: &SearchRequest,
-) -> Result<(Vec<StoredRecord>, Vec<crate::vector::RejectedHit>), crate::kernel::error::Error> {
-    Err(crate::vector::model::vector_error(
-        "index unreachable in this test",
-    ))
-}
-
-fn request() -> SearchRequest {
-    SearchRequest {
-        query: Some("deployment".into()),
-        namespace: None,
-        type_name: None,
-        limit: 10,
-    }
-}
 
 #[test]
 fn a_hybrid_answer_merges_both_halves_and_says_so() {
@@ -212,19 +174,55 @@ fn the_command_line_merges_both_halves_and_falls_back_in_the_open() {
     fs::remove_dir_all(root).expect("cleanup");
 }
 
-fn cli(root: &std::path::Path) -> Result<String, crate::kernel::error::Error> {
-    crate::command::query::search(
-        true,
-        root.to_path_buf(),
-        Some("deployment".into()),
-        None,
-        None,
-        10,
-        None,
-        Vec::new(),
-        false,
-        crate::command::cli::FormatArg::Jsonl,
-        Vec::new(),
-        false,
-    )
+/// A substitution inside another must hand the outer one back.
+///
+/// Measured by asking, not by reading the slot: what matters is that the outer
+/// body still gets the answer it arranged for, and a test that inspected the
+/// thread-local would pass even if the search had stopped consulting it.
+#[test]
+fn an_inner_substitution_hands_the_outer_one_back() {
+    let root = store("cross-surface-nested");
+    add(&root, "a rule about deployment");
+    add(&root, "another deployment rule");
+    add(&root, "deployment again");
+    let outer_leads = staged(&root)[0].id;
+
+    with_semantic_half(half, || {
+        let inner = with_semantic_half(first_only, || {
+            search(&root, &request(), SearchStrategy::Hybrid).expect("inner answers")
+        });
+        // The inner substitution is in force while it is in force.
+        assert_eq!(
+            inner.hits[0].record.id,
+            crate::record::read_all(&root).expect("ledger")[0].id,
+            "the inner half never took effect, so nothing was nested"
+        );
+        // And once it leaves, the outer one is answering again.
+        let after = search(&root, &request(), SearchStrategy::Hybrid).expect("outer answers");
+        // `answered_by` is what tells the two apart. Position alone does not:
+        // when the substitution is lost the live half fails, hybrid falls back
+        // to text, and text can lead with the same record the outer half did —
+        // which is exactly how the first version of this test passed whether
+        // the guard restored or cleared.
+        assert_eq!(
+            after.answered_by, "hybrid",
+            "the inner substitution cleared the outer one, so the live half answered"
+        );
+        assert_eq!(
+            after.hits[0].record.id, outer_leads,
+            "the outer half came back but stopped leading its own record"
+        );
+        // Even when the inner body panics rather than returns.
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            with_semantic_half(first_only, || panic!("inner body fails"))
+        }));
+        assert!(panicked.is_err(), "the panic did not happen");
+        let recovered = search(&root, &request(), SearchStrategy::Hybrid).expect("outer answers");
+        assert_eq!(
+            recovered.answered_by, "hybrid",
+            "a panicking inner substitution took the outer one with it"
+        );
+        assert_eq!(recovered.hits[0].record.id, outer_leads);
+    });
+    fs::remove_dir_all(root).expect("cleanup");
 }

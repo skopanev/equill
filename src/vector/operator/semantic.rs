@@ -22,20 +22,22 @@ thread_local! {
     static HALF: std::cell::Cell<Option<Half>> = const { std::cell::Cell::new(None) };
 }
 
-/// Clears the substitution however the body leaves.
+/// Puts back whatever was there before, however the body leaves.
 ///
-/// A test that asserts and fails unwinds, and a plain "set, run, unset" would
-/// leave the substitute installed for whatever the harness runs next on this
-/// thread. One failure would then be followed by a second that has nothing to
-/// do with its own subject — the worst kind, because it points at the wrong
-/// code.
+/// Two failures at once if this is done by hand. A test that asserts and fails
+/// unwinds, and a plain "set, run, unset" would leave the substitute installed
+/// for whatever the harness runs next on this thread — a second failure with
+/// nothing to do with its own subject, which points at the wrong code. And
+/// clearing to `None` rather than restoring would break the inner of two
+/// nested substitutions: the outer one would silently end early, and its body
+/// would carry on against the live half as though it had asked for it.
 #[cfg(test)]
-struct Restore;
+struct Restore(Option<Half>);
 
 #[cfg(test)]
 impl Drop for Restore {
     fn drop(&mut self) {
-        HALF.with(|slot| slot.set(None));
+        HALF.with(|slot| slot.set(self.0));
     }
 }
 
@@ -45,8 +47,8 @@ impl Drop for Restore {
 /// does not contain it, and parallel tests do not see each other's substitute.
 #[cfg(test)]
 pub(crate) fn with_semantic_half<T>(half: Half, body: impl FnOnce() -> T) -> T {
-    HALF.with(|slot| slot.set(Some(half)));
-    let _restore = Restore;
+    let previous = HALF.with(|slot| slot.replace(Some(half)));
+    let _restore = Restore(previous);
     body()
 }
 
