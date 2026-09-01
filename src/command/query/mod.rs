@@ -17,7 +17,7 @@ pub fn search(
     namespace: Option<String>,
     type_name: Option<String>,
     limit: u16,
-    strategy: command::cli::StrategyArg,
+    strategy: Option<command::cli::StrategyArg>,
     filters: Vec<String>,
     strict: bool,
     format: command::cli::FormatArg,
@@ -47,6 +47,16 @@ pub fn search(
     // that promise. An approximate-neighbour index returns near matches, not
     // every qualifying record, so the refusal is upfront rather than a footnote
     // on an answer that already looks complete.
+    // Unset means "pick one for me", and the pick is the one the request can
+    // actually be served by: `--all` promises every match, so it gets the path
+    // that enumerates. An explicit choice is never overridden — asking for
+    // semantics and completeness at once is a contradiction the caller should
+    // hear about, not have quietly resolved.
+    let strategy = strategy.unwrap_or(if all {
+        command::cli::StrategyArg::Fts
+    } else {
+        command::cli::StrategyArg::Hybrid
+    });
     if all && !matches!(strategy, command::cli::StrategyArg::Fts) {
         return Err(Error::Projection(
             "--all needs a path that can enumerate; use --strategy fts, or drop --all".into(),

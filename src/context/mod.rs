@@ -4,6 +4,7 @@ mod model;
 mod receipt;
 mod registry;
 mod retrieval;
+mod semantic;
 
 use crate::filter::Filter;
 use crate::kernel::digest::sha256_hex;

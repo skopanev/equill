@@ -28,6 +28,7 @@ pub(crate) fn age_handoff_for_tests(store: &std::path::Path) {
 }
 mod embedder;
 mod embedding;
+mod fusion;
 mod hydrate;
 mod model;
 mod operator;
@@ -46,6 +47,7 @@ pub use embedder::{Embedder, embed_batch};
 pub use embedding::{
     EMBED_MODEL_ID, EmbeddingRuntime, MAX_TOKENS, QUERY_PREFIX, VECTOR_DIMENSIONS,
 };
+pub use fusion::fuse;
 pub use model::{
     CollectionReport, DistanceMetric, EmbeddingDescriptor, EmbeddingDocument, INPUT_SCHEMA,
     VectorPoint, VectorSearchHit, VectorSearchRequest, VectorState,

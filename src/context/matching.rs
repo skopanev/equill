@@ -63,6 +63,7 @@ pub(super) fn classify(
     selector: &Selector,
     request: &ContextRequest,
     fts: &HashSet<uuid::Uuid>,
+    semantic: &HashSet<uuid::Uuid>,
 ) -> Option<(Tier, Vec<Strategy>)> {
     if has_any(&record.tags, &selector.required_tags) {
         return Some((Tier::Required, vec![Strategy::Tag]));
@@ -79,6 +80,10 @@ pub(super) fn classify(
             Strategy::Tag => has_any(&record.tags, &request.tags),
             Strategy::Recency => true,
             Strategy::Fts => fts.contains(&record.id),
+            // Its own set, not the text one: a hybrid selector is answered by
+            // a different search, and folding the two here would let a text
+            // match report itself as semantic in the receipt.
+            Strategy::Hybrid => semantic.contains(&record.id),
         })
         .collect::<Vec<_>>();
     (!matched.is_empty()).then_some((Tier::Relevant, matched))

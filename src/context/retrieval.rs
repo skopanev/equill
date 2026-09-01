@@ -72,6 +72,7 @@ pub fn retrieve(
     };
     let projection = projection::state(store)?;
     let fts = fts_hits(store, selectors, request, projection)?;
+    let semantic = super::semantic::hits(store, selectors, request)?;
     let strategies: Vec<Strategy> = selectors
         .iter()
         .flat_map(|selector| selector.strategies.iter().copied())
@@ -111,7 +112,7 @@ pub fn retrieve(
             continue;
         }
         let selector = selector_map[record.type_name.as_str()];
-        match matching::classify(&record, selector, request, &fts) {
+        match matching::classify(&record, selector, request, &fts, &semantic.ids) {
             Some((tier, matched)) => candidates.push(Candidate {
                 // Negated for an ascending selector so that one comparator
                 // still orders every candidate. The number is never shown; it

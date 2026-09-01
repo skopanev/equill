@@ -81,6 +81,13 @@ pub enum Strategy {
     Tag,
     Recency,
     Fts,
+    /// Text and semantics together. Added rather than folded into `Fts`: a
+    /// profile that asked for text means text, and repointing it at an
+    /// approximate index would change what its bundles contain without anyone
+    /// editing the profile. Last in the list so the ordering of the existing
+    /// variants — which decides how strategies sort in a receipt — is
+    /// undisturbed.
+    Hybrid,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]

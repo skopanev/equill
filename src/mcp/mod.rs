@@ -1,3 +1,4 @@
+mod arguments;
 mod protocol;
 #[cfg(test)]
 mod tests;

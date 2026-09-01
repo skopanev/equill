@@ -3,6 +3,7 @@ mod config;
 mod document;
 mod embedding;
 mod endpoint;
+mod fusion;
 mod hydration;
 mod lifecycle;
 mod search;

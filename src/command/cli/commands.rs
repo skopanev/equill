@@ -168,9 +168,10 @@ pub enum Command {
         /// Every match instead of one page (fts only; bounded by the scan cap).
         #[arg(long)]
         all: bool,
-        /// Retrieval strategy. `hybrid` prefers semantics and falls back to text.
-        #[arg(long, value_enum, default_value_t = StrategyArg::Fts)]
-        strategy: StrategyArg,
+        /// Retrieval strategy. Left unset it is chosen for the query: `hybrid`
+        /// normally, `fts` with `--all`, because only text can enumerate.
+        #[arg(long, value_enum)]
+        strategy: Option<StrategyArg>,
         #[command(flatten)]
         present: PresentationArgs,
     },

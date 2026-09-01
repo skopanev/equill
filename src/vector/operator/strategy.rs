@@ -94,7 +94,11 @@ pub(crate) fn current_only(store_root: &Path, hits: &mut Vec<SearchHit>) -> Resu
 /// proves the opposite: there is more, and how much is unknown.
 pub fn finalize(report: &mut StrategySearchReport, matched: usize, pool: usize, exhaustive: bool) {
     report.returned_count = report.hits.len();
-    let provable = exhaustive && report.answered_by != "vector";
+    // Only a text answer can prove a total. Stated as what qualifies rather
+    // than what does not: naming the exceptions meant that adding `hybrid`
+    // silently made it provable, and a merged page would have printed the text
+    // half's count as the whole answer's.
+    let provable = exhaustive && report.answered_by == "fts";
     report.total_matches = provable.then_some(matched);
     report.truncated = report.returned_count < matched || (!provable && matched >= pool);
 }
@@ -115,6 +119,17 @@ pub fn search(
                 .map(|record| SearchHit { record })
                 .collect::<Vec<_>>();
             current_only(store_root, &mut hits)?;
+            // Hybrid asks both and merges what each found; `vector` asks the
+            // index alone. That difference is the whole reason the two have
+            // separate names, and until now they behaved identically whenever
+            // semantics answered at all.
+            let answered_by = if strategy == SearchStrategy::Hybrid {
+                let text = projection::search(store_root, request)?.hits;
+                hits = crate::vector::fuse(hits, text);
+                "hybrid"
+            } else {
+                "vector"
+            };
             hits.truncate(request.limit as usize);
             let reading = crate::vector::freshness_of(store_root)?;
             Ok(StrategySearchReport {
@@ -126,7 +141,7 @@ pub fn search(
                 vector_pending_records: reading.pending_records,
                 ok: true,
                 strategy,
-                answered_by: "vector",
+                answered_by,
                 vector_state: state,
                 fallback: None,
                 rejected,

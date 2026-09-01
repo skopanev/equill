@@ -1,3 +1,4 @@
+use super::arguments::{flag, optional, strings, text, value};
 use crate::kernel::error::Error;
 use crate::{context, filter, projection, record, schema, telemetry, vector};
 use serde_json::{Value, json};
@@ -139,7 +140,17 @@ fn search(store: &Path, log_queries: bool, arguments: &Value) -> Result<Value, E
         // asked for, so it does not pay for a full scan.
         limit: pool,
     };
-    let mut report = vector::search(store, &request, vector::SearchStrategy::Fts)?;
+    // Semantics by default, text when the request has to be complete. A filter
+    // is settled after the search, so the search has to have seen everything it
+    // could match — and an approximate-neighbour index returns near matches,
+    // not every qualifying record. This is the CLI's `--all` rule reaching the
+    // surface that has no `--all`: the promise is made by the filter instead.
+    let strategy = if exhaustive {
+        vector::SearchStrategy::Fts
+    } else {
+        vector::SearchStrategy::Hybrid
+    };
+    let mut report = vector::search(store, &request, strategy)?;
     report
         .hits
         .retain(|hit| filter::matches(&hit.record, &filter));
@@ -205,40 +216,4 @@ fn assemble(
         log_queries,
     );
     value(&bundle)
-}
-
-fn value<T: serde::Serialize>(report: &T) -> Result<Value, Error> {
-    Ok(serde_json::to_value(report)?)
-}
-
-fn text<'a>(arguments: &'a Value, key: &str) -> Result<&'a str, Error> {
-    arguments
-        .get(key)
-        .and_then(Value::as_str)
-        .ok_or_else(|| Error::InvalidRecord(format!("{key} is required")))
-}
-
-fn optional(arguments: &Value, key: &str) -> Option<String> {
-    arguments
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-}
-
-fn strings(arguments: &Value, key: &str) -> Vec<String> {
-    arguments
-        .get(key)
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::to_owned)
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-fn flag(arguments: &Value, key: &str) -> bool {
-    arguments.get(key).and_then(Value::as_bool).unwrap_or(false)
 }

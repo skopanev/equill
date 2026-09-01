@@ -79,7 +79,7 @@ pub(super) fn run(
         None,
         None,
         limit,
-        crate::command::cli::StrategyArg::Fts,
+        Some(crate::command::cli::StrategyArg::Fts),
         filters,
         false,
         crate::command::cli::FormatArg::Jsonl,
@@ -132,7 +132,7 @@ fn asking_for_everything_from_an_approximate_index_is_refused_upfront() {
         None,
         None,
         100,
-        crate::command::cli::StrategyArg::Vector,
+        Some(crate::command::cli::StrategyArg::Vector),
         Vec::new(),
         false,
         crate::command::cli::FormatArg::Jsonl,
@@ -146,7 +146,7 @@ fn asking_for_everything_from_an_approximate_index_is_refused_upfront() {
         None,
         None,
         100,
-        crate::command::cli::StrategyArg::Hybrid,
+        Some(crate::command::cli::StrategyArg::Hybrid),
         Vec::new(),
         false,
         crate::command::cli::FormatArg::Jsonl,
@@ -162,6 +162,57 @@ fn asking_for_everything_from_an_approximate_index_is_refused_upfront() {
     }
     // The same request without --all is fine: only the promise was impossible.
     search(&root, 100, false);
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+/// An unset strategy is chosen for the request, and the choice is the one the
+/// request can be served by.
+///
+/// The refusal above is the reason this matters: making `hybrid` the default
+/// outright would have turned every existing `--all` script into an error
+/// overnight. So the default is a decision, not a constant, and `--all` still
+/// reaches the path that can enumerate.
+#[test]
+fn an_unstated_strategy_follows_what_the_request_promised() {
+    let root = store("auto-strategy");
+    add(&root, "a rule about deployment");
+
+    let complete = crate::command::query::search(
+        true,
+        root.clone(),
+        Some("deployment".into()),
+        None,
+        None,
+        100,
+        None,
+        Vec::new(),
+        false,
+        crate::command::cli::FormatArg::Jsonl,
+        Vec::new(),
+        true,
+    )
+    .expect("--all with no stated strategy is served by text");
+    let ordinary = crate::command::query::search(
+        true,
+        root.clone(),
+        Some("deployment".into()),
+        None,
+        None,
+        100,
+        None,
+        Vec::new(),
+        false,
+        crate::command::cli::FormatArg::Jsonl,
+        Vec::new(),
+        false,
+    )
+    .expect("an ordinary query is served");
+
+    // `--all` keeps the exact total it always had; without it the store has no
+    // vector index here, so the semantic half stands aside and says so.
+    assert!(complete.contains("\"total_matches\""), "{complete}");
+    assert!(ordinary.contains("\"answered_by\":\"fts\""), "{ordinary}");
+    assert!(ordinary.contains("\"fallback\""), "{ordinary}");
     fs::remove_dir_all(root).expect("cleanup");
 }
 
