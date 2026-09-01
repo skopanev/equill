@@ -182,4 +182,4 @@ pub fn state(store: &Path) -> Result<VectorState, Error> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

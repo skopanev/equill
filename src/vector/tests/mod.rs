@@ -1,6 +1,6 @@
 mod catchup;
 mod config;
-mod cross_surface_hybrid;
+pub(crate) mod cross_surface_hybrid;
 mod document;
 mod embedding;
 mod endpoint;
@@ -8,5 +8,5 @@ mod fusion;
 mod hydration;
 mod lifecycle;
 mod search;
-mod support;
+pub(crate) mod support;
 mod sync;

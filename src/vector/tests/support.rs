@@ -86,3 +86,34 @@ pub fn sync_events(physical: &str, digest: &str, pending: usize) -> Vec<VectorPr
     });
     events
 }
+
+/// Leave the store with a configured index whose checkpoint is real but stale.
+///
+/// Freshness is read from the store, not from the substituted half, so a staged
+/// hybrid answer over a bare store would honestly report `Disabled` and no
+/// counts — and a receipt asserting on those would be asserting that nothing
+/// was configured. This writes a checkpoint that describes this store, this
+/// alias and this model, and covers fewer records than the ledger holds.
+pub(crate) fn stage_lagging_index(root: &std::path::Path, indexed: usize) {
+    let config = config(root);
+    write(root, &config);
+    let directory = root.join("projections/qdrant");
+    fs::create_dir_all(&directory).expect("marker directory");
+    fs::write(
+        directory.join("state.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "schema": "equill.qdrant-state.v2",
+            "state": "ready",
+            "store_id": config["store_id"],
+            "collection_alias": config["collection_alias"],
+            "physical_collection": "equill_records_test_p0",
+            "model_sha256": config["embedding"]["model"]["sha256"],
+            "indexed_records": indexed,
+            // A digest of something, and deliberately not of this corpus: the
+            // difference is what makes the checkpoint behind rather than level.
+            "indexed_sha256": "f".repeat(64),
+        }))
+        .expect("marker JSON"),
+    )
+    .expect("write marker");
+}

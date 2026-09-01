@@ -172,3 +172,59 @@ fn the_adapter_asks_both_halves_for_a_question_and_only_text_for_an_enumeration(
     assert_eq!(asked["returned_count"], 2, "{asked}");
     fs::remove_dir_all(root).expect("cleanup");
 }
+
+/// The command line is the third surface, and it was the one the merge could
+/// most easily miss: it reaches the same core through its own argument
+/// handling, its own default, and its own rendering.
+#[test]
+fn the_command_line_merges_both_halves_and_falls_back_in_the_open() {
+    let root = store("cross-surface-cli");
+    add(&root, "a rule about deployment");
+    add(&root, "another deployment rule");
+    add(&root, "deployment again");
+
+    let merged = with_semantic_half(half, || cli(&root)).expect("hybrid answers");
+    let degraded = with_semantic_half(failing, || cli(&root)).expect("text stands in");
+
+    // No strategy was named, so the default had to choose hybrid, ask both
+    // halves and merge them: the semantic half named one record, text found
+    // three, and the answer carries three.
+    assert!(merged.contains("\"answered_by\":\"hybrid\""), "{merged}");
+    assert!(merged.contains("\"returned_count\":3"), "{merged}");
+    assert!(!merged.contains("\"total_matches\""), "{merged}");
+    // The record both halves named leads the answer.
+    let first = staged(&root)[0].id.to_string();
+    let leading = merged
+        .find(&first)
+        .expect("the agreed record is missing entirely");
+    for other in crate::record::read_all(&root).expect("ledger") {
+        if other.id.to_string() != first {
+            assert!(
+                merged.find(&other.id.to_string()).expect("record") > leading,
+                "agreement did not lead the answer"
+            );
+        }
+    }
+    // And when the index cannot answer, the command line says so rather than
+    // returning a quietly smaller answer that looks like the same thing.
+    assert!(degraded.contains("\"answered_by\":\"fts\""), "{degraded}");
+    assert!(degraded.contains("unreachable"), "{degraded}");
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+fn cli(root: &std::path::Path) -> Result<String, crate::kernel::error::Error> {
+    crate::command::query::search(
+        true,
+        root.to_path_buf(),
+        Some("deployment".into()),
+        None,
+        None,
+        10,
+        None,
+        Vec::new(),
+        false,
+        crate::command::cli::FormatArg::Jsonl,
+        Vec::new(),
+        false,
+    )
+}

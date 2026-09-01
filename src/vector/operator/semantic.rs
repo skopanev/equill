@@ -22,6 +22,23 @@ thread_local! {
     static HALF: std::cell::Cell<Option<Half>> = const { std::cell::Cell::new(None) };
 }
 
+/// Clears the substitution however the body leaves.
+///
+/// A test that asserts and fails unwinds, and a plain "set, run, unset" would
+/// leave the substitute installed for whatever the harness runs next on this
+/// thread. One failure would then be followed by a second that has nothing to
+/// do with its own subject — the worst kind, because it points at the wrong
+/// code.
+#[cfg(test)]
+struct Restore;
+
+#[cfg(test)]
+impl Drop for Restore {
+    fn drop(&mut self) {
+        HALF.with(|slot| slot.set(None));
+    }
+}
+
 /// Answer the semantic half from `half` for the duration of `body`.
 ///
 /// Test-only and thread-local, like the worker's spawn seam: the release build
@@ -29,9 +46,8 @@ thread_local! {
 #[cfg(test)]
 pub(crate) fn with_semantic_half<T>(half: Half, body: impl FnOnce() -> T) -> T {
     HALF.with(|slot| slot.set(Some(half)));
-    let outcome = body();
-    HALF.with(|slot| slot.set(None));
-    outcome
+    let _restore = Restore;
+    body()
 }
 
 pub(super) fn semantic(

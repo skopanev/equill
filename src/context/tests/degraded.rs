@@ -195,3 +195,39 @@ fn a_text_only_bundle_keeps_the_shape_it_always_had() {
     assert_eq!(bundle.receipt.schema, "equill.context-receipt.v1");
     fs::remove_dir_all(root).expect("remove store");
 }
+
+/// A lagging index is not a failure, and the receipt has to say both things at
+/// once: that semantics answered, and that it answered from a snapshot older
+/// than the ledger. Without the counts a caller cannot tell a bundle that is
+/// merely behind from one assembled against a different store.
+#[test]
+fn a_hybrid_bundle_reports_how_far_behind_the_index_was() {
+    let root = seed("hybrid-lagging");
+    append(&root, "Another needle", &[], None, "2026-01-02T00:00:00Z");
+    append(&root, "A third needle", &[], None, "2026-01-03T00:00:00Z");
+    crate::vector::tests::support::stage_lagging_index(&root, 1);
+
+    let bundle = with_semantic_half(half, || {
+        assemble(
+            &root,
+            "worker.v1",
+            request("needle"),
+            "test-owner",
+            &Filter::default(),
+        )
+        .expect("hybrid context")
+    });
+
+    let semantic = bundle.receipt.semantic.as_ref().expect("an account");
+    assert_eq!(semantic.answered_by, "hybrid");
+    assert_eq!(
+        semantic.vector_freshness,
+        crate::vector::VectorFreshness::Lagging,
+        "a stale checkpoint was reported as current"
+    );
+    // Three records in the ledger, one covered by the checkpoint: the counts
+    // are the store's, not the substituted half's.
+    assert_eq!(semantic.vector_indexed_records, Some(1));
+    assert_eq!(semantic.vector_pending_records, Some(2));
+    fs::remove_dir_all(root).expect("remove store");
+}
