@@ -44,7 +44,13 @@ fn handle(store: &Path, actor: &str, log_queries: bool, line: &str) -> Option<Re
     // index when it booted would let a store fall behind for the whole session,
     // which is exactly the case a long-lived server makes likely. The check is
     // two small file reads when there is nothing to do.
-    crate::vector::resume(store);
+    // Not for an actor this store holds to reading: catching a lagging index
+    // up is a write, and a call that is about to be refused would otherwise
+    // have changed the store on its way to being refused. The same rule the
+    // CLI applies, through the same helper, so the two surfaces cannot drift.
+    if !crate::kernel::store::holds_to_reading(store, actor) {
+        crate::vector::resume(store);
+    }
     let request: Request = match serde_json::from_str(line) {
         Ok(request) => request,
         Err(error) => {

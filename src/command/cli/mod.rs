@@ -5,10 +5,11 @@ mod progress;
 mod resume;
 
 pub use args::*;
-pub use authority::{GrantCommand, OwnerCommand};
+pub use authority::{GrantCommand, OwnerCommand, ReaderCommand};
 use clap::Parser;
 pub use commands::*;
 pub(crate) use progress::HumanVectorProgress;
+pub use resume::held_to_reading;
 
 #[derive(Debug, Parser)]
 #[command(name = "equill", version, about)]

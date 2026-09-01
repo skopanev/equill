@@ -14,6 +14,28 @@ pub struct StoreConfig {
     /// store owner-only; `["*"]` opens it to every agent on the machine.
     #[serde(default)]
     pub writers: Vec<String>,
+    /// Actors that may read and never append, whatever else would allow them.
+    ///
+    /// A refusal rather than an absence, and it is needed because every other
+    /// rule here grants: `writers` and `write_grants` say who may append, and
+    /// `*` in either says everyone. A store that has opened itself with a
+    /// wildcard cannot take one actor back out — removing a name from a list
+    /// that does not contain names does nothing, and revoking the wildcard
+    /// would take access from everybody at once.
+    ///
+    /// Exact names only. `*` is deliberately not honoured: a wildcard here
+    /// would lock the store against every actor including its owner, which is
+    /// a state no command could undo.
+    ///
+    /// This is a convention between cooperating agents, not a wall. An actor
+    /// is whatever `EQUILL_ACTOR` says it is, so anyone who can run the binary
+    /// can run it under a name this list does not mention. What the list buys
+    /// is that an agent which means to read does not write by accident, and
+    /// that the intent is recorded where both sides can see it. What keeps a
+    /// store safe from somebody who does not mean to cooperate is control over
+    /// who runs the binary, which lives outside Equill.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub read_only: Vec<String>,
     /// Narrow append grants evaluated after the legacy store-wide writers.
     /// `*` matches any valid actor, namespace, or registered record type.
     #[serde(default)]
@@ -70,7 +92,47 @@ pub fn validate(config: &StoreConfig) -> Result<(), Error> {
     if config.writers.iter().any(|writer| !valid_match(writer)) {
         return Err(Error::InvalidActor);
     }
+    validate_read_only(config)?;
     validate_write_grants(config)
+}
+
+/// The refusal list has to mean what it says the moment the store is opened.
+///
+/// The command that writes it already refuses these, but a config can be
+/// edited by hand, and a list that names `*` or the owner would be a written
+/// policy the store cannot enforce or cannot undo. Refusing at load makes the
+/// store say so instead of behaving as though the entry were not there.
+fn validate_read_only(config: &StoreConfig) -> Result<(), Error> {
+    let mut seen = std::collections::BTreeSet::new();
+    for actor in &config.read_only {
+        // Exact names only: `*` here would hold every actor including the
+        // owner, and nothing could then lift it.
+        if actor == "*" || !crate::kernel::identity::valid(actor) {
+            return Err(Error::InvalidActor);
+        }
+        // The owner governs, and governance is what lifts a hold. Holding the
+        // owner leaves a store nobody can recover.
+        if actor == &config.root_owner {
+            return Err(Error::InvalidOwner);
+        }
+        // A name twice is a list that disagrees with itself about how many
+        // actors it holds, and the report that counts them would say two.
+        if !seen.insert(actor) {
+            return Err(Error::InvalidActor);
+        }
+    }
+    Ok(())
+}
+
+/// Whether this store holds an actor to reading.
+///
+/// Best effort by design: a store that cannot be read here is one the caller is
+/// about to fail on anyway, and answering "not held" leaves that failure to say
+/// so properly rather than replacing it with this one.
+pub fn holds_to_reading(root: &Path, actor: &str) -> bool {
+    load(root)
+        .map(|config| config.read_only.iter().any(|item| item == actor))
+        .unwrap_or(false)
 }
 
 fn validate_write_grants(config: &StoreConfig) -> Result<(), Error> {
@@ -99,57 +161,5 @@ fn valid_match(value: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{StoreConfig, WriteGrant, validate_write_grants};
-    use serde_json::json;
-
-    fn metadata() -> serde_json::Value {
-        json!({
-            "format_version": 1,
-            "root_owner": "owner",
-            "namespaces": ["agent.memory"],
-            "writers": [],
-            "created_at_unix_ms": 1
-        })
-    }
-
-    #[test]
-    fn legacy_metadata_defaults_to_no_scoped_grants() {
-        let config: StoreConfig = serde_json::from_value(metadata()).expect("legacy metadata");
-        // Metadata written by a newer equill must still open in this one: the
-        // grant shape is strict, the envelope around it deliberately is not.
-        let mut forward = metadata();
-        forward["future_field"] = json!("unknown to this version");
-
-        assert!(config.write_grants.is_empty());
-        serde_json::from_value::<StoreConfig>(forward).expect("unknown top-level field");
-    }
-
-    #[test]
-    fn scoped_grants_reject_unknown_fields() {
-        let mut value = metadata();
-        value["write_grants"] = json!([{
-            "actors": ["agent"],
-            "namespace": "agent.memory",
-            "types": ["agent.finding.v1"],
-            "typo": true
-        }]);
-
-        assert!(serde_json::from_value::<StoreConfig>(value).is_err());
-    }
-
-    #[test]
-    fn scoped_grants_reject_empty_or_control_dimensions() {
-        let mut config: StoreConfig = serde_json::from_value(metadata()).expect("metadata");
-        config.write_grants = vec![WriteGrant {
-            actors: vec!["agent\n".into()],
-            namespace: "agent.memory".into(),
-            types: vec!["agent.finding.v1".into()],
-        }];
-        assert!(validate_write_grants(&config).is_err());
-
-        config.write_grants[0].actors = vec!["agent".into()];
-        config.write_grants[0].types.clear();
-        assert!(validate_write_grants(&config).is_err());
-    }
-}
+#[path = "store_tests.rs"]
+mod tests;

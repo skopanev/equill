@@ -3,6 +3,7 @@ mod grant;
 mod journal;
 mod metadata;
 mod owner;
+mod reader;
 mod recover;
 mod report;
 
@@ -13,10 +14,11 @@ use crate::kernel::store::{self, StoreConfig};
 use std::path::Path;
 use uuid::Uuid;
 
-pub use audit::TYPE as AUDIT_TYPE;
+pub use audit::{TYPE as AUDIT_TYPE, TYPE_V2 as AUDIT_TYPE_V2};
 pub use grant::{grant, revoke_grant};
 pub use owner::transfer;
-pub use report::{AuthorityReport, GrantReport, GrantView, OwnerReport};
+pub use reader::{allow as allow_writes, deny as deny_writes};
+pub use report::{AuthorityReport, GrantReport, GrantView, OwnerReport, ReaderReport};
 
 /// A read of the authority in force. Taking the writer lock keeps this from
 /// reporting a store.json that a concurrent handover is in the middle of
@@ -28,6 +30,11 @@ pub fn show(store_root: &Path) -> Result<AuthorityReport, Error> {
         ok: true,
         owner: config.root_owner,
         writers: config.writers,
+        read_only: {
+            let mut held = config.read_only.clone();
+            held.sort();
+            held
+        },
         grants: config
             .write_grants
             .into_iter()

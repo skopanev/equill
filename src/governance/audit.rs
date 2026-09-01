@@ -9,6 +9,8 @@ use uuid::Uuid;
 
 pub const TYPE: &str = "equill.governance.v1";
 const URI: &str = "equill://equill.governance/v1";
+pub const TYPE_V2: &str = "equill.governance.v2";
+const URI_V2: &str = "equill://equill.governance/v2";
 
 /// Hash-only by construction: an action, who it was about, the transaction it
 /// belongs to, and the metadata digests it moved between. The reason is
@@ -33,6 +35,23 @@ fn payload_schema() -> Value {
     })
 }
 
+/// The same shape, with the actions this build can perform.
+///
+/// A separate type rather than a wider `v1`. The registered definition is
+/// compared byte for byte, so growing the vocabulary in place would stop every
+/// store that had ever run governance from running it again — including the
+/// command that would fix it. A store keeps whatever v1 it registered, exactly
+/// as it registered it, and gains v2 the first time this build governs it.
+fn payload_schema_v2() -> Value {
+    let mut schema = payload_schema();
+    schema["properties"]["action"] = json!({
+        "enum": [
+            "grant-add", "grant-revoke", "owner-transfer", "reader-add", "reader-revoke"
+        ]
+    });
+    schema
+}
+
 /// The namespace the audit is written to: the store's first, which every store
 /// has because `init` requires one. Governance does not invent a namespace of
 /// its own — adding one would mutate the very metadata it is about to change,
@@ -48,7 +67,31 @@ pub(super) fn namespace(store_root: &Path) -> Result<String, Error> {
 /// Register the engine-owned audit type if it is absent. Idempotent, and it
 /// touches no metadata: a schema lives in the registry, not in store.json.
 pub(super) fn prepare(store_root: &Path, owner: &str) -> Result<(), Error> {
-    let path = store_root.join(format!("registry/types/{TYPE}.json"));
+    // An older store carries v1 and keeps it. It is still checked — the point
+    // of the check is that nobody else is writing under the engine's audit
+    // name — but it is never rewritten, and nothing new is recorded under it.
+    verify(store_root, TYPE, URI, payload_schema())?;
+    verify(store_root, TYPE_V2, URI_V2, payload_schema_v2())?;
+    let path = store_root.join(format!("registry/types/{TYPE_V2}.json"));
+    if path.is_file() {
+        return Ok(());
+    }
+    schema::register_authorized(
+        store_root,
+        TypeDefinition {
+            type_name: TYPE_V2.into(),
+            uri: URI_V2.into(),
+            owner: owner.to_owned(),
+            payload_schema: payload_schema_v2(),
+            lifecycle: Default::default(),
+        },
+    )
+    .map(|_| ())
+}
+
+/// A registration under one of the engine's audit names must be the engine's.
+fn verify(store_root: &Path, type_name: &str, uri: &str, schema: Value) -> Result<(), Error> {
+    let path = store_root.join(format!("registry/types/{type_name}.json"));
     if path.is_file() {
         // Present is not the same as correct. A file under this type name that
         // does not match the built-in definition means something else is using
@@ -56,28 +99,17 @@ pub(super) fn prepare(store_root: &Path, owner: &str) -> Result<(), Error> {
         // schema we did not author would make that history unverifiable.
         let existing: TypeDefinition = serde_json::from_slice(&std::fs::read(&path)?)
             .map_err(|_| Error::Integrity("governance audit schema is unreadable".into()))?;
-        if existing.type_name != TYPE
-            || existing.uri != URI
-            || existing.payload_schema != payload_schema()
+        if existing.type_name != type_name
+            || existing.uri != uri
+            || existing.payload_schema != schema
             || existing.lifecycle != Default::default()
         {
-            return Err(Error::Integrity(
-                "governance audit schema does not match the built-in definition".into(),
-            ));
+            return Err(Error::Integrity(format!(
+                "{type_name} does not match the built-in definition"
+            )));
         }
-        return Ok(());
     }
-    schema::register_authorized(
-        store_root,
-        TypeDefinition {
-            type_name: TYPE.into(),
-            uri: URI.into(),
-            owner: owner.to_owned(),
-            payload_schema: payload_schema(),
-            lifecycle: Default::default(),
-        },
-    )
-    .map(|_| ())
+    Ok(())
 }
 
 /// Written after the journal and before the metadata swap. A transfer strips
@@ -106,7 +138,7 @@ pub(super) fn record(
         store_root,
         RecordDraft {
             namespace: namespace(store_root)?,
-            type_name: TYPE.into(),
+            type_name: TYPE_V2.into(),
             observed_at: Timestamp::now().to_string(),
             valid_at: None,
             payload,
@@ -136,7 +168,12 @@ pub(super) fn for_transaction(store_root: &Path, tx_id: Uuid) -> Result<Vec<Valu
         for line in text.lines().filter(|line| !line.trim().is_empty()) {
             let value: Value = serde_json::from_str(line)
                 .map_err(|_| Error::Integrity("ledger line is unreadable".into()))?;
-            if value["type"] == TYPE && value["payload"]["tx_id"] == wanted.as_str() {
+            // Both types: a transaction announced by an older build is still a
+            // transaction, and recovery that looked only at the new one would
+            // not fail — it would silently find nothing and decide the store
+            // had nothing to finish.
+            let audited = value["type"] == TYPE || value["type"] == TYPE_V2;
+            if audited && value["payload"]["tx_id"] == wanted.as_str() {
                 found.push(value);
             }
         }

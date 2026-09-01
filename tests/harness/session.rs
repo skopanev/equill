@@ -21,11 +21,17 @@ pub struct Session {
 
 impl Session {
     pub fn open(root: &Path) -> Self {
+        Self::open_as(root, "owner")
+    }
+
+    /// The same session under a named actor, for asking what a store answers
+    /// somebody other than its owner.
+    pub fn open_as(root: &Path, actor: &str) -> Self {
         let mut child = Command::new(super::binary())
             .args(["mcp"])
             .arg("--store")
             .arg(root)
-            .env("EQUILL_ACTOR", "owner")
+            .env("EQUILL_ACTOR", actor)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())

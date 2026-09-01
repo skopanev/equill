@@ -176,7 +176,10 @@ pub(super) fn audit_records(root: &std::path::Path) -> Vec<serde_json::Value> {
         };
         for line in text.lines().filter(|line| !line.trim().is_empty()) {
             let value: serde_json::Value = serde_json::from_str(line).expect("record");
-            if value["type"] == "equill.governance.v1" {
+            // Either vocabulary: a store that governed under the older one
+            // still holds those records, and a count that ignored them would
+            // report a store with history as a store with none.
+            if value["type"] == "equill.governance.v1" || value["type"] == "equill.governance.v2" {
                 records.push(value);
             }
         }

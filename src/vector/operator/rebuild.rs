@@ -137,6 +137,7 @@ pub fn rebuild_with_progress(
 /// governance change from leaving every store lagging until someone runs a sync.
 fn embeddable(record: &StoredRecord) -> bool {
     record.type_name != crate::governance::AUDIT_TYPE
+        && record.type_name != crate::governance::AUDIT_TYPE_V2
 }
 
 pub(crate) fn corpus(store_root: &Path) -> Result<(Vec<(StoredRecord, String)>, String), Error> {

@@ -46,7 +46,9 @@ where
     // index is being caught up. Cheap and local — a current store spawns
     // nothing — and skipped for the worker itself, which would otherwise try to
     // start a second copy of the work it is about to do.
-    if let Some(store) = cli.command.store_to_resume() {
+    if let Some(store) = cli.command.store_to_resume()
+        && !command::cli::held_to_reading(store)
+    {
         vector::resume(store);
     }
     let json = cli.json;
@@ -235,6 +237,7 @@ where
         }
         command::cli::Command::Owner { command } => command::authority::owner(json, command),
         command::cli::Command::Grant { command } => command::authority::grant(json, command),
+        command::cli::Command::Reader { command } => command::authority::reader(json, command),
         command::cli::Command::Rebuild { store } => {
             let report = projection::rebuild(&store)?;
             command::output::render(json, &report, command::output::rebuild(&report))

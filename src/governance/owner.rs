@@ -22,6 +22,15 @@ pub fn transfer(
     if !identity::valid(new_owner) || new_owner == config.root_owner {
         return Err(Error::InvalidOwner);
     }
+    // Handing the store to an actor it holds to reading would end governance:
+    // the new owner could not govern, and nobody else could either, so nothing
+    // could lift the restriction that caused it. Refused here rather than
+    // discovered afterwards, when there would be no way back.
+    if config.read_only.iter().any(|item| item == new_owner) {
+        return Err(Error::Governance(format!(
+            "{new_owner} is held to reading: handing the store over would leave an owner who cannot govern it and nobody able to lift the hold"
+        )));
+    }
     // A wildcard is an authority this contract cannot take away. `*` means
     // "any valid actor", so the previous owner keeps append access through it
     // no matter what is removed from the lists — and deleting the wildcard

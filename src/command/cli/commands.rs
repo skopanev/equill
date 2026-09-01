@@ -1,6 +1,6 @@
 //! The command list. Its argument vocabularies live beside it in `args`.
 use super::args::*;
-use super::authority::{GrantCommand, OwnerCommand};
+use super::authority::{GrantCommand, OwnerCommand, ReaderCommand};
 use clap::Subcommand;
 use std::path::PathBuf;
 
@@ -224,6 +224,11 @@ pub enum Command {
     Grant {
         #[command(subcommand)]
         command: GrantCommand,
+    },
+    /// Hold an actor to reading only, or let it write again.
+    Reader {
+        #[command(subcommand)]
+        command: ReaderCommand,
     },
     /// Rebuild disposable projections from immutable records.
     Rebuild {

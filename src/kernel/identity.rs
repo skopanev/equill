@@ -12,6 +12,11 @@ pub fn actor_from_env() -> Result<String, Error> {
 }
 
 pub fn require_root(config: &StoreConfig, actor: &str) -> Result<(), Error> {
+    // Before ownership, not after. A read-only actor that also happened to own
+    // the store would otherwise govern it — and governance changes the truth
+    // about who may write, which is the one thing a read-only actor must not
+    // be able to change about itself.
+    read_only(config, actor)?;
     if actor == config.root_owner {
         Ok(())
     } else {
@@ -25,10 +30,29 @@ pub fn permits(allowed: &[String], actor: &str) -> bool {
     valid(actor) && allowed.iter().any(|item| item == "*" || item == actor)
 }
 
+/// Whether the store has said this actor may not change anything.
+///
+/// Checked before anything that grants, because it exists to beat them. Exact
+/// names only — see `StoreConfig::read_only` for why a wildcard is refused
+/// rather than honoured.
+///
+/// WHAT THIS IS NOT: the actor is whatever `EQUILL_ACTOR` says it is, checked
+/// for being a well-formed name and nothing else. Anyone who can run the binary
+/// can run it under another name. So this holds an agent that means to
+/// cooperate to reading — which is what it is for, and it is worth having —
+/// and it does not hold one that does not. The boundary that actually keeps a
+/// store safe is who can run the binary at all, and that boundary is not here.
+fn read_only(config: &StoreConfig, actor: &str) -> Result<(), Error> {
+    if config.read_only.iter().any(|item| item == actor) {
+        return Err(Error::ReadOnlyActor(actor.to_owned()));
+    }
+    Ok(())
+}
+
 /// Appending records is allowed for the root owner and for any actor the store
-/// lists as a writer. Governance — schemas, selectors, profiles, compaction —
-/// stays with the root owner.
+/// lists as a writer, unless the store holds that actor to reading.
 pub fn require_writer(config: &StoreConfig, actor: &str) -> Result<(), Error> {
+    read_only(config, actor)?;
     if valid(actor) && (actor == config.root_owner || permits(&config.writers, actor)) {
         Ok(())
     } else {
@@ -44,6 +68,7 @@ pub fn require_type_writer(
     namespace: &str,
     type_name: &str,
 ) -> Result<(), Error> {
+    read_only(config, actor)?;
     let scoped = config.write_grants.iter().any(|grant| {
         permits(&grant.actors, actor)
             && matches(&grant.namespace, namespace)
@@ -72,6 +97,7 @@ mod tests {
     fn config() -> StoreConfig {
         StoreConfig {
             default_context_profile: None,
+            read_only: Vec::new(),
             format_version: 1,
             root_owner: "owner".into(),
             namespaces: vec!["agent.memory".into()],

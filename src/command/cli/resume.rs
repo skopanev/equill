@@ -1,7 +1,7 @@
 //! Which store, if any, a command opens — the question the automatic vector
 //! catch-up asks before deciding whether to nudge anything along.
 use super::args::{RegistryCommand, SchemaCommand};
-use super::authority::{GrantCommand, OwnerCommand};
+use super::authority::{GrantCommand, OwnerCommand, ReaderCommand};
 use super::commands::Command;
 
 impl Command {
@@ -38,6 +38,7 @@ impl Command {
             Self::Vector { command } => command.store_to_resume(),
             Self::Owner { command } => command.store(),
             Self::Grant { command } => command.store(),
+            Self::Reader { command } => command.store(),
             Self::Doctor { store, .. } => store.as_deref(),
             Self::Status { store } => store.as_deref(),
             Self::Init { .. } | Self::Record { .. } | Self::Import { .. } => None,
@@ -79,4 +80,25 @@ impl GrantCommand {
             }
         }
     }
+}
+
+impl ReaderCommand {
+    pub fn store(&self) -> Option<&std::path::Path> {
+        match self {
+            Self::List { store } | Self::Add { store, .. } | Self::Revoke { store, .. } => {
+                Some(store)
+            }
+        }
+    }
+}
+
+/// Whether the caller is an actor this store holds to reading.
+///
+/// The actor comes from the environment here and from the session there, so the
+/// question is asked in one place and answered by the kernel: two surfaces that
+/// decided this separately would eventually decide it differently.
+pub fn held_to_reading(store: &std::path::Path) -> bool {
+    crate::kernel::identity::actor_from_env()
+        .map(|actor| crate::kernel::store::holds_to_reading(store, &actor))
+        .unwrap_or(false)
 }

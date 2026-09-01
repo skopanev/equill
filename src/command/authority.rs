@@ -1,6 +1,6 @@
 //! The governance surfaces: who owns the store, and who may append to part of
 //! it. Both read their actor from the environment like every other write.
-use super::cli::{GrantCommand, OwnerCommand};
+use super::cli::{GrantCommand, OwnerCommand, ReaderCommand};
 use crate::governance;
 use crate::kernel::error::Error;
 use crate::kernel::identity;
@@ -51,6 +51,33 @@ pub(crate) fn grant(json: bool, command: GrantCommand) -> Result<String, Error> 
             let actor = identity::actor_from_env()?;
             let report = governance::revoke_grant(&store, &subject, comment.as_deref(), &actor)?;
             super::output::render(json, &report, super::output::grant(&report))
+        }
+    }
+}
+
+pub(crate) fn reader(json: bool, command: ReaderCommand) -> Result<String, Error> {
+    match command {
+        ReaderCommand::List { store } => {
+            let report = governance::show(&store)?;
+            super::output::render(json, &report, super::output::authority(&report))
+        }
+        ReaderCommand::Add {
+            store,
+            actor: subject,
+            comment,
+        } => {
+            let actor = identity::actor_from_env()?;
+            let report = governance::deny_writes(&store, &subject, comment.as_deref(), &actor)?;
+            super::output::render(json, &report, super::output::reader(&report))
+        }
+        ReaderCommand::Revoke {
+            store,
+            actor: subject,
+            comment,
+        } => {
+            let actor = identity::actor_from_env()?;
+            let report = governance::allow_writes(&store, &subject, comment.as_deref(), &actor)?;
+            super::output::render(json, &report, super::output::reader(&report))
         }
     }
 }

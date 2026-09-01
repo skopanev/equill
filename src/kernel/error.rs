@@ -24,6 +24,14 @@ pub enum Error {
     MissingActor,
     NotInitialized(PathBuf),
     PermissionDenied,
+    /// The store lists this actor as read-only.
+    ///
+    /// Separate from `PermissionDenied` because the two are different answers
+    /// to the caller: not being a writer is an absence that adding a grant
+    /// fixes, while being read-only is a decision the store made about this
+    /// actor and no grant overrides it. Telling them apart is the difference
+    /// between "ask for access" and "you were not meant to have it".
+    ReadOnlyActor(String),
     PostCommit(String),
     Projection(String),
     SchemaConflict(String),
@@ -67,6 +75,13 @@ impl Display for Error {
             }
             Self::Governance(detail) => write!(formatter, "{detail}"),
             Self::PermissionDenied => write!(formatter, "actor is not allowed to write"),
+            // A stable token first, so a caller can key on the refusal without
+            // parsing prose, and the escalation path last, because the actor
+            // reading this cannot lift the restriction itself.
+            Self::ReadOnlyActor(actor) => write!(
+                formatter,
+                "PM_WRITE_DENIED: {actor} may read this store and may not change it. Escalate to GM."
+            ),
             Self::PostCommit(reason) => write!(formatter, "post-commit failure: {reason}"),
             Self::Projection(reason) => write!(formatter, "projection failed: {reason}"),
             Self::StoreExists(path) => write!(

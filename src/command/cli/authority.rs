@@ -71,3 +71,41 @@ pub enum GrantCommand {
         comment: Option<String>,
     },
 }
+
+#[derive(Subcommand, Debug)]
+pub enum ReaderCommand {
+    /// List the actors this store holds to reading only.
+    List {
+        /// Initialized store directory.
+        #[arg(long)]
+        store: PathBuf,
+    },
+    /// Hold one actor to reading: it may search and read, and may not change
+    /// anything, whatever else would allow it.
+    #[command(after_help = ACTOR_HELP)]
+    Add {
+        /// Initialized store directory.
+        #[arg(long)]
+        store: PathBuf,
+        /// Identity held to reading. Never the store owner: governance is what
+        /// lifts this, and the owner is who governs.
+        #[arg(long)]
+        actor: String,
+        /// Why, kept as evidence beside the change.
+        #[arg(long)]
+        comment: Option<String>,
+    },
+    /// Let one actor write again, as far as everything else allows.
+    #[command(after_help = ACTOR_HELP)]
+    Revoke {
+        /// Initialized store directory.
+        #[arg(long)]
+        store: PathBuf,
+        /// Identity no longer held to reading.
+        #[arg(long)]
+        actor: String,
+        /// Why, kept as evidence beside the change.
+        #[arg(long)]
+        comment: Option<String>,
+    },
+}
