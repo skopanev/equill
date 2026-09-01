@@ -63,3 +63,84 @@ fn a_worker_records_a_sanitized_outcome() {
         );
     }
 }
+
+/// A pass that succeeds without moving the index any closer to its target.
+///
+/// This is the shape the bound exists for: work that keeps reporting success
+/// and never converges. A failing pass stops the worker for its own reason and
+/// never reaches the bound at all.
+fn a_pass_that_never_converges(
+    _store: &std::path::Path,
+) -> Result<crate::vector::VectorSyncReport, crate::kernel::error::Error> {
+    Ok(crate::vector::VectorSyncReport {
+        ok: true,
+        projection: "qdrant",
+        collection: String::new(),
+        records: 0,
+        embeddings: 0,
+        points_upserted: 0,
+        upsert_batches: 0,
+        corpus_sha256: String::new(),
+        duration_ms: 0,
+    })
+}
+
+/// A worker that cannot converge stops at its pass bound, and says why.
+///
+/// The bound is the only thing between a store that never agrees with itself
+/// and a process that runs forever, and until now nothing asserted it fires.
+/// It had never been written because reaching the real bound costs 64 passes
+/// or fifteen minutes. Both seams used here are compiled out of a release
+/// build: there is no setting anybody could use to shorten a production bound
+/// or to replace the work a real worker does.
+#[test]
+fn a_worker_that_cannot_converge_stops_at_its_pass_bound() {
+    let root = super::harness::bare("bounded-passes");
+    // A target nothing will ever reach, so the exit condition stays false and
+    // only the bound can stop the loop.
+    crate::vector::desired::publish(&root, 9_999).expect("target");
+    // The deadline is generous but finite on purpose: with the pass bound
+    // removed this test must FAIL rather than hang, or the mutation that
+    // proves it discriminating could never be run.
+    let report =
+        crate::vector::catchup::bounds::with_bounds(2, std::time::Duration::from_secs(5), || {
+            crate::vector::catchup::bounds::with_pass(a_pass_that_never_converges, || {
+                run_once(&root)
+            })
+        });
+
+    assert_eq!(report.passes, 2, "the loop did not stop at the pass bound");
+    assert_eq!(
+        report.attempt_error.as_deref(),
+        Some("drain stopped at its bound without converging"),
+        "it stopped for another reason"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The same worker stops on the clock too, without waiting fifteen minutes.
+///
+/// Asserted separately from the pass bound because either one alone would let
+/// the other rot: a loop bounded only by passes runs as long as a slow pass
+/// takes, and one bounded only by time runs as many passes as it can fit.
+#[test]
+fn a_worker_that_cannot_converge_stops_at_its_deadline() {
+    let root = super::harness::bare("bounded-clock");
+    crate::vector::desired::publish(&root, 9_999).expect("target");
+    // A deadline already spent: the first completed pass is past it, so the
+    // clock stops the loop while the pass bound is nowhere near.
+    let report =
+        crate::vector::catchup::bounds::with_bounds(1_000, std::time::Duration::ZERO, || {
+            crate::vector::catchup::bounds::with_pass(a_pass_that_never_converges, || {
+                run_once(&root)
+            })
+        });
+
+    assert_eq!(report.passes, 1, "the deadline did not stop the first pass");
+    assert_eq!(
+        report.attempt_error.as_deref(),
+        Some("drain stopped at its bound without converging"),
+        "it stopped for another reason"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}

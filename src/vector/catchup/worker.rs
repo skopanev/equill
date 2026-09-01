@@ -1,4 +1,3 @@
-use super::super::operator;
 use super::desired;
 use crate::kernel::error::Error;
 use crate::kernel::lock::{StoreLock, TryLock};
@@ -6,15 +5,9 @@ use serde::Serialize;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 pub(super) const LOCK: &str = "vector-drain.lock";
-
-/// Bounds that keep a worker finite no matter what the ledger or the provider
-/// does. Neither is a tuning knob for throughput — they exist so that a process
-/// which cannot make progress cannot keep running either.
-const MAX_PASSES: usize = 64;
-const DEADLINE: Duration = Duration::from_secs(900);
 
 /// Where the projection stands after a write, as distinct from whether the
 /// write itself is safe.
@@ -192,7 +185,7 @@ pub fn run_once(store: &Path) -> DrainReport {
         ..DrainReport::default()
     };
     loop {
-        match operator::catch_up(store) {
+        match super::bounds::pass()(store) {
             Ok(pass) => {
                 report.passes += 1;
                 report.embeddings += pass.embeddings;
@@ -227,7 +220,8 @@ pub fn run_once(store: &Path) -> DrainReport {
                 return report;
             }
         }
-        if report.passes >= MAX_PASSES || started.elapsed() >= DEADLINE {
+        let (max_passes, deadline) = super::bounds::bounds();
+        if report.passes >= max_passes || started.elapsed() >= deadline {
             report.attempt_error = Some("drain stopped at its bound without converging".into());
             record_outcome(store, &report);
             return report;
