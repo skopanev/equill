@@ -11,7 +11,7 @@ mod harness;
 mod surfaces;
 
 use surfaces::fixture::{ROLELESS, fixture};
-use surfaces::{cli_json, cli_text, mcp};
+use surfaces::{cli_json, cli_text, mcp, titles_of};
 
 #[test]
 fn every_surface_selects_the_same_records_for_a_scalar_role() {
@@ -24,7 +24,8 @@ fn every_surface_selects_the_same_records_for_a_scalar_role() {
 
     assert_eq!(json, session, "CLI JSON and MCP disagree on a scalar role");
     assert_eq!(
-        text, json.ids,
+        text,
+        titles_of(&root, &json.ids),
         "CLI text named a different set than the JSON answer"
     );
     assert!(!json.ids.is_empty(), "the fixture selected nothing at all");
@@ -46,7 +47,8 @@ fn every_surface_selects_the_same_records_for_a_role_set() {
 
         assert_eq!(json, session, "CLI JSON and MCP disagree on {asked:?}");
         assert_eq!(
-            text, json.ids,
+            text,
+            titles_of(&root, &json.ids),
             "CLI text named a different set than the JSON answer for {asked:?}"
         );
     }
@@ -158,6 +160,66 @@ fn asking_for_one_role_does_not_return_another() {
     );
     // And the same through the other two doors, so no surface widens alone.
     assert_eq!(mcp(&root, &["project=finik", "role=pm"]), pm);
-    assert_eq!(cli_text(&root, &["project=finik", "role=pm"]), pm.ids);
+    assert_eq!(
+        cli_text(&root, &["project=finik", "role=pm"]),
+        titles_of(&root, &pm.ids)
+    );
     let _ = std::fs::remove_dir_all(root);
+}
+
+/// The receipt gains the records it already named, without giving up anything
+/// it said before.
+///
+/// `content` holds the same records as a string of JSON, so reaching them meant
+/// parsing a field out of an already-parsed document — escaped quotes and all.
+/// The fix adds a field rather than reshaping one: every existing key stays,
+/// `content` stays byte for byte, and `records` arrives as objects in the order
+/// the receipt names.
+#[test]
+fn the_receipt_carries_its_records_as_objects_and_keeps_what_it_said_before() {
+    let root = fixture("receipt-records");
+    let asked = &["project=finik", "role=pm"];
+    let body = surfaces::cli_json_value(&root, asked);
+
+    let ids: Vec<String> = body["selected_record_ids"]
+        .as_array()
+        .expect("ids")
+        .iter()
+        .map(|id| id.as_str().expect("id").to_owned())
+        .collect();
+    let records = body["records"].as_array().expect("records is an array");
+
+    assert_eq!(
+        records.len(),
+        ids.len(),
+        "the receipt named {} records and carried {}",
+        ids.len(),
+        records.len()
+    );
+    let carried: Vec<String> = records
+        .iter()
+        .map(|record| record["id"].as_str().expect("record id").to_owned())
+        .collect();
+    assert_eq!(
+        carried, ids,
+        "records are not in the order the receipt names"
+    );
+    for record in records {
+        assert!(record.is_object(), "a record arrived as {record}");
+        assert!(
+            record["payload"].is_object() || record["payload"].is_array(),
+            "a payload arrived as a string of JSON rather than as itself: {record}"
+        );
+    }
+
+    // Nothing the receipt said before is gone, and `content` is untouched.
+    for key in ["selected_record_ids", "content", "receipt"] {
+        assert!(body.get(key).is_some(), "the receipt lost {key}");
+    }
+    assert!(
+        body["content"].is_string(),
+        "content changed shape: {}",
+        body["content"]
+    );
+    let _ = std::fs::remove_dir_all(&root);
 }

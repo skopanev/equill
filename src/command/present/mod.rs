@@ -16,12 +16,15 @@ pub fn records(
     format: Format,
     fields: &[String],
 ) -> Result<String, Error> {
+    if format == Format::Text {
+        // Answered as a set: a role, its process and that process's steps
+        // arrive as separate records, so the shape a reader wants exists only
+        // across the answer.
+        return Ok(text::answer(records, fields));
+    }
     let mut lines = Vec::with_capacity(records.len());
     for record in records {
-        lines.push(match format {
-            Format::Jsonl => serde_json::to_string(&projected(record, fields))?,
-            Format::Text => text(record, fields),
-        });
+        lines.push(serde_json::to_string(&projected(record, fields))?);
     }
     Ok(lines.join("\n"))
 }
@@ -41,48 +44,20 @@ fn projected(record: &StoredRecord, fields: &[String]) -> Value {
     Value::Object(selected)
 }
 
-/// One record per line: the requested fields in order, or the payload's own
-/// values followed by the coordinates that place them.
-fn text(record: &StoredRecord, fields: &[String]) -> String {
-    if !fields.is_empty() {
-        return fields
-            .iter()
-            .map(|field| lookup(record, field).map_or(String::new(), flatten))
-            .collect::<Vec<_>>()
-            .join("\t");
-    }
-    // Without an explicit selection the id leads: every other command takes one,
-    // and a line a reader cannot act on is half an answer.
-    let mut parts = vec![record.id.to_string()];
-    parts.extend(payload_values(&record.payload));
-    parts.push(format!("[{} {}]", record.namespace, record.type_name));
-    parts.join("\t")
-}
-
-fn payload_values(payload: &Value) -> Vec<String> {
-    match payload {
-        Value::Object(fields) => fields.values().cloned().map(flatten).collect(),
-        other => vec![flatten(other.clone())],
-    }
-}
-
 /// Names resolve exactly as they do in a filter: a bare name is the payload
 /// first, `payload.x` and `record.x` name a half outright. Printing and
 /// filtering must agree, or the same word means two things in one command.
-fn lookup(record: &StoredRecord, field: &str) -> Option<Value> {
+pub(super) fn lookup(record: &StoredRecord, field: &str) -> Option<Value> {
     let path = field.split('.').map(str::to_owned).collect::<Vec<_>>();
     let envelope = serde_json::to_value(record).ok()?;
     crate::filter::address(&record.payload, &envelope, &path).cloned()
 }
 
-fn flatten(value: Value) -> String {
-    match value {
-        Value::String(text) => text,
-        Value::Array(items) => items.into_iter().map(flatten).collect::<Vec<_>>().join(","),
-        Value::Null => String::new(),
-        other => other.to_string(),
-    }
-}
+mod classify;
+mod label;
+mod text;
 
+#[cfg(test)]
+mod shape_tests;
 #[cfg(test)]
 mod tests;

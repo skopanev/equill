@@ -45,6 +45,23 @@ impl Answer {
 
 /// What the CLI answers in JSON: the records it chose and the digest it
 /// published for the bundle.
+/// The receipt exactly as the CLI prints it, for assertions about the document
+/// itself rather than about the two fields `Answer` keeps.
+pub fn cli_json_value(root: &Path, coordinates: &[&str]) -> serde_json::Value {
+    let mut args = vec!["context", "--profile", "roles", "--json"];
+    for entry in coordinates {
+        args.push("--coordinate");
+        args.push(entry);
+    }
+    let out = equill(root, &args);
+    assert!(
+        out.status.success(),
+        "cli json failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    serde_json::from_slice(&out.stdout).expect("cli json")
+}
+
 pub fn cli_json(root: &Path, coordinates: &[&str]) -> Answer {
     let mut args = vec!["context", "--profile", "roles", "--json"];
     for entry in coordinates {
@@ -60,9 +77,10 @@ pub fn cli_json(root: &Path, coordinates: &[&str]) -> Answer {
     Answer::read(&serde_json::from_slice(&out.stdout).expect("cli json"))
 }
 
-/// The ids a text answer prints. Text puts the record id first, so it can be
-/// compared on the same thing rather than on a rendering — but it publishes no
-/// receipt, so ids are all there is to compare.
+/// What a text answer names. The text surface no longer prints a record id —
+/// a reader was being handed a UUID they could not use — so the comparison
+/// runs on the title each synthetic record carries, which is unique per record
+/// in this fixture and therefore names it as exactly as the id did.
 pub fn cli_text(root: &Path, coordinates: &[&str]) -> BTreeSet<String> {
     let mut args = vec!["context", "--profile", "roles", "--format", "text"];
     for entry in coordinates {
@@ -77,13 +95,29 @@ pub fn cli_text(root: &Path, coordinates: &[&str]) -> BTreeSet<String> {
     );
     String::from_utf8_lossy(&out.stdout)
         .lines()
-        .filter(|line| !line.trim().is_empty())
-        .map(|line| {
-            line.split('\t')
-                .next()
-                .unwrap_or_default()
-                .trim()
-                .to_owned()
+        .filter_map(|line| line.strip_prefix("Title: "))
+        .map(|title| title.trim().to_owned())
+        .collect()
+}
+
+/// The same records the receipt names, read back by the title that identifies
+/// them — so "the two surfaces chose the same records" stays a claim about the
+/// records themselves and not about a rendering.
+pub fn titles_of(root: &Path, ids: &BTreeSet<String>) -> BTreeSet<String> {
+    ids.iter()
+        .map(|id| {
+            let out = equill(
+                root,
+                &["get", "--id", id, "--format", "jsonl", "--fields", "title"],
+            );
+            assert!(
+                out.status.success(),
+                "get {id} failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            let value: serde_json::Value =
+                serde_json::from_slice(out.stdout.trim_ascii()).expect("record json");
+            value["title"].as_str().expect("title").to_owned()
         })
         .collect()
 }

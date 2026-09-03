@@ -23,32 +23,61 @@ fn text_output_follows_the_selector_order_not_the_ledger() {
         &root,
         &["context", "--profile", "ranked", "--format", "text"],
     );
-    let order: Vec<String> = printed
-        .lines()
-        .filter_map(|line| line.split('\t').nth(1).map(str::to_owned))
-        .collect();
+    // Read back by content, because the text answer no longer prints an
+    // identifier: a reader was being handed a UUID they could not use, and the
+    // line it led was unreadable for it. Confidence is unique per record in
+    // this fixture, so it names the record as exactly as the id did.
+    let order = confidences(&printed);
     assert_eq!(
         order, ASCENDING,
         "text printed the ledger's order, not the selector's"
     );
 
     // And the two surfaces still agree, which is the point of fixing the one
-    // that was wrong rather than loosening the assertion.
+    // that was wrong rather than loosening the assertion. Compared through the
+    // same records rather than through ids, which only one surface now shows.
+    let lines = run(
+        &root,
+        &[
+            "context",
+            "--profile",
+            "ranked",
+            "--format",
+            "jsonl",
+            "--fields",
+            "confidence",
+        ],
+    );
+    let structured: Vec<String> = lines
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter_map(|record| {
+            record["confidence"]
+                .as_f64()
+                .or_else(|| record["payload"]["confidence"].as_f64())
+        })
+        .map(|value| value.to_string())
+        .collect();
+    assert_eq!(structured, order, "text and jsonl disagree on the order");
+
     let body: serde_json::Value =
         serde_json::from_str(&run(&root, &["context", "--profile", "ranked", "--json"]))
             .expect("json");
-    let ids = body["selected_record_ids"]
-        .as_array()
-        .expect("ids")
-        .iter()
-        .filter_map(|id| id.as_str().map(str::to_owned))
-        .collect::<Vec<_>>();
-    let text_ids: Vec<String> = printed
-        .lines()
-        .filter_map(|line| line.split('\t').next().map(str::to_owned))
-        .collect();
-    assert_eq!(ids, text_ids, "text and json disagree on the order");
+    assert_eq!(
+        body["selected_record_ids"].as_array().expect("ids").len(),
+        order.len(),
+        "the receipt and the printed answer disagree on how many records there are"
+    );
     let _ = fs::remove_dir_all(&root);
+}
+
+/// The value each record is known by in this fixture, in the order printed.
+fn confidences(printed: &str) -> Vec<String> {
+    printed
+        .lines()
+        .filter_map(|line| line.strip_prefix("Confidence: "))
+        .map(str::to_owned)
+        .collect()
 }
 
 fn run(root: &Path, args: &[&str]) -> String {
