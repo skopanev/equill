@@ -87,6 +87,34 @@ fn text_output_follows_the_selector_order_not_the_ledger() {
     let _ = fs::remove_dir_all(&root);
 }
 
+#[test]
+fn context_and_search_accept_prompt_ready_output() {
+    let root = store();
+    let context = run(
+        &root,
+        &["context", "--profile", "ranked", "--format", "llm"],
+    );
+    let search = run(
+        &root,
+        &[
+            "search",
+            "--query",
+            "step",
+            "--strategy",
+            "fts",
+            "--format",
+            "llm",
+        ],
+    );
+
+    for printed in [context, search] {
+        assert!(printed.starts_with("## RETRIEVED MEMORY\n- step"));
+        assert!(!printed.contains("agent.lesson.v1"));
+        assert!(!printed.contains("\"id\""));
+    }
+    let _ = fs::remove_dir_all(&root);
+}
+
 /// The value each record is known by in this fixture, in the order printed.
 fn confidences(printed: &str) -> Vec<String> {
     printed

@@ -1,4 +1,5 @@
 //! The command list. Its argument vocabularies live beside it in `args`.
+use super::RecordFormatArg;
 use super::args::*;
 use super::authority::{GrantCommand, OwnerCommand, ReaderCommand};
 use clap::Subcommand;
@@ -190,8 +191,8 @@ pub enum Command {
         #[arg(long)]
         id: String,
         /// Output shape for the record.
-        #[arg(long, value_enum, default_value_t = FormatArg::Jsonl)]
-        format: FormatArg,
+        #[arg(long, value_enum, default_value_t = RecordFormatArg::Jsonl)]
+        format: RecordFormatArg,
         /// Print only these fields, in this order.
         #[arg(long, value_delimiter = ',')]
         fields: Vec<String>,

@@ -17,6 +17,7 @@ pub mod fixture;
 pub mod h2;
 pub mod provider;
 pub mod session;
+mod worker;
 
 pub use fixture::{write_json, write_line};
 
@@ -176,18 +177,6 @@ pub fn appears(path: &Path, within: Duration) -> bool {
     false
 }
 
-/// Wait for every worker to be gone.
-pub fn settles(root: &Path, within: Duration) -> bool {
-    let deadline = Instant::now() + within;
-    while Instant::now() < deadline {
-        if children(root) == 0 {
-            return true;
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    false
-}
-
 /// Workers for ONE store. Counting every `vector drain` on the machine would
 /// tally the other tests in this file, which run in parallel — a measurement
 /// that says "single-flight is broken" when what broke is the measurement.
@@ -220,12 +209,13 @@ pub fn exclusive_measurement() -> std::fs::File {
 pub const WORKER_PATIENCE: Duration = Duration::from_secs(10);
 
 pub fn children(root: &Path) -> usize {
-    let out = Command::new("pgrep")
-        .args(["-f", &format!("vector drain --store {}", root.display())])
-        .output()
-        .expect("pgrep");
-    String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .count()
+    worker::children(root)
+}
+
+pub fn kill_worker(root: &Path) -> bool {
+    worker::kill_worker(root)
+}
+
+pub fn settles(root: &Path, within: Duration) -> bool {
+    worker::settles(root, within)
 }

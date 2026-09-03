@@ -135,6 +135,7 @@ pub fn shape(format: crate::command::cli::FormatArg) -> crate::command::present:
     match format {
         crate::command::cli::FormatArg::Jsonl => crate::command::present::Format::Jsonl,
         crate::command::cli::FormatArg::Text => crate::command::present::Format::Text,
+        crate::command::cli::FormatArg::Llm => crate::command::present::Format::Llm,
     }
 }
 
@@ -162,7 +163,7 @@ pub fn get(
     json: bool,
     store: &std::path::Path,
     id: &str,
-    format: command::cli::FormatArg,
+    format: command::cli::RecordFormatArg,
     fields: &[String],
 ) -> Result<String, Error> {
     let id: uuid::Uuid = id
@@ -172,6 +173,10 @@ pub fn get(
         .into_iter()
         .find(|record| record.id == id)
         .ok_or_else(|| Error::InvalidRecord(format!("no record with id {id}")))?;
-    let text = command::present::records(std::slice::from_ref(&found), shape(format), fields)?;
+    let shape = match format {
+        command::cli::RecordFormatArg::Jsonl => command::present::Format::Jsonl,
+        command::cli::RecordFormatArg::Text => command::present::Format::Text,
+    };
+    let text = command::present::records(std::slice::from_ref(&found), shape, fields)?;
     command::output::render(json, &found, text)
 }

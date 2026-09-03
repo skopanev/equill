@@ -46,6 +46,10 @@ const STARTING_GRACE_MS: u128 = 5_000;
 struct Claim {
     id: Uuid,
     issued_unix_ms: u128,
+    /// Diagnostic ownership only. The drain lock remains the authority; this
+    /// lets a test or operator address this worker without scanning processes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pid: Option<u32>,
 }
 
 /// Try to become the one who starts a worker.
@@ -89,6 +93,7 @@ pub(crate) fn claim(store: &Path) -> Result<Option<Uuid>, Error> {
     let claim = Claim {
         id,
         issued_unix_ms: now_ms(),
+        pid: None,
     };
     match create_exclusively(&path, &claim) {
         Ok(()) => {}
@@ -116,7 +121,21 @@ pub(crate) fn consume(store: &Path) -> Result<Ownership, Error> {
             "no handoff to consume: this worker is started by a write, not by hand",
         ));
     }
+    publish_pid(&active);
     Ok(Ownership { path: active })
+}
+
+/// Add the worker identity without ever exposing a half-written active claim.
+/// Best effort because the lock, not this diagnostic, owns the work.
+fn publish_pid(path: &Path) {
+    let Some(mut claim) = read(path).ok().flatten() else {
+        return;
+    };
+    claim.pid = Some(std::process::id());
+    let temporary = path.with_extension(format!("pid-{}", claim.id));
+    if create_exclusively(&temporary, &claim).is_ok() && fs::rename(&temporary, path).is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
 }
 
 /// Held for as long as a worker is working. Dropping it says the work is over,

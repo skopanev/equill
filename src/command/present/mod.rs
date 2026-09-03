@@ -6,6 +6,7 @@ use serde_json::{Map, Value};
 pub enum Format {
     Jsonl,
     Text,
+    Llm,
 }
 
 /// Presentation of a result set. A caller reading a rule wants the sentence,
@@ -16,11 +17,15 @@ pub fn records(
     format: Format,
     fields: &[String],
 ) -> Result<String, Error> {
-    if format == Format::Text {
-        // Answered as a set: a role, its process and that process's steps
-        // arrive as separate records, so the shape a reader wants exists only
-        // across the answer.
-        return Ok(text::answer(records, fields));
+    match format {
+        Format::Text => {
+            // Answered as a set: a role, its process and that process's steps
+            // arrive as separate records, so the shape a reader wants exists
+            // only across the answer.
+            return Ok(text::answer(records, fields));
+        }
+        Format::Llm => return Ok(llm::answer(records)),
+        Format::Jsonl => {}
     }
     let mut lines = Vec::with_capacity(records.len());
     for record in records {
@@ -55,6 +60,7 @@ pub(super) fn lookup(record: &StoredRecord, field: &str) -> Option<Value> {
 
 mod classify;
 mod label;
+mod llm;
 mod steps;
 mod text;
 

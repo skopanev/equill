@@ -127,3 +127,109 @@ fn the_text_answer_carries_no_uuid_no_tabs_and_no_escaped_json() {
         "an identifier is still being printed: {printed}"
     );
 }
+
+#[test]
+fn llm_prompt_groups_content_and_drops_storage_details() {
+    let fixture = [
+        typed(
+            "agent.rule.v1",
+            json!({ "key": "tickets.lifecycle", "module": "tickets", "rules": "tickets", "rule": "Run ntk start <ticket>.", "body": "private ticket", "role": "reviewer" }),
+        ),
+        typed(
+            "agent.step.v2",
+            json!({ "step": 20, "does": "Second", "process": "internal-key", "gate": "cargo test", "on_fail": "Stop" }),
+        ),
+        typed(
+            "agent.process.v2",
+            json!({ "name": "internal-key", "purpose": "Ship verified work", "ends_when": "All checks pass", "contract": "hidden contract" }),
+        ),
+        typed(
+            "agent.role.v2",
+            json!({ "role": "reviewer", "order": 20, "do": "Publish the verdict", "kind": "human" }),
+        ),
+        typed(
+            "agent.role.v2",
+            json!({ "role": "reviewer", "order": 3, "do": "Read the change" }),
+        ),
+        typed(
+            "agent.step.v2",
+            json!({ "step": 3, "does": "Run agentbus drain." }),
+        ),
+        typed(
+            "agent.rule.v1",
+            json!({ "key": "comm.primary", "module": "communication", "rules": "comm", "rule": "State blockers plainly", "service_explanation": "hidden service" }),
+        ),
+    ];
+
+    let printed = records(&fixture, Format::Llm, &[]).expect("llm");
+
+    assert_eq!(
+        printed,
+        concat!(
+            "## ROLE\n- Read the change\n- Publish the verdict\n\n",
+            "## GOAL\nShip verified work\n\n",
+            "## FINISH\nAll checks pass\n\n",
+            "## STEPS\n1. Run `agentbus drain`.\n2. Second\n   Gate: `cargo test`\n   On fail: Stop\n\n",
+            "## COMMUNICATION RULES\n- State blockers plainly\n\n",
+            "## TICKETING RULES\n- Run `ntk start <ticket>`."
+        )
+    );
+    for hidden in [
+        "internal-key",
+        "private ticket",
+        "hidden contract",
+        "reviewer",
+        "human",
+        "hidden service",
+    ] {
+        assert!(!printed.contains(hidden), "leaked {hidden}: {printed}");
+    }
+}
+
+#[test]
+fn llm_search_delta_keeps_each_registered_memory_shape() {
+    let printed = records(
+        &[
+            typed(
+                "agent.lesson.v1",
+                json!({ "rule": "Use ntk start <ticket>.", "severity": "must", "source": "private" }),
+            ),
+            typed(
+                "agent.finding.v1",
+                json!({
+                    "claim": "Projection is behind",
+                    "surface": "private-host",
+                    "evidence": {
+                        "how": "gcloud logging read synthetic-filter",
+                        "repo_sha": "secret-hash",
+                        "result": "stale",
+                        "where": "worker"
+                    },
+                    "not_proven": "live concurrency",
+                    "kind": "incident"
+                }),
+            ),
+            typed("agent.note.v1", json!({ "text": "Carry context", "kind": "note" })),
+        ],
+        Format::Llm,
+        &[],
+    )
+    .expect("llm");
+
+    assert_eq!(
+        printed,
+        concat!(
+            "## RETRIEVED MEMORY\n",
+            "- Use `ntk start <ticket>`.\n",
+            "- Projection is behind\n",
+            "  Evidence: `gcloud logging read synthetic-filter`\n",
+            "  Result: stale\n",
+            "  Location: worker\n",
+            "  Boundary: live concurrency\n",
+            "- Carry context"
+        )
+    );
+    for hidden in ["private-host", "secret-hash", "incident", "private"] {
+        assert!(!printed.contains(hidden), "leaked {hidden}: {printed}");
+    }
+}

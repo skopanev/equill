@@ -1,6 +1,7 @@
 mod args;
 mod authority;
 mod commands;
+mod format;
 mod progress;
 mod resume;
 
@@ -8,6 +9,7 @@ pub use args::*;
 pub use authority::{GrantCommand, OwnerCommand, ReaderCommand};
 use clap::Parser;
 pub use commands::*;
+pub use format::RecordFormatArg;
 pub(crate) use progress::HumanVectorProgress;
 pub use resume::held_to_reading;
 

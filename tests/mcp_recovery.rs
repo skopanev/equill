@@ -4,7 +4,7 @@
 mod harness;
 
 use harness::provider::SlowProvider;
-use harness::{binary, children, record, settles, store_against};
+use harness::{binary, children, kill_worker, record, settles, store_against};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -29,7 +29,7 @@ fn a_long_lived_mcp_session_restarts_a_dead_worker() {
         provider.requests(),
         state(&root)
     );
-    kill_workers(&root);
+    assert!(kill_worker(&root), "the test could not stop its own worker");
     assert!(settles(&root, Duration::from_secs(5)), "the worker is gone");
 
     // One session, two calls. The recovery must happen on the CALL, not at boot.
@@ -92,16 +92,6 @@ fn alive(root: &Path, within: Duration) -> bool {
         std::thread::sleep(Duration::from_millis(20));
     }
     false
-}
-
-fn kill_workers(root: &Path) {
-    let _ = Command::new("pkill")
-        .args([
-            "-9",
-            "-f",
-            &format!("vector drain --store {}", root.display()),
-        ])
-        .status();
 }
 
 /// Wait until the provider is holding a request from a worker.

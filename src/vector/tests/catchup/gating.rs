@@ -86,6 +86,20 @@ fn a_handoff_can_only_be_consumed_once() {
     );
 }
 
+#[test]
+fn active_handoff_names_only_its_own_worker() {
+    let root = bare("owned-worker");
+    handoff_for_tests(&root).expect("issue");
+
+    let ownership = crate::vector::catchup::handoff::consume(&root).expect("consume");
+    let active =
+        std::fs::read(root.join("projections/qdrant/handoff-active.json")).expect("active claim");
+    let claim: serde_json::Value = serde_json::from_slice(&active).expect("claim json");
+
+    assert_eq!(claim["pid"].as_u64(), Some(std::process::id() as u64));
+    drop(ownership);
+}
+
 /// An invariant, not a scenario: a failed attempt and a current index cannot
 /// both be true. Whatever else a report says, those two together would tell a
 /// caller the index is up to date and that catching it up just failed.

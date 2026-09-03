@@ -118,6 +118,8 @@ pub enum FormatArg {
     Jsonl,
     /// One readable line per record.
     Text,
+    /// Compact Markdown ready to place in an LLM prompt.
+    Llm,
 }
 
 #[cfg(test)]
@@ -190,7 +192,7 @@ pub struct PresentationArgs {
     /// Drop records whose filtered field is absent, instead of matching all.
     #[arg(long)]
     pub strict: bool,
-    /// Output shape: one JSON object per line, or one readable line per record.
+    /// Output shape: JSONL, readable text, or prompt-ready Markdown.
     #[arg(long, value_enum, default_value_t = FormatArg::Jsonl)]
     pub format: FormatArg,
     /// Print only these fields, in order. Envelope names work beside payload.

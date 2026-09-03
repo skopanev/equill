@@ -156,13 +156,10 @@ fn alive(root: &Path, within: Duration) -> bool {
 }
 
 fn kill_workers(root: &Path) {
-    let _ = Command::new("pkill")
-        .args([
-            "-9",
-            "-f",
-            &format!("vector drain --store {}", root.display()),
-        ])
-        .status();
+    assert!(
+        harness::kill_worker(root),
+        "the test could not stop its own worker"
+    );
 }
 
 unsafe extern "C" {
