@@ -85,3 +85,43 @@ fn config_serialization_never_contains_an_api_key_value() {
     assert!(!serialized.contains("secret-value"));
     fs::remove_dir_all(root).expect("cleanup");
 }
+
+#[test]
+fn ollama_config_pins_a_local_model_without_artifact_files() {
+    let root = support::root("ollama");
+    let mut value = support::config(&root);
+    value["dimensions"] = 4096.into();
+    value["embedding"] = serde_json::json!({
+        "provider": "ollama",
+        "endpoint": "http://127.0.0.1:11434",
+        "model_id": "qwen3-embedding:8b-q8_0",
+        "model_sha256": "a".repeat(64),
+        "input_schema": "equill.record.embedding.v1"
+    });
+    support::write(&root, &value);
+
+    assert_eq!(state(&root).expect("state"), VectorState::Missing);
+    let loaded = super::super::config::load(&root)
+        .expect("load")
+        .expect("config");
+    assert_eq!(loaded.embedding.model_sha256(), "a".repeat(64));
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+#[test]
+fn ollama_provider_is_loopback_only() {
+    let root = support::root("ollama-remote");
+    let mut value = support::config(&root);
+    value["embedding"] = serde_json::json!({
+        "provider": "ollama",
+        "endpoint": "https://ollama.invalid:11434",
+        "model_id": "qwen3-embedding:8b-q8_0",
+        "model_sha256": "a".repeat(64),
+        "input_schema": "equill.record.embedding.v1"
+    });
+    support::write(&root, &value);
+
+    let error = state(&root).expect_err("reject remote ollama").to_string();
+    assert!(error.contains("remote endpoint requires explicit TLS opt-in"));
+    fs::remove_dir_all(root).expect("cleanup");
+}

@@ -1,4 +1,4 @@
-use super::super::config::{EmbeddingConfig, ModelArtifact, VectorConfig};
+use super::super::config::{EmbeddingConfig, LocalEmbeddingConfig, ModelArtifact, VectorConfig};
 use super::super::model::DistanceMetric;
 use super::super::{Embedder, EmbeddingDocument, INPUT_SCHEMA};
 use super::{EMBED_MODEL_ID, EmbeddingRuntime, MAX_TOKENS, QUERY_PREFIX, VECTOR_DIMENSIONS};
@@ -97,13 +97,13 @@ fn config(directory: &Path) -> VectorConfig {
         store_id: Uuid::now_v7(),
         dimensions: VECTOR_DIMENSIONS,
         distance: DistanceMetric::Cosine,
-        embedding: EmbeddingConfig {
+        embedding: EmbeddingConfig::Local(LocalEmbeddingConfig {
             model_id: EMBED_MODEL_ID.into(),
             input_schema: INPUT_SCHEMA.into(),
             model: artifact("model.safetensors"),
             tokenizer: artifact("tokenizer.json"),
             model_config: artifact("config.json"),
-        },
+        }),
         api_key_env: None,
         allow_remote: false,
     }

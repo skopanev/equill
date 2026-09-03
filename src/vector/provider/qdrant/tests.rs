@@ -162,7 +162,7 @@ fn upsert_and_query_validate_dimensions_and_metadata() {
     let transport = FakeTransport::default();
     let config = config();
     let store_id = config.store_id;
-    let model_sha256 = config.embedding.model.sha256.clone();
+    let model_sha256 = config.embedding.model_sha256().to_owned();
     let collection = Collection::new(config, transport.clone());
     let mut invalid = point();
     invalid.vector.pop();

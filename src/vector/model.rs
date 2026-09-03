@@ -118,6 +118,9 @@ pub(crate) fn validate_vector(vector: &[f32], dimensions: u64) -> Result<(), Err
     if vector.iter().any(|value| !value.is_finite()) {
         return Err(vector_error("embedding contains a non-finite value"));
     }
+    if vector.iter().all(|value| *value == 0.0) {
+        return Err(vector_error("embedding is an all-zero vector"));
+    }
     Ok(())
 }
 

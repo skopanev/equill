@@ -13,6 +13,7 @@ enum Mode {
     Deterministic,
     WrongDimensions,
     NonFinite,
+    Zero,
 }
 
 impl Embedder for FakeEmbedder {
@@ -30,6 +31,7 @@ impl Embedder for FakeEmbedder {
                 }
                 Mode::WrongDimensions => vec![1.0, 2.0],
                 Mode::NonFinite => vec![1.0, f32::NAN, 3.0],
+                Mode::Zero => vec![0.0; 3],
             })
             .collect())
     }
@@ -58,6 +60,9 @@ fn embedder_output_is_strictly_validated() {
     let finite = embed_batch(&fake(Mode::NonFinite), &documents)
         .expect_err("reject NaN")
         .to_string();
+    let zero = embed_batch(&fake(Mode::Zero), &documents)
+        .expect_err("reject zero")
+        .to_string();
     let mut invalid = fake(Mode::Deterministic);
     invalid.descriptor.input_schema = "unknown".into();
     let descriptor = embed_batch(&invalid, &documents)
@@ -66,6 +71,7 @@ fn embedder_output_is_strictly_validated() {
 
     assert!(dimensions.contains("dimensions"));
     assert!(finite.contains("non-finite"));
+    assert!(zero.contains("all-zero"));
     assert!(descriptor.contains("descriptor"));
 }
 

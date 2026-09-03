@@ -32,8 +32,15 @@ pub struct VectorConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum EmbeddingConfig {
+    Ollama(OllamaEmbeddingConfig),
+    Local(LocalEmbeddingConfig),
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct EmbeddingConfig {
+pub struct LocalEmbeddingConfig {
     pub model_id: String,
     pub input_schema: String,
     pub model: ModelArtifact,
@@ -43,6 +50,22 @@ pub struct EmbeddingConfig {
     // position.
     #[serde(rename = "config")]
     pub model_config: ModelArtifact,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct OllamaEmbeddingConfig {
+    pub provider: OllamaProvider,
+    pub endpoint: String,
+    pub model_id: String,
+    pub model_sha256: String,
+    pub input_schema: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OllamaProvider {
+    Ollama,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -59,10 +82,12 @@ pub(crate) fn load(store: &Path) -> Result<Option<VectorConfig>, Error> {
     }
     let config: VectorConfig = serde_json::from_slice(&fs::read(path)?)?;
     validate_shape(&config)?;
-    if config.enabled {
-        verify_artifact(store, &config.embedding.model, "model")?;
-        verify_artifact(store, &config.embedding.tokenizer, "tokenizer")?;
-        verify_artifact(store, &config.embedding.model_config, "model config")?;
+    if config.enabled
+        && let EmbeddingConfig::Local(embedding) = &config.embedding
+    {
+        verify_artifact(store, &embedding.model, "model")?;
+        verify_artifact(store, &embedding.tokenizer, "tokenizer")?;
+        verify_artifact(store, &embedding.model_config, "model config")?;
     }
     Ok(Some(config))
 }
@@ -90,19 +115,32 @@ fn validate_shape(config: &VectorConfig) -> Result<(), Error> {
     if !(1..=65_536).contains(&config.dimensions) {
         return Err(vector_error("dimensions must be between 1 and 65536"));
     }
-    if config.embedding.model_id.trim().is_empty() || config.embedding.input_schema != INPUT_SCHEMA
+    if config.embedding.model_id().trim().is_empty()
+        || config.embedding.input_schema() != INPUT_SCHEMA
     {
         return Err(vector_error("invalid embedding descriptor"));
     }
-    for artifact in [
-        &config.embedding.model,
-        &config.embedding.tokenizer,
-        &config.embedding.model_config,
-    ] {
-        if artifact.path.as_os_str().is_empty() || !valid_sha256(&artifact.sha256) {
-            return Err(vector_error(
-                "model artifacts require local paths and SHA-256",
-            ));
+    match &config.embedding {
+        EmbeddingConfig::Local(embedding) => {
+            for artifact in [
+                &embedding.model,
+                &embedding.tokenizer,
+                &embedding.model_config,
+            ] {
+                if artifact.path.as_os_str().is_empty() || !valid_sha256(&artifact.sha256) {
+                    return Err(vector_error(
+                        "model artifacts require local paths and SHA-256",
+                    ));
+                }
+            }
+        }
+        EmbeddingConfig::Ollama(embedding) => {
+            validate_endpoint(&embedding.endpoint, false)?;
+            if !valid_sha256(&embedding.model_sha256) {
+                return Err(vector_error(
+                    "ollama model requires a pinned SHA-256 digest",
+                ));
+            }
         }
     }
     if config.api_key_env.as_deref().is_some_and(|name| {
@@ -114,6 +152,36 @@ fn validate_shape(config: &VectorConfig) -> Result<(), Error> {
         return Err(vector_error("invalid API key environment variable name"));
     }
     Ok(())
+}
+
+impl EmbeddingConfig {
+    pub(crate) fn model_id(&self) -> &str {
+        match self {
+            Self::Local(value) => &value.model_id,
+            Self::Ollama(value) => &value.model_id,
+        }
+    }
+
+    pub(crate) fn model_sha256(&self) -> &str {
+        match self {
+            Self::Local(value) => &value.model.sha256,
+            Self::Ollama(value) => &value.model_sha256,
+        }
+    }
+
+    pub(crate) fn tokenizer_sha256(&self) -> &str {
+        match self {
+            Self::Local(value) => &value.tokenizer.sha256,
+            Self::Ollama(value) => &value.model_sha256,
+        }
+    }
+
+    pub(crate) fn input_schema(&self) -> &str {
+        match self {
+            Self::Local(value) => &value.input_schema,
+            Self::Ollama(value) => &value.input_schema,
+        }
+    }
 }
 
 fn validate_endpoint(endpoint: &str, allow_remote: bool) -> Result<(), Error> {

@@ -61,7 +61,7 @@ impl<T: Transport> Collection<T> {
             .map(|point| ProviderPoint {
                 point,
                 store_id: self.config.store_id,
-                model_sha256: self.config.embedding.model.sha256.clone(),
+                model_sha256: self.config.embedding.model_sha256().to_owned(),
             })
             .collect::<Vec<_>>();
         self.transport.upsert(physical, &points)
@@ -78,7 +78,7 @@ impl<T: Transport> Collection<T> {
         let hits = self.transport.query(Query {
             collection: self.config.collection_alias.clone(),
             store_id: self.config.store_id,
-            model_sha256: self.config.embedding.model.sha256.clone(),
+            model_sha256: self.config.embedding.model_sha256().to_owned(),
             vector: request.vector.clone(),
             namespaces: request.namespaces.clone(),
             type_names: request.type_names.clone(),
@@ -167,7 +167,7 @@ impl<T: Transport> Collection<T> {
 
     fn validate_hit(&self, hit: ProviderHit) -> Result<ProviderHit, Error> {
         if hit.store_id != self.config.store_id
-            || hit.model_sha256 != self.config.embedding.model.sha256
+            || hit.model_sha256 != self.config.embedding.model_sha256()
             || !valid_sha256(&hit.record_sha256)
             || !valid_sha256(&hit.input_sha256)
             || !hit.score.is_finite()
@@ -198,7 +198,7 @@ impl<T: Transport> Collection<T> {
             dimensions: self.config.dimensions,
             distance: self.config.distance,
             store_id: self.config.store_id,
-            model_sha256: self.config.embedding.model.sha256.clone(),
+            model_sha256: self.config.embedding.model_sha256().to_owned(),
         }
     }
 

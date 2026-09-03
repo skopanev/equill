@@ -41,7 +41,10 @@ use crate::kernel::error::Error;
 use provider::qdrant::{Collection, QdrantTransport, Transport};
 use std::path::{Path, PathBuf};
 
-pub use config::{EmbeddingConfig, ModelArtifact, VectorConfig};
+pub use config::{
+    EmbeddingConfig, LocalEmbeddingConfig, ModelArtifact, OllamaEmbeddingConfig, OllamaProvider,
+    VectorConfig,
+};
 pub use drain::{after_commit, after_commit_inline, projection_after_write, resume};
 pub use embedder::{Embedder, embed_batch};
 pub use embedding::{

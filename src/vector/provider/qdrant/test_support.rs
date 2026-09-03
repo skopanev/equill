@@ -1,5 +1,5 @@
 use super::qdrant::CollectionSchema;
-use crate::vector::config::{EmbeddingConfig, ModelArtifact, VectorConfig};
+use crate::vector::config::{EmbeddingConfig, LocalEmbeddingConfig, ModelArtifact, VectorConfig};
 use crate::vector::model::{DistanceMetric, VectorPoint, VectorSearchRequest};
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -13,13 +13,13 @@ pub(super) fn config() -> VectorConfig {
         store_id: Uuid::now_v7(),
         dimensions: 3,
         distance: DistanceMetric::Cosine,
-        embedding: EmbeddingConfig {
+        embedding: EmbeddingConfig::Local(LocalEmbeddingConfig {
             model_id: "test-only".into(),
             input_schema: "equill.record.embedding.v1".into(),
             model: artifact("a"),
             tokenizer: artifact("b"),
             model_config: artifact("c"),
-        },
+        }),
         api_key_env: None,
         allow_remote: false,
     }
@@ -30,7 +30,7 @@ pub(super) fn schema(config: &VectorConfig) -> CollectionSchema {
         dimensions: config.dimensions,
         distance: config.distance,
         store_id: config.store_id,
-        model_sha256: config.embedding.model.sha256.clone(),
+        model_sha256: config.embedding.model_sha256().to_owned(),
     }
 }
 

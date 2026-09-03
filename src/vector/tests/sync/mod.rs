@@ -61,7 +61,7 @@ impl SyncIndex for FakeIndex {
                     record_id: point.record_id,
                     record_sha256: point.record_sha256.clone(),
                     input_sha256: point.input_sha256.clone(),
-                    model_sha256: self.config.embedding.model.sha256.clone(),
+                    model_sha256: self.config.embedding.model_sha256().to_owned(),
                 },
             );
         }
@@ -220,12 +220,12 @@ pub(super) fn embedder(
 ) -> FakeEmbedder {
     FakeEmbedder {
         descriptor: EmbeddingDescriptor {
-            model_id: config.embedding.model_id.clone(),
-            model_sha256: config.embedding.model.sha256.clone(),
-            tokenizer_sha256: config.embedding.tokenizer.sha256.clone(),
+            model_id: config.embedding.model_id().to_owned(),
+            model_sha256: config.embedding.model_sha256().to_owned(),
+            tokenizer_sha256: config.embedding.tokenizer_sha256().to_owned(),
             dimensions: config.dimensions,
             distance: config.distance,
-            input_schema: config.embedding.input_schema.clone(),
+            input_schema: config.embedding.input_schema().to_owned(),
         },
         append_during_embed,
     }

@@ -109,7 +109,11 @@ fn situation(store: &Path) -> Option<(String, String, String)> {
                 .unwrap_or_default();
             format!("{}:{modified}", data.len())
         })?;
-    Some((config.endpoint, config.embedding.model.sha256, stamp))
+    Some((
+        config.endpoint,
+        config.embedding.model_sha256().to_owned(),
+        stamp,
+    ))
 }
 
 fn read(store: &Path) -> Option<Cooldown> {

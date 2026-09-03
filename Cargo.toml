@@ -1,6 +1,6 @@
 [package]
 name = "equill"
-version = "0.2.20"
+version = "0.2.21"
 edition = "2024"
 rust-version = "1.88"
 description = "Local-first typed records and reproducible context assembly"
@@ -25,6 +25,7 @@ tokenizers = { version = "=0.23.1", default-features = false, features = ["onig"
 toml = "0.8"
 tokio = { version = "=1.53.1", default-features = false, features = ["rt", "rt-multi-thread", "time"] }
 tonic = { version = "=0.14.6", default-features = false, features = ["tls-native-roots", "tls-ring", "transport"] }
+ureq = { version = "=3.1.4", default-features = false, features = ["json"] }
 uuid = { version = "1.25", features = ["serde", "v5", "v7"] }
 
 [profile.release]

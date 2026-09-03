@@ -35,7 +35,7 @@ pub(super) fn pending<I: SyncIndex>(
             let compatible = current.get(&record.id).is_some_and(|item| {
                 item.record_sha256 == document.record_sha256
                     && item.input_sha256 == document.input_sha256
-                    && item.model_sha256 == config.embedding.model.sha256
+                    && item.model_sha256 == config.embedding.model_sha256()
             });
             if !compatible {
                 pending.push(document);
@@ -50,12 +50,12 @@ pub(super) fn verify_descriptor(
     embedder: &impl Embedder,
 ) -> Result<(), Error> {
     let descriptor = embedder.descriptor();
-    if descriptor.model_id != config.embedding.model_id
-        || descriptor.model_sha256 != config.embedding.model.sha256
-        || descriptor.tokenizer_sha256 != config.embedding.tokenizer.sha256
+    if descriptor.model_id != config.embedding.model_id()
+        || descriptor.model_sha256 != config.embedding.model_sha256()
+        || descriptor.tokenizer_sha256 != config.embedding.tokenizer_sha256()
         || descriptor.dimensions != config.dimensions
         || descriptor.distance != config.distance
-        || descriptor.input_schema != config.embedding.input_schema
+        || descriptor.input_schema != config.embedding.input_schema()
     {
         return Err(vector_error("embedder does not match vector configuration"));
     }

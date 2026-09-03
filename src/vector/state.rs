@@ -125,7 +125,7 @@ fn stage(
         store_id: config.store_id,
         collection_alias: config.collection_alias.clone(),
         physical_collection: physical.into(),
-        model_sha256: config.embedding.model.sha256.clone(),
+        model_sha256: config.embedding.model_sha256().to_owned(),
         indexed_records: snapshot.map(|(count, _, _)| count),
         indexed_revision: snapshot.map(|(_, _, revision)| revision),
         indexed_sha256: snapshot.map(|(_, digest, _)| digest.to_owned()),
@@ -171,7 +171,7 @@ pub(crate) fn read(store: &Path, config: Option<&VectorConfig>) -> Result<Vector
     }
     if marker.store_id != config.store_id
         || marker.collection_alias != config.collection_alias
-        || marker.model_sha256 != config.embedding.model.sha256
+        || marker.model_sha256 != config.embedding.model_sha256()
     {
         return Ok(VectorState::Degraded);
     }
@@ -187,7 +187,7 @@ pub(super) fn describes(marker: &StateFile, config: &VectorConfig) -> bool {
     (marker.schema == SCHEMA || marker.schema == SCHEMA_V1)
         && marker.store_id == config.store_id
         && marker.collection_alias == config.collection_alias
-        && marker.model_sha256 == config.embedding.model.sha256
+        && marker.model_sha256 == config.embedding.model_sha256()
         && valid_collection_name(&marker.physical_collection)
 }
 
