@@ -133,29 +133,61 @@ fn the_blocks_group_into_the_readers_order_whatever_order_they_arrive_in() {
     );
 }
 
-/// A step is read for what it says to do. Bookkeeping about the step —  who
-/// owns it, which project it belongs to — is printed after, because a reader
-/// scanning for the instruction should not have to step over the metadata.
+/// One line for the role, however many records describe it.
+///
+/// Repeats collapse, because several records describing one role is a normal
+/// thing for a store to hold and a heading each makes one role look like
+/// several. Different roles are all named on that line: hiding one would be
+/// hiding a fact rather than tidying a heading.
 #[test]
-fn a_step_leads_with_what_to_do_not_with_its_bookkeeping() {
-    let separate = records(
-        &[typed(
-            "agent.step.v2",
-            json!({ "actor": "reviewer", "does": "Read the diff", "gate": "Opened", "on_fail": "Ask" }),
-        )],
+fn every_role_is_named_on_exactly_one_line() {
+    let printed = records(
+        &[
+            typed(
+                "agent.role.v2",
+                json!({ "role": "Reviewer", "do": "Guard the merge", "kind": "human" }),
+            ),
+            typed("agent.role.v2", json!({ "role": "Reviewer" })),
+            typed("agent.role.v2", json!({ "role": "Release captain" })),
+            typed("agent.role.v2", json!({ "role": null })),
+        ],
         Format::Text,
         &[],
     )
     .expect("text");
-    // The same step written inside one record rather than as a record of its
-    // own: two code paths, one reader, so both are asserted here — fixing one
-    // and leaving the other is exactly the failure this catches.
-    let inline = records(
+
+    assert_eq!(printed, "Role: Reviewer, Release captain");
+    assert_eq!(
+        printed
+            .lines()
+            .filter(|line| line.starts_with("Role"))
+            .count(),
+        1,
+        "more than one role heading: {printed}"
+    );
+}
+
+/// A step is what to do, what says it is done, and what to do when it is not.
+///
+/// Everything else a step record carries is bookkeeping about the step rather
+/// than the step: who owns it, why it exists, whether it can be undone, which
+/// project and process it belongs to, and its own number — which is used to
+/// order and to number it, and is not printed twice.
+#[test]
+fn a_step_prints_its_three_parts_and_no_bookkeeping() {
+    let printed = records(
         &[typed(
-            "agent.role.v1",
+            "agent.step.v2",
             json!({
-                "role": "Reviewer",
-                "steps": [{ "actor": "reviewer", "does": "Read the diff", "gate": "Opened" }]
+                "step": 2,
+                "process": "premerge",
+                "does": "Read the diff",
+                "gate": "Every file opened",
+                "on_fail": "Stop and ask",
+                "actor": "reviewer",
+                "why": "Defects are cheapest here",
+                "irreversible": false,
+                "project": "equill"
             }),
         )],
         Format::Text,
@@ -163,40 +195,29 @@ fn a_step_leads_with_what_to_do_not_with_its_bookkeeping() {
     )
     .expect("text");
 
-    for printed in [&separate, &inline] {
-        let doing = printed.find("Do: ").expect("do");
-        let actor = printed.find("Actor: ").expect("actor");
-        assert!(
-            doing < actor,
-            "the step's bookkeeping came before the instruction:\n{printed}"
-        );
-    }
-    assert!(
-        separate.find("Gate:").expect("gate") < separate.find("On fail:").expect("on fail"),
-        "gate and on-fail are not in the order they are read in:\n{separate}"
+    assert_eq!(
+        printed,
+        "Steps:\n2. Do: Read the diff\n   Gate: Every file opened\n   On fail: Stop and ask"
     );
 }
 
-/// A process is named by its title; its purpose is what it is for, and belongs
-/// in the body under its own label rather than standing in for the name.
+/// A step that broke its own contract is still a step.
+///
+/// The schema requires an instruction, so one without it is a record that
+/// failed to say the one thing it exists to say. An empty `Do:` says both that
+/// the step is there and that it says nothing; dropping it would quietly
+/// shorten the process, which is the more dangerous of the two.
 #[test]
-fn a_process_is_headed_by_its_title_and_keeps_its_purpose_below() {
+fn a_step_with_no_instruction_is_printed_rather_than_dropped() {
     let printed = records(
         &[typed(
-            "agent.process.v2",
-            json!({ "title": "Pre-merge audit", "name": "premerge", "purpose": "Catch defects early" }),
+            "agent.step.v2",
+            json!({ "step": 5, "gate": "no instruction here" }),
         )],
         Format::Text,
         &[],
     )
     .expect("text");
 
-    assert!(
-        printed.starts_with("Process: Pre-merge audit"),
-        "the process is not headed by its title:\n{printed}"
-    );
-    assert!(
-        printed.contains("Purpose: Catch defects early"),
-        "the purpose lost its label:\n{printed}"
-    );
+    assert_eq!(printed, "Steps:\n5. Do:\n   Gate: no instruction here");
 }

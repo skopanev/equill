@@ -119,6 +119,7 @@ fn the_text_answer_carries_no_uuid_no_tabs_and_no_escaped_json() {
         printed.contains("Reply \"go\" when the gate is green"),
         "the quote inside the step did not reach the reader: {printed}"
     );
+    assert!(printed.contains("Steps:"), "the steps were lost: {printed}");
     assert!(
         !printed
             .split_whitespace()

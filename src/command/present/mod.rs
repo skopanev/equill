@@ -55,8 +55,11 @@ pub(super) fn lookup(record: &StoredRecord, field: &str) -> Option<Value> {
 
 mod classify;
 mod label;
+mod steps;
 mod text;
 
+#[cfg(test)]
+mod process_tests;
 #[cfg(test)]
 mod shape_tests;
 #[cfg(test)]
