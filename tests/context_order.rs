@@ -17,6 +17,22 @@ const WRITTEN: [f64; 3] = [0.3, 0.1, 0.2];
 const ASCENDING: [&str; 3] = ["0.1", "0.2", "0.3"];
 
 #[test]
+fn default_context_is_strict_jsonl_without_blank_lines() {
+    let root = store();
+    let printed = run(&root, &["context", "--profile", "ranked"]);
+    let lines = printed.lines().collect::<Vec<_>>();
+
+    assert_eq!(lines.len(), WRITTEN.len());
+    assert!(lines.iter().all(|line| !line.is_empty()));
+    assert!(
+        lines
+            .iter()
+            .all(|line| serde_json::from_str::<serde_json::Value>(line).is_ok())
+    );
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn text_output_follows_the_selector_order_not_the_ledger() {
     let root = store();
     let printed = run(

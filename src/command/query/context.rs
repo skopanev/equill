@@ -75,7 +75,10 @@ pub fn context(
             Vec::new()
         };
     let text = if fields.is_empty() && matches!(format, command::cli::FormatArg::Jsonl) {
-        bundle.content.clone()
+        // The bundle keeps its historical paragraph separators for receipts
+        // and digests. stdout is a JSONL surface, so its objects must remain
+        // adjacent lines that a machine can consume without skipping blanks.
+        bundle.content.replace("\n\n", "\n")
     } else {
         command::present::records(&selected, super::shape(format), &fields)?
     };
