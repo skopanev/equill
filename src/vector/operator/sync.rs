@@ -5,7 +5,7 @@ use super::super::progress::{VectorProgress, VectorProgressSink, emit};
 use super::super::{Embedder, VectorProjection, embed_batch};
 use super::delta::{pending, verify_descriptor};
 use super::index::SyncIndex;
-use super::rebuild::corpus;
+use super::rebuild::corpus_snapshot;
 use crate::kernel::error::Error;
 use crate::kernel::governance::RootGuard;
 use crate::kernel::lock::StoreLock;
@@ -121,7 +121,10 @@ where
     // hash made every concurrent write wait for the scan (measured p95 165ms and
     // 873ms). The ledger is append-only and the reader stops at the last
     // completed line, so an unlocked snapshot is a consistent prefix.
-    let (records, digest) = corpus(store_root)?;
+    let snapshot = corpus_snapshot(store_root)?;
+    let records = snapshot.records;
+    let digest = snapshot.digest;
+    index.delete(&physical, &snapshot.history)?;
     let documents = pending(config, index, &physical, &records)?;
     let embeddings = documents.len();
     let mut upsert_batches = 0;

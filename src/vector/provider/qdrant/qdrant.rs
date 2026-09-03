@@ -49,6 +49,7 @@ pub(crate) trait Transport {
     fn collection_schema(&self, name: &str) -> Result<Option<CollectionSchema>, Error>;
     fn create_collection(&self, name: &str, schema: CollectionSchema) -> Result<(), Error>;
     fn upsert(&self, collection: &str, points: &[ProviderPoint]) -> Result<(), Error>;
+    fn delete(&self, collection: &str, point_ids: &[Uuid]) -> Result<(), Error>;
     fn metadata(
         &self,
         collection: &str,
@@ -127,6 +128,17 @@ impl Transport for QdrantTransport {
         let request = api::UpsertPointsBuilder::new(collection, points).wait(true);
         self.run("upsert points", move |client| async move {
             client.upsert_points(request).await
+        })?;
+        Ok(())
+    }
+
+    fn delete(&self, collection: &str, point_ids: &[Uuid]) -> Result<(), Error> {
+        let ids = point_ids.iter().copied().map(Into::into).collect();
+        let request = api::DeletePointsBuilder::new(collection)
+            .points(api::PointsIdsList { ids })
+            .wait(true);
+        self.run("delete points", move |client| async move {
+            client.delete_points(request).await
         })?;
         Ok(())
     }
@@ -210,4 +222,16 @@ impl Transport for QdrantTransport {
 #[cfg(test)]
 pub(super) fn sanitized<E>(action: &str, _error: E) -> Error {
     crate::vector::model::vector_error(&format!("{action} failed"))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn transport_errors_never_expose_the_source() {
+        let source = std::io::Error::other("secret endpoint and payload");
+        let error = super::sanitized("query points", qdrant_client::QdrantError::Io(source));
+
+        assert!(error.to_string().contains("query points failed"));
+        assert!(!error.to_string().contains("secret endpoint"));
+    }
 }

@@ -11,6 +11,7 @@ use crate::kernel::lock::StoreLock;
 
 use crate::record::StoredRecord;
 use serde::Serialize;
+use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 use uuid::Uuid;
@@ -65,7 +66,8 @@ pub fn rebuild_with_progress(
     // which is the very thing this contract exists to avoid.
     let (records, digest) = {
         let _lock = StoreLock::exclusive(store_root)?;
-        corpus(store_root)?
+        let snapshot = corpus_snapshot(store_root)?;
+        (snapshot.records, snapshot.digest)
     };
     let physical = physical_name(&vector_config);
     emit(
@@ -140,10 +142,32 @@ fn embeddable(record: &StoredRecord) -> bool {
         && record.type_name != crate::governance::AUDIT_TYPE_V2
 }
 
+pub(crate) struct CorpusSnapshot {
+    pub(crate) records: Vec<(StoredRecord, String)>,
+    pub(crate) digest: String,
+    pub(crate) history: Vec<Uuid>,
+}
+
 pub(crate) fn corpus(store_root: &Path) -> Result<(Vec<(StoredRecord, String)>, String), Error> {
-    let validated = crate::record::read_all(store_root)?
+    let snapshot = corpus_snapshot(store_root)?;
+    Ok((snapshot.records, snapshot.digest))
+}
+
+pub(crate) fn corpus_snapshot(store_root: &Path) -> Result<CorpusSnapshot, Error> {
+    let all = crate::record::read_all(store_root)?;
+    let replaced = all
+        .iter()
+        .filter_map(|record| record.supersedes)
+        .collect::<HashSet<_>>();
+    let history = all
+        .iter()
+        .filter(|record| replaced.contains(&record.id) || withdrawn(record))
+        .map(|record| record.id)
+        .collect::<HashSet<_>>();
+    let validated = all
         .into_iter()
         .filter(embeddable)
+        .filter(|record| !history.contains(&record.id))
         .collect::<Vec<_>>();
     let mut digests = std::collections::HashMap::new();
     for entry in fs::read_dir(store_root.join("records"))? {
@@ -171,7 +195,18 @@ pub(crate) fn corpus(store_root: &Path) -> Result<(Vec<(StoredRecord, String)>, 
     for (_, digest) in &records {
         accumulator.push_str(digest);
     }
-    Ok((records, sha256_hex(accumulator.as_bytes())))
+    Ok(CorpusSnapshot {
+        records,
+        digest: sha256_hex(accumulator.as_bytes()),
+        history: history.into_iter().collect(),
+    })
+}
+
+fn withdrawn(record: &StoredRecord) -> bool {
+    record
+        .tags
+        .iter()
+        .any(|tag| tag == crate::record::REVOKED_TAG || tag == "status:revoked")
 }
 
 fn physical_name(config: &VectorConfig) -> String {

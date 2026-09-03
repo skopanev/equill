@@ -12,6 +12,7 @@ pub(crate) trait SyncIndex {
         record_ids: &[Uuid],
     ) -> Result<Vec<VectorPointMetadata>, Error>;
     fn upsert(&self, physical: &str, points: &[VectorPoint]) -> Result<(), Error>;
+    fn delete(&self, physical: &str, record_ids: &[Uuid]) -> Result<(), Error>;
     fn ensure_active(&self, physical: &str) -> Result<(), Error>;
     fn mark_indexed(
         &self,
@@ -37,6 +38,10 @@ impl SyncIndex for VectorProjection {
 
     fn upsert(&self, physical: &str, points: &[VectorPoint]) -> Result<(), Error> {
         self.upsert(physical, points)
+    }
+
+    fn delete(&self, physical: &str, record_ids: &[Uuid]) -> Result<(), Error> {
+        self.delete(physical, record_ids)
     }
 
     fn ensure_active(&self, physical: &str) -> Result<(), Error> {

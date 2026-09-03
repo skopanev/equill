@@ -1,11 +1,11 @@
 use super::collection::Collection;
 use super::point::{physical_id, qdrant_point};
 use super::qdrant::{
-    CollectionSchema, ProviderHit, ProviderMetadata, ProviderPoint, Query, Transport, sanitized,
+    CollectionSchema, ProviderHit, ProviderMetadata, ProviderPoint, Query, Transport,
 };
 use super::test_support::{config, point, schema, search};
 use crate::kernel::error::Error;
-use qdrant_client::{Payload, QdrantError};
+use qdrant_client::Payload;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
@@ -42,6 +42,15 @@ impl Transport for FakeTransport {
 
     fn upsert(&self, _collection: &str, points: &[ProviderPoint]) -> Result<(), Error> {
         self.inner.lock().unwrap().points.extend_from_slice(points);
+        Ok(())
+    }
+
+    fn delete(&self, _collection: &str, point_ids: &[Uuid]) -> Result<(), Error> {
+        self.inner
+            .lock()
+            .unwrap()
+            .points
+            .retain(|item| !point_ids.contains(&physical_id(item.store_id, item.point.record_id)));
         Ok(())
     }
 
@@ -238,13 +247,4 @@ fn activation_writes_ready_only_after_alias_success() {
         crate::vector::VectorState::Ready
     );
     std::fs::remove_dir_all(root).expect("cleanup");
-}
-
-#[test]
-fn transport_errors_never_expose_the_source() {
-    let source = std::io::Error::other("secret endpoint and payload");
-    let error = sanitized("query points", QdrantError::Io(source)).to_string();
-
-    assert!(error.contains("query points failed"));
-    assert!(!error.contains("secret endpoint"));
 }

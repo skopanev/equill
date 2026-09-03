@@ -67,6 +67,19 @@ impl<T: Transport> Collection<T> {
         self.transport.upsert(physical, &points)
     }
 
+    pub(crate) fn delete(&self, physical: &str, record_ids: &[uuid::Uuid]) -> Result<(), Error> {
+        validate_name(physical)?;
+        if record_ids.is_empty() {
+            return Ok(());
+        }
+        self.ensure_compatible(physical, "cannot delete from an incompatible collection")?;
+        let point_ids = record_ids
+            .iter()
+            .map(|record_id| super::point::physical_id(self.config.store_id, *record_id))
+            .collect::<Vec<_>>();
+        self.transport.delete(physical, &point_ids)
+    }
+
     pub(crate) fn search(&self, request: &VectorSearchRequest) -> Result<Vec<ProviderHit>, Error> {
         validate_search(request, self.config.dimensions)?;
         validate_filters(&request.namespaces)?;

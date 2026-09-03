@@ -98,6 +98,10 @@ impl VectorProjection {
         self.collection.upsert(physical, points)
     }
 
+    pub(crate) fn delete(&self, physical: &str, record_ids: &[uuid::Uuid]) -> Result<(), Error> {
+        self.collection.delete(physical, record_ids)
+    }
+
     pub fn search(&self, request: &VectorSearchRequest) -> Result<Vec<VectorSearchHit>, Error> {
         let candidates = self.collection.search(request)?;
         hydrate::from_ledger(&self.store, request, candidates)
