@@ -100,11 +100,15 @@ fn registry_with_options(
             "grants": [{ "namespace": grant_namespace, "types": ["agent.lesson.v1"] }],
             "selectors": ["agent.lesson.inject.v1"],
             "budget": {
-                "total": total,
-                "required_cap": required_cap,
-                "core_cap": core_cap,
-                "relevant_floor": relevant_floor,
-                "receipt_reserve": 20
+                "total_tokens": total,
+                "required_cap_tokens": required_cap,
+                "core_cap_tokens": core_cap,
+                "relevant_floor_tokens": relevant_floor,
+                "receipt_reserve_tokens": 20,
+                "tokenizer": {
+                    "id": "o200k_base",
+                    "version": "tiktoken-rs-0.12.0"
+                }
             }
         }))
         .expect("profile json"),

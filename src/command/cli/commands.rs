@@ -140,6 +140,9 @@ pub enum Command {
         /// Also return records a later one superseded, to read the chain.
         #[arg(long, conflicts_with = "request")]
         include_superseded: bool,
+        /// Runtime token ceiling. May lower, never raise, the profile hard cap.
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+        budget: Option<u32>,
         #[command(flatten)]
         present: PresentationArgs,
     },

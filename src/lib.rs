@@ -157,6 +157,7 @@ where
             kinds,
             at,
             include_superseded,
+            budget,
             present,
         } => command::query::context(
             json,
@@ -174,6 +175,7 @@ where
             kinds,
             at,
             include_superseded,
+            budget.map(|value| value as usize),
             present.filters,
             present.strict,
             present.format,

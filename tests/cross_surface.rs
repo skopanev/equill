@@ -223,3 +223,14 @@ fn the_receipt_carries_its_records_as_objects_and_keeps_what_it_said_before() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn mcp_runtime_budget_uses_the_same_hard_token_ceiling() {
+    let root = fixture("mcp-budget");
+    let body = surfaces::mcp_value(&root, &["project=finik", "role=pm"], Some(20));
+
+    assert_eq!(body["receipt"]["runtime_budget_tokens"], 20);
+    assert_eq!(body["receipt"]["effective_total_tokens"], 20);
+    assert!(body["receipt"]["usage"]["total"].as_u64().expect("tokens") <= 20);
+    let _ = std::fs::remove_dir_all(root);
+}

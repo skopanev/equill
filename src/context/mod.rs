@@ -1,3 +1,4 @@
+mod assembly;
 mod budget;
 mod matching;
 mod model;
@@ -5,11 +6,11 @@ mod receipt;
 mod registry;
 mod retrieval;
 mod semantic;
+mod tokenizer;
 
 use crate::filter::Filter;
-use crate::kernel::digest::sha256_hex;
 use crate::kernel::error::Error;
-use crate::kernel::{identity, store};
+use crate::kernel::store;
 use std::fs;
 use std::path::Path;
 
@@ -30,8 +31,48 @@ pub fn assemble_file(
     actor: &str,
     filter: &Filter,
 ) -> Result<ContextBundle, Error> {
+    assemble_file_with_budget(store_root, profile_id, request_file, actor, filter, None)
+}
+
+pub fn assemble_file_with_budget(
+    store_root: &Path,
+    profile_id: &str,
+    request_file: &Path,
+    actor: &str,
+    filter: &Filter,
+    runtime_budget_tokens: Option<usize>,
+) -> Result<ContextBundle, Error> {
+    assemble_file_with_renderer(
+        store_root,
+        profile_id,
+        request_file,
+        actor,
+        filter,
+        runtime_budget_tokens,
+        &payload,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn assemble_file_with_renderer(
+    store_root: &Path,
+    profile_id: &str,
+    request_file: &Path,
+    actor: &str,
+    filter: &Filter,
+    runtime_budget_tokens: Option<usize>,
+    render: &dyn Fn(&[crate::record::StoredRecord]) -> Result<String, Error>,
+) -> Result<ContextBundle, Error> {
     let request: model::ContextRequest = serde_json::from_slice(&fs::read(request_file)?)?;
-    assemble(store_root, profile_id, request, actor, filter)
+    assemble_with_renderer(
+        store_root,
+        profile_id,
+        request,
+        actor,
+        filter,
+        runtime_budget_tokens,
+        render,
+    )
 }
 
 pub fn assemble(
@@ -41,59 +82,46 @@ pub fn assemble(
     actor: &str,
     filter: &Filter,
 ) -> Result<ContextBundle, Error> {
-    let config = store::load(store_root)?;
-    if actor != config.root_owner {
-        identity::require_root(&config, actor).or_else(|_| {
-            let (profile, _) = registry::load_profile(store_root, profile_id)?;
-            identity::permits(&profile.actors, actor)
-                .then_some(())
-                .ok_or(Error::PermissionDenied)
-        })?;
-    }
-    let (profile, profile_coordinate) = registry::load_profile(store_root, profile_id)?;
-    let mut selectors = Vec::new();
-    let mut selector_coordinates = Vec::new();
-    for id in &profile.selectors {
-        let (selector, coordinate) = registry::load_selector(store_root, id)?;
-        selectors.push(selector);
-        selector_coordinates.push(coordinate);
-    }
-    selector_coordinates.sort_by(|left, right| left.id.cmp(&right.id));
-    let request_digest = sha256_hex(&serde_json::to_vec(&request)?);
-    // The filter is checked against the very types this profile can read, so a
-    // typo names itself instead of quietly returning nothing.
-    let scope = selectors
-        .iter()
-        .map(|selector| crate::schema::load(store_root, &selector.type_name))
-        .collect::<Result<Vec<_>, _>>()?;
-    crate::filter::validate(filter, &scope)?;
-    let mut retrieved = retrieval::retrieve(
+    assemble_with_budget(store_root, profile_id, request, actor, filter, None)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn assemble_with_renderer(
+    store_root: &Path,
+    profile_id: &str,
+    request: model::ContextRequest,
+    actor: &str,
+    filter: &Filter,
+    runtime_budget_tokens: Option<usize>,
+    render: &dyn Fn(&[crate::record::StoredRecord]) -> Result<String, Error>,
+) -> Result<ContextBundle, Error> {
+    assembly::assemble(
         store_root,
-        &profile,
-        &selectors,
-        &request,
+        profile_id,
+        request,
+        actor,
         filter,
-        retrieval::Cardinality::Answering,
-    )?;
-    let budgeted = budget::apply(
-        std::mem::take(&mut retrieved.candidates),
-        &profile.budget,
-        std::mem::take(&mut retrieved.excluded),
-    )?;
-    if budgeted.required_overflow > 0 {
-        return Err(Error::Context(format!(
-            "required context exceeds the {} unit limit: {} record(s) excluded",
-            budgeted.required_limit, budgeted.required_overflow
-        )));
-    }
-    receipt::bundle(
+        runtime_budget_tokens,
+        render,
+    )
+}
+
+pub fn assemble_with_budget(
+    store_root: &Path,
+    profile_id: &str,
+    request: model::ContextRequest,
+    actor: &str,
+    filter: &Filter,
+    runtime_budget_tokens: Option<usize>,
+) -> Result<ContextBundle, Error> {
+    assembly::assemble(
         store_root,
-        profile_coordinate,
-        selector_coordinates,
-        request_digest,
-        profile.budget,
-        retrieved,
-        budgeted,
+        profile_id,
+        request,
+        actor,
+        filter,
+        runtime_budget_tokens,
+        &payload,
     )
 }
 
@@ -141,12 +169,26 @@ pub fn profile_faults(store_root: &Path) -> Result<usize, Error> {
             &Filter::default(),
             retrieval::Cardinality::Diagnosing,
         )?;
-        let budgeted = budget::apply(retrieved.candidates, &profile.budget, retrieved.excluded)?;
+        let budgeted = budget::apply(
+            retrieved.candidates,
+            &profile.budget,
+            None,
+            &payload,
+            retrieved.excluded,
+        )?;
         if budgeted.required_overflow > 0 {
             faults += 1;
         }
     }
     Ok(faults)
+}
+
+pub(super) fn payload(records: &[crate::record::StoredRecord]) -> Result<String, Error> {
+    records
+        .iter()
+        .map(|record| serde_json::to_string(&record.payload).map_err(Error::from))
+        .collect::<Result<Vec<_>, _>>()
+        .map(|records| records.join("\n\n"))
 }
 
 #[cfg(test)]

@@ -125,9 +125,8 @@ fn a_hybrid_bundle_records_what_answered_it() {
         .expect("a hybrid selector ran, so the receipt owes an account of it");
     assert_eq!(semantic.answered_by, "hybrid");
     assert!(semantic.fallback.is_none(), "nothing stood in");
-    // The version names the shape: a reader that knows only v1 is told plainly
-    // that this receipt carries a field it has never seen.
-    assert_eq!(bundle.receipt.schema, "equill.context-receipt.v2");
+    // V3 adds explicit tokenizer coordinates and token usage to every receipt.
+    assert_eq!(bundle.receipt.schema, "equill.context-receipt.v3");
     assert!(!bundle.receipt.empty, "the record was not selected");
     fs::remove_dir_all(root).expect("remove store");
 }
@@ -164,7 +163,7 @@ fn a_bundle_that_lost_its_index_says_which_half_answered() {
 }
 
 #[test]
-fn a_text_only_bundle_keeps_the_shape_it_always_had() {
+fn a_text_only_bundle_has_no_semantic_account_but_does_have_token_accounting() {
     let root = store("hybrid-untouched");
     registry(&root, 4_000, 1_000, &["fts"], "agent.memory");
     append(
@@ -192,7 +191,8 @@ fn a_text_only_bundle_keeps_the_shape_it_always_had() {
         bundle.receipt.semantic.is_none(),
         "a text profile grew a semantic account it never asked for"
     );
-    assert_eq!(bundle.receipt.schema, "equill.context-receipt.v1");
+    assert_eq!(bundle.receipt.schema, "equill.context-receipt.v3");
+    assert_eq!(bundle.receipt.budget.tokenizer.id, "o200k_base");
     fs::remove_dir_all(root).expect("remove store");
 }
 

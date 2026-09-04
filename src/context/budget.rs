@@ -1,148 +1,179 @@
-use super::model::{ContextBudget, ExcludedCoordinate, ExclusionReason, SelectedCoordinate, Tier};
+use super::model::{
+    ContextBudget, ExcludedCoordinate, ExclusionReason, SelectedCoordinate, Tier, TokenUsage,
+};
 use super::retrieval::Candidate;
 use crate::kernel::error::Error;
+use crate::record::StoredRecord;
+mod report;
 
 pub struct Budgeted {
     pub content: String,
-    /// Effective ceiling applied to the required tier, after folding in the
-    /// total. Reported so callers can explain an overflow without recomputing.
     pub required_limit: usize,
+    pub required_needed: usize,
     pub selected: Vec<SelectedCoordinate>,
     pub excluded: Vec<ExcludedCoordinate>,
-    pub used: usize,
+    pub usage: TokenUsage,
     pub degraded: bool,
     pub required_overflow: usize,
+    pub effective_total: Option<usize>,
 }
 
-struct Rendered {
-    candidate: Candidate,
-    text: String,
-    units: usize,
+pub(super) struct Picked {
+    pub(super) candidate: Candidate,
+    pub(super) tokens: usize,
 }
 
 pub fn apply(
     candidates: Vec<Candidate>,
     budget: &ContextBudget,
+    runtime_total: Option<usize>,
+    render: &dyn Fn(&[StoredRecord]) -> Result<String, Error>,
     mut excluded: Vec<ExcludedCoordinate>,
 ) -> Result<Budgeted, Error> {
+    super::tokenizer::validate(&budget.tokenizer)?;
+    let effective_total = budget.effective_total(runtime_total);
+    let reserve = effective_total
+        .map(|_| budget.receipt_reserve())
+        .unwrap_or(0);
+    let content_limit = effective_total
+        .map(|total| total.saturating_sub(reserve))
+        .unwrap_or(usize::MAX);
+    let required_limit = budget.required_cap.unwrap_or(usize::MAX).min(content_limit);
+    let (required, core, relevant) = tiers(candidates);
+    let required_count = required.len();
+    let mut picked = Vec::new();
+    for candidate in required {
+        push(candidate, &mut picked, render, &budget.tokenizer)?;
+    }
+    let required_needed = total(&picked);
+    if required_needed > required_limit {
+        excluded.extend(
+            picked
+                .iter()
+                .map(|item| report::excluded_item(item, ExclusionReason::RequiredOverflow)),
+        );
+        return report::finish(
+            picked,
+            excluded,
+            render,
+            budget,
+            required_limit,
+            required_needed,
+            required_count,
+            effective_total,
+            reserve,
+        );
+    }
+
+    let relevant_cost = prospective_total(&picked, &relevant, render, &budget.tokenizer)?
+        .saturating_sub(required_needed);
+    let protected = budget
+        .relevant_floor()
+        .min(relevant_cost)
+        .min(content_limit.saturating_sub(required_needed));
+    let core_limit = required_needed
+        .saturating_add(budget.core_cap())
+        .min(content_limit.saturating_sub(protected));
+    take(
+        core,
+        core_limit,
+        &mut picked,
+        &mut excluded,
+        ExclusionReason::CoreCap,
+        render,
+        &budget.tokenizer,
+    )?;
+    take(
+        relevant,
+        content_limit,
+        &mut picked,
+        &mut excluded,
+        ExclusionReason::TotalBudget,
+        render,
+        &budget.tokenizer,
+    )?;
+    report::finish(
+        picked,
+        excluded,
+        render,
+        budget,
+        required_limit,
+        required_needed,
+        0,
+        effective_total,
+        reserve,
+    )
+}
+
+fn tiers(candidates: Vec<Candidate>) -> (Vec<Candidate>, Vec<Candidate>, Vec<Candidate>) {
     let mut required = Vec::new();
     let mut core = Vec::new();
     let mut relevant = Vec::new();
     for candidate in candidates {
-        let rendered = render(candidate)?;
-        match rendered.candidate.tier {
-            Tier::Required => required.push(rendered),
-            Tier::Core => core.push(rendered),
-            Tier::Relevant => relevant.push(rendered),
+        match candidate.tier {
+            Tier::Required => required.push(candidate),
+            Tier::Core => core.push(candidate),
+            Tier::Relevant => relevant.push(candidate),
         }
     }
-    let content_limit = budget.content_limit();
-    let required_limit = budget.required_limit();
-    let mut picked = Vec::new();
-    let mut used = 0;
-    let mut degraded = false;
-    let required_overflow = take(
-        &mut required,
-        required_limit,
-        &mut used,
-        &mut picked,
-        &mut excluded,
-        ExclusionReason::RequiredOverflow,
-        &mut degraded,
-    );
-    let relevant_units: usize = relevant.iter().map(|item| item.units).sum();
-    let protected = budget
-        .relevant_floor()
-        .min(relevant_units)
-        .min(content_limit.saturating_sub(used));
-    let core_limit = budget
-        .core_cap()
-        .min(content_limit.saturating_sub(used.saturating_add(protected)));
-    let mut ignored = false;
-    let _ = take(
-        &mut core,
-        used.saturating_add(core_limit),
-        &mut used,
-        &mut picked,
-        &mut excluded,
-        ExclusionReason::CoreCap,
-        &mut ignored,
-    );
-    let _ = take(
-        &mut relevant,
-        content_limit,
-        &mut used,
-        &mut picked,
-        &mut excluded,
-        ExclusionReason::TotalBudget,
-        &mut ignored,
-    );
-    excluded.sort_by_key(|item| item.id);
-    let content = picked
-        .iter()
-        .map(|item| item.text.as_str())
-        .collect::<Vec<_>>()
-        .join("\n\n");
-    let selected = picked
-        .into_iter()
-        .map(|item| SelectedCoordinate {
-            id: item.candidate.record.id,
-            namespace: item.candidate.record.namespace,
-            type_name: item.candidate.record.type_name,
-            tier: item.candidate.tier,
-            units: item.units,
-            strategies: item.candidate.strategies,
-        })
-        .collect();
-    Ok(Budgeted {
-        content,
-        required_limit,
-        selected,
-        excluded,
-        used,
-        degraded,
-        required_overflow,
-    })
+    (required, core, relevant)
 }
 
-fn render(candidate: Candidate) -> Result<Rendered, Error> {
-    let text = serde_json::to_string(&candidate.record.payload)?;
-    let units = text.chars().count();
-    Ok(Rendered {
-        candidate,
-        text,
-        units,
-    })
-}
-
+#[allow(clippy::too_many_arguments)]
 fn take(
-    source: &mut Vec<Rendered>,
+    source: Vec<Candidate>,
     limit: usize,
-    used: &mut usize,
-    picked: &mut Vec<Rendered>,
+    picked: &mut Vec<Picked>,
     excluded: &mut Vec<ExcludedCoordinate>,
     reason: ExclusionReason,
-    degraded: &mut bool,
-) -> usize {
-    let mut dropped = 0;
-    for item in source.drain(..) {
-        if *used + item.units <= limit {
-            *used += item.units;
-            picked.push(item);
+    render: &dyn Fn(&[StoredRecord]) -> Result<String, Error>,
+    tokenizer: &super::model::TokenizerCoordinate,
+) -> Result<(), Error> {
+    for candidate in source {
+        let next = prospective_total(picked, std::slice::from_ref(&candidate), render, tokenizer)?;
+        if next <= limit {
+            push(candidate, picked, render, tokenizer)?;
         } else {
-            *degraded = true;
-            dropped += 1;
-            excluded.push(excluded_item(&item, reason));
+            excluded.push(ExcludedCoordinate {
+                id: candidate.record.id,
+                namespace: candidate.record.namespace,
+                type_name: candidate.record.type_name,
+                reason,
+            });
         }
     }
-    dropped
+    Ok(())
 }
 
-fn excluded_item(item: &Rendered, reason: ExclusionReason) -> ExcludedCoordinate {
-    ExcludedCoordinate {
-        id: item.candidate.record.id,
-        namespace: item.candidate.record.namespace.clone(),
-        type_name: item.candidate.record.type_name.clone(),
-        reason,
-    }
+fn push(
+    candidate: Candidate,
+    picked: &mut Vec<Picked>,
+    render: &dyn Fn(&[StoredRecord]) -> Result<String, Error>,
+    tokenizer: &super::model::TokenizerCoordinate,
+) -> Result<(), Error> {
+    let before = total(picked);
+    let after = prospective_total(picked, std::slice::from_ref(&candidate), render, tokenizer)?;
+    picked.push(Picked {
+        candidate,
+        tokens: after.saturating_sub(before),
+    });
+    Ok(())
+}
+
+fn prospective_total(
+    picked: &[Picked],
+    additions: &[Candidate],
+    render: &dyn Fn(&[StoredRecord]) -> Result<String, Error>,
+    tokenizer: &super::model::TokenizerCoordinate,
+) -> Result<usize, Error> {
+    let records = picked
+        .iter()
+        .map(|item| item.candidate.record.clone())
+        .chain(additions.iter().map(|item| item.record.clone()))
+        .collect::<Vec<_>>();
+    super::tokenizer::count(&render(&records)?, tokenizer)
+}
+
+fn total(picked: &[Picked]) -> usize {
+    picked.iter().map(|item| item.tokens).sum()
 }

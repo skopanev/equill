@@ -4,8 +4,10 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use uuid::Uuid;
 mod selection;
+mod tokens;
 
 pub use selection::{CoordinateMode, Expectation, RankOrder, Selector, Strategy, Tier};
+pub use tokens::{TokenUsage, TokenizerCoordinate};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -52,27 +54,46 @@ pub struct ReadGrant {
 /// absent floor or reserve means zero. A profile with no budget at all returns
 /// everything the selectors matched.
 pub struct ContextBudget {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "total_tokens",
+        alias = "total",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub total: Option<usize>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "required_cap_tokens",
+        alias = "required_cap",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub required_cap: Option<usize>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "core_cap_tokens",
+        alias = "core_cap",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub core_cap: Option<usize>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "relevant_floor_tokens",
+        alias = "relevant_floor",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub relevant_floor: Option<usize>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "receipt_reserve_tokens",
+        alias = "receipt_reserve",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub receipt_reserve: Option<usize>,
+    #[serde(default)]
+    pub tokenizer: TokenizerCoordinate,
 }
 
 impl ContextBudget {
-    /// Total content space once the receipt reserve is set aside.
-    pub fn content_limit(&self) -> usize {
-        match self.total {
-            Some(total) => total.saturating_sub(self.receipt_reserve()),
-            None => usize::MAX,
-        }
-    }
-
     pub fn receipt_reserve(&self) -> usize {
         self.receipt_reserve.unwrap_or(0)
     }
@@ -81,16 +102,17 @@ impl ContextBudget {
         self.relevant_floor.unwrap_or(0)
     }
 
-    /// Hard ceiling on the required tier. Exceeding it is fatal, so an absent
-    /// cap is the difference between "bounded" and "never fails".
-    pub fn required_limit(&self) -> usize {
-        self.required_cap
-            .unwrap_or(usize::MAX)
-            .min(self.content_limit())
-    }
-
     pub fn core_cap(&self) -> usize {
         self.core_cap.unwrap_or(usize::MAX)
+    }
+
+    pub fn effective_total(&self, runtime: Option<usize>) -> Option<usize> {
+        match (self.total, runtime) {
+            (Some(profile), Some(runtime)) => Some(profile.min(runtime)),
+            (Some(profile), None) => Some(profile),
+            (None, Some(runtime)) => Some(runtime),
+            (None, None) => None,
+        }
     }
 }
 
@@ -101,7 +123,7 @@ pub struct SelectedCoordinate {
     #[serde(rename = "type")]
     pub type_name: String,
     pub tier: Tier,
-    pub units: usize,
+    pub tokens: usize,
     pub strategies: Vec<Strategy>,
 }
 
@@ -152,7 +174,11 @@ pub struct ContextReceipt {
     pub unmatched_coordinates: Vec<UnmatchedCoordinate>,
     pub strategies: Vec<Strategy>,
     pub budget: ContextBudget,
-    pub used: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_budget_tokens: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effective_total_tokens: Option<usize>,
+    pub usage: TokenUsage,
     pub bundle_digest: String,
     pub projection: ProjectionState,
     pub degraded_strategies: Vec<Strategy>,

@@ -196,9 +196,10 @@ coordinates to payload fields without teaching Equill domain words:
 }
 ```
 
-Context content contains payloads only. Receipts retain selected coordinates; source
-records retain evidence and tags without consuming the content budget. A numeric
-`rank_pointer` sorts records descending within a tier before `observed_at` and id.
+Context content contains payloads only unless `--format llm` requests prompt-ready
+Markdown. Receipts retain selected coordinates; evidence, provenance, and tags never
+consume the content budget. A numeric `rank_pointer` sorts records descending within a
+tier before `observed_at` and id.
 
 A profile binds selectors to read grants and a hard context budget:
 
@@ -210,11 +211,15 @@ A profile binds selectors to read grants and a hard context budget:
   "grants": [{ "namespace": "agent.memory", "types": ["agent.lesson.v1"] }],
   "selectors": ["agent.lesson.inject.v1"],
   "budget": {
-    "total": 8000,
-    "required_cap": 1500,
-    "core_cap": 3000,
-    "relevant_floor": 2500,
-    "receipt_reserve": 500
+    "total_tokens": 8000,
+    "required_cap_tokens": 1500,
+    "core_cap_tokens": 3000,
+    "relevant_floor_tokens": 2500,
+    "receipt_reserve_tokens": 500,
+    "tokenizer": {
+      "id": "o200k_base",
+      "version": "tiktoken-rs-0.12.0"
+    }
   }
 }
 ```
@@ -222,8 +227,20 @@ A profile binds selectors to read grants and a hard context budget:
 ```bash
 equill selector register --store .equill --file selector.json
 equill profile register --store .equill --file profile.json
-equill context --store .equill --profile worker.v1 --request request.json
+equill context --store .equill --profile worker.v1 --request request.json \
+  --format llm --budget 6000
 ```
+
+`--budget` is a runtime token ceiling: it may lower but never raise the profile's
+`total_tokens`. Equill counts the exact final context string, including Markdown
+headings and list structure. Required-tier overflow fails with
+`CONTEXT_REQUIRED_OVERFLOW`; mandatory context is never silently truncated.
+
+Legacy profile names (`total`, `required_cap`, `core_cap`, `relevant_floor`, and
+`receipt_reserve`) still load, now with token semantics and the pinned default
+tokenizer. New registrations and receipts emit the explicit `*_tokens` names. Existing
+immutable records and receipts are not rewritten; newly assembled receipts use
+`equill.context-receipt.v3` and include requested/effective limits plus tier usage.
 
 Coordinate matching is exact by default. A selector may opt individual keys
 into `set_or_wildcard`: record arrays then match a requested scalar by

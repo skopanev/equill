@@ -138,27 +138,28 @@ fn validate_profile(profile: &ContextProfile) -> Result<(), Error> {
     // Absent bounds are legal and mean "unbounded"; only the values actually
     // present have to agree with each other.
     let budget = &profile.budget;
+    super::tokenizer::validate(&budget.tokenizer)?;
     if let Some(total) = budget.total {
         let reserve = budget.receipt_reserve();
         if total == 0 {
             return Err(Error::Context(
-                "context budget total must be positive".into(),
+                "context budget total_tokens must be positive".into(),
             ));
         }
         if reserve >= total {
             return Err(Error::Context(format!(
-                "receipt_reserve {reserve} leaves no content space in total {total}"
+                "receipt_reserve_tokens {reserve} leaves no content space in total_tokens {total}"
             )));
         }
         let content = total - reserve;
         for (name, value) in [
-            ("required_cap", budget.required_cap),
-            ("core_cap", budget.core_cap),
-            ("relevant_floor", budget.relevant_floor),
+            ("required_cap_tokens", budget.required_cap),
+            ("core_cap_tokens", budget.core_cap),
+            ("relevant_floor_tokens", budget.relevant_floor),
         ] {
             if value.is_some_and(|value| value > content) {
                 return Err(Error::Context(format!(
-                    "{name} exceeds the {content} unit content limit of this budget"
+                    "{name} exceeds the {content} token content limit of this budget"
                 )));
             }
         }

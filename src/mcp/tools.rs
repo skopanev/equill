@@ -35,6 +35,7 @@ pub fn catalog() -> Value {
                 "tags": { "type": "array", "items": { "type": "string" } },
                 "at": { "type": "string" },
                 "include_superseded": { "type": "boolean" },
+                "budget": { "type": "integer", "minimum": 1 },
                 "where": { "type": "array", "items": { "type": "string" } },
                 "strict": { "type": "boolean" }
             }})),
@@ -205,7 +206,15 @@ fn assemble(
         optional(arguments, "at"),
         flag(arguments, "include_superseded"),
     )?;
-    let bundle = context::assemble(store, &profile, request, actor, &filter)?;
+    let runtime_budget_tokens = positive_usize(arguments, "budget")?;
+    let bundle = context::assemble_with_budget(
+        store,
+        &profile,
+        request,
+        actor,
+        &filter,
+        runtime_budget_tokens,
+    )?;
     telemetry::record_query(
         store,
         "mcp.context",
@@ -220,4 +229,16 @@ fn assemble(
         log_queries,
     );
     value(&bundle)
+}
+
+fn positive_usize(arguments: &Value, key: &str) -> Result<Option<usize>, Error> {
+    let Some(value) = arguments.get(key) else {
+        return Ok(None);
+    };
+    let value = value
+        .as_u64()
+        .and_then(|value| usize::try_from(value).ok())
+        .filter(|value| *value > 0)
+        .ok_or_else(|| Error::Context(format!("{key} must be a positive integer")))?;
+    Ok(Some(value))
 }

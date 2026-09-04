@@ -167,18 +167,26 @@ explicit store for one operation.
 
 ## Context assembly
 
-A context profile defines a hard total budget and reserves space per tier. No tier may
-consume the entire bundle. The initial contract uses:
+A context profile defines a hard token budget and reserves space per tier. Counting is
+local and deterministic through the profile's pinned `o200k_base` tokenizer coordinate.
+For `--format llm`, the counted bytes are the final prompt-ready Markdown, including
+headings and list structure. The contract uses:
 
-- `required_cap`: maximum space for registered mandatory policy;
-- `core_cap`: maximum space for canonical type selections;
-- `relevant_floor`: space protected for request-specific evidence;
-- `receipt_reserve`: space for provenance and degradation reporting.
+- `required_cap_tokens`: maximum tokens for registered mandatory policy;
+- `core_cap_tokens`: maximum tokens for canonical type selections;
+- `relevant_floor_tokens`: tokens protected for request-specific evidence;
+- `receipt_reserve_tokens`: tokens reserved outside rendered context content.
 
-The total budget is hard. An overflowing required set is a configuration fault, not a
-reason to exceed the caller's context window. Equill returns a deterministic bounded
-bundle, marks it degraded in the receipt, and makes `doctor` fail until the profile is
-repaired.
+The profile total is a hard cap. A runtime `--budget` or MCP `budget` may lower it and
+can never raise it. An overflowing required set fails closed with the stable
+`CONTEXT_REQUIRED_OVERFLOW` code; Equill returns no partial bundle, and `doctor` fails
+until the profile is repaired. Optional tier exclusions mark a successful receipt as
+degraded.
+
+Old profile field names remain read-compatible and are interpreted as token counts with
+the pinned default tokenizer. Registry files, records, and existing receipts are never
+rewritten. New receipts use `equill.context-receipt.v3` and record the tokenizer,
+requested runtime cap, effective cap, exact content usage, tier attribution, and reserve.
 
 Selection order is fixed:
 

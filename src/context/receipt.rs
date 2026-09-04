@@ -37,27 +37,23 @@ pub fn persist(store: &Path, receipt: &ContextReceipt) -> Result<String, Error> 
 /// Shared by every path that assembles context, so that they produce the same
 /// receipt, the same digest and the same selection — which is what lets a
 /// caller compare two answers at all.
+#[allow(clippy::too_many_arguments)]
 pub fn bundle(
     store_root: &Path,
     profile: VersionCoordinate,
     selectors: Vec<VersionCoordinate>,
     request_digest: String,
     budget: ContextBudget,
+    runtime_budget_tokens: Option<usize>,
     retrieved: Retrieval,
     budgeted: Budgeted,
 ) -> Result<ContextBundle, Error> {
     let bundle_digest = sha256_hex(budgeted.content.as_bytes());
     let degraded = budgeted.degraded || !retrieved.degraded_strategies.is_empty();
     let empty = budgeted.selected.is_empty();
-    // The version names the shape, so a receipt that carries the semantic
-    // account says so in its own schema rather than leaving a reader to
-    // discover an unfamiliar field. A text-only bundle stays v1 byte for byte,
-    // and the digest a caller already holds keeps meaning what it meant.
-    let schema = if retrieved.semantic.is_some() {
-        "equill.context-receipt.v2"
-    } else {
-        "equill.context-receipt.v1"
-    };
+    // Token accounting changes the receipt contract. Existing receipt files
+    // remain immutable; every newly assembled bundle names the v3 shape.
+    let schema = "equill.context-receipt.v3";
     let receipt = ContextReceipt {
         schema,
         profile,
@@ -67,7 +63,9 @@ pub fn bundle(
         excluded: budgeted.excluded,
         strategies: retrieved.strategies,
         budget,
-        used: budgeted.used,
+        runtime_budget_tokens,
+        effective_total_tokens: budgeted.effective_total,
+        usage: budgeted.usage,
         bundle_digest: bundle_digest.clone(),
         projection: retrieved.projection,
         degraded_strategies: retrieved.degraded_strategies,

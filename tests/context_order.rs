@@ -115,6 +115,60 @@ fn context_and_search_accept_prompt_ready_output() {
     let _ = fs::remove_dir_all(&root);
 }
 
+#[test]
+fn runtime_budget_counts_the_exact_llm_stdout() {
+    let root = store();
+    let args = [
+        "context",
+        "--profile",
+        "ranked",
+        "--format",
+        "llm",
+        "--budget",
+        "16",
+    ];
+    let printed = run(&root, &args);
+    let body: serde_json::Value = serde_json::from_str(&run(
+        &root,
+        &[
+            "context",
+            "--profile",
+            "ranked",
+            "--format",
+            "llm",
+            "--budget",
+            "16",
+            "--json",
+        ],
+    ))
+    .expect("json");
+    let stdout = printed.trim_end();
+    let tokens = tiktoken_rs::o200k_base_singleton().count_ordinary(stdout);
+
+    assert!(tokens <= 16, "{tokens} tokens: {stdout}");
+    assert_eq!(body["content"], stdout);
+    assert_eq!(body["receipt"]["usage"]["content"], tokens);
+    assert_eq!(body["receipt"]["effective_total_tokens"], 16);
+    assert_eq!(body["receipt"]["budget"]["tokenizer"]["id"], "o200k_base");
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn zero_runtime_budget_is_rejected_before_context_assembly() {
+    let root = store();
+    let out = Command::new(harness::binary())
+        .args(["context", "--profile", "ranked", "--budget", "0"])
+        .arg("--store")
+        .arg(&root)
+        .env("EQUILL_ACTOR", "owner")
+        .output()
+        .expect("command");
+
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("--budget"));
+    let _ = fs::remove_dir_all(&root);
+}
+
 /// The value each record is known by in this fixture, in the order printed.
 fn confidences(printed: &str) -> Vec<String> {
     printed

@@ -124,14 +124,19 @@ pub fn titles_of(root: &Path, ids: &BTreeSet<String>) -> BTreeSet<String> {
 
 /// The same, through a real MCP session rather than a helper.
 pub fn mcp(root: &Path, coordinates: &[&str]) -> Answer {
+    Answer::read(&mcp_value(root, coordinates, None))
+}
+
+pub fn mcp_value(root: &Path, coordinates: &[&str], budget: Option<usize>) -> Value {
     let mut session = Session::open(root);
-    let (_, response) = session.tool(
-        "context",
-        json!({
-            "profile": "roles",
-            "coordinates": coordinates.iter().map(|item| json!(item)).collect::<Vec<_>>()
-        }),
-    );
+    let mut arguments = json!({
+        "profile": "roles",
+        "coordinates": coordinates.iter().map(|item| json!(item)).collect::<Vec<_>>()
+    });
+    if let Some(budget) = budget {
+        arguments["budget"] = json!(budget);
+    }
+    let (_, response) = session.tool("context", arguments);
     assert!(
         response["error"].is_null(),
         "mcp context failed: {response}"
@@ -139,5 +144,5 @@ pub fn mcp(root: &Path, coordinates: &[&str]) -> Answer {
     let text = response["result"]["content"][0]["text"]
         .as_str()
         .expect("mcp text");
-    Answer::read(&serde_json::from_str(text).expect("mcp json"))
+    serde_json::from_str(text).expect("mcp json")
 }

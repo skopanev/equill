@@ -21,6 +21,7 @@ pub fn context(
     kinds: Vec<String>,
     at: Option<String>,
     include_superseded: bool,
+    runtime_budget_tokens: Option<usize>,
     filters: Vec<String>,
     strict: bool,
     format: command::cli::FormatArg,
@@ -48,37 +49,68 @@ pub fn context(
             coordinates.push(format!("{key}={value}"));
         }
     }
-    let bundle = match request {
-        Some(path) => context::assemble_file(&store, &profile, &path, &actor, &filter)?,
-        None => {
+    let llm = |records: &[record::StoredRecord]| {
+        command::present::records(records, command::present::Format::Llm, &[])
+    };
+    let bundle = match (request, matches!(format, command::cli::FormatArg::Llm)) {
+        (Some(path), true) => context::assemble_file_with_renderer(
+            &store,
+            &profile,
+            &path,
+            &actor,
+            &filter,
+            runtime_budget_tokens,
+            &llm,
+        )?,
+        (Some(path), false) => context::assemble_file_with_budget(
+            &store,
+            &profile,
+            &path,
+            &actor,
+            &filter,
+            runtime_budget_tokens,
+        )?,
+        (None, llm_format) => {
             let request =
                 context::inline_request(query, coordinates, tags, kinds, at, include_superseded)?;
-            context::assemble(&store, &profile, request, &actor, &filter)?
+            if llm_format {
+                context::assemble_with_renderer(
+                    &store,
+                    &profile,
+                    request,
+                    &actor,
+                    &filter,
+                    runtime_budget_tokens,
+                    &llm,
+                )?
+            } else {
+                context::assemble_with_budget(
+                    &store,
+                    &profile,
+                    request,
+                    &actor,
+                    &filter,
+                    runtime_budget_tokens,
+                )?
+            }
         }
     };
     // In the order the selection made, not the order the ledger holds. A
     // selector that asked for a particular order means it for every way of
     // printing the answer; filtering the ledger by a set of ids throws that
     // order away and hands back whatever the ledger happened to keep.
-    let selected =
-        if json || !(fields.is_empty() && matches!(format, command::cli::FormatArg::Jsonl)) {
-            let mut by_id: std::collections::HashMap<_, _> = record::read_all(&store)?
-                .into_iter()
-                .map(|item| (item.id, item))
-                .collect();
-            bundle
-                .selected_record_ids
-                .iter()
-                .filter_map(|id| by_id.remove(id))
-                .collect::<Vec<_>>()
-        } else {
-            Vec::new()
-        };
-    let text = if fields.is_empty() && matches!(format, command::cli::FormatArg::Jsonl) {
-        // The bundle keeps its historical paragraph separators for receipts
-        // and digests. stdout is a JSONL surface, so its objects must remain
-        // adjacent lines that a machine can consume without skipping blanks.
-        bundle.content.replace("\n\n", "\n")
+    let mut by_id: std::collections::HashMap<_, _> = record::read_all(&store)?
+        .into_iter()
+        .map(|item| (item.id, item))
+        .collect();
+    let selected = bundle
+        .selected_record_ids
+        .iter()
+        .filter_map(|id| by_id.remove(id))
+        .collect::<Vec<_>>();
+    let text = if fields.is_empty() && matches!(format, command::cli::FormatArg::Llm) {
+        // This is the exact string the budget counted, including Markdown.
+        bundle.content.clone()
     } else {
         command::present::records(&selected, super::shape(format), &fields)?
     };
