@@ -125,8 +125,10 @@ fn a_hybrid_bundle_records_what_answered_it() {
         .expect("a hybrid selector ran, so the receipt owes an account of it");
     assert_eq!(semantic.answered_by, "hybrid");
     assert!(semantic.fallback.is_none(), "nothing stood in");
-    // V3 adds explicit tokenizer coordinates and token usage to every receipt.
-    assert_eq!(bundle.receipt.schema, "equill.context-receipt.v3");
+    assert_eq!(semantic.vector_selected_records, None);
+    assert_eq!(semantic.fts_selected_records, None);
+    // V4 adds optional source counts to the semantic receipt.
+    assert_eq!(bundle.receipt.schema, "equill.context-receipt.v4");
     assert!(!bundle.receipt.empty, "the record was not selected");
     fs::remove_dir_all(root).expect("remove store");
 }
@@ -191,7 +193,7 @@ fn a_text_only_bundle_has_no_semantic_account_but_does_have_token_accounting() {
         bundle.receipt.semantic.is_none(),
         "a text profile grew a semantic account it never asked for"
     );
-    assert_eq!(bundle.receipt.schema, "equill.context-receipt.v3");
+    assert_eq!(bundle.receipt.schema, "equill.context-receipt.v4");
     assert_eq!(bundle.receipt.budget.tokenizer.id, "o200k_base");
     fs::remove_dir_all(root).expect("remove store");
 }
@@ -229,5 +231,7 @@ fn a_hybrid_bundle_reports_how_far_behind_the_index_was() {
     // are the store's, not the substituted half's.
     assert_eq!(semantic.vector_indexed_records, Some(1));
     assert_eq!(semantic.vector_pending_records, Some(2));
+    assert_eq!(semantic.vector_selected_records, None);
+    assert_eq!(semantic.fts_selected_records, None);
     fs::remove_dir_all(root).expect("remove store");
 }

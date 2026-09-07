@@ -289,11 +289,20 @@ caps the selected records after deterministic ranking. Required-tier overflow ag
 either runtime ceiling fails with
 `CONTEXT_REQUIRED_OVERFLOW`; mandatory context is never silently truncated.
 
+For a hybrid selector, required and core tiers consume record slots first; remaining
+relevant slots are filled vector-first. With `--budget-records 30`, thirty semantic hits
+leave no FTS slots, twenty leave ten, and five leave twenty-five. FTS skips duplicate
+vector records before filling the remainder and never displaces a semantic hit. If
+vectors are unavailable, FTS may fill all thirty and the receipt records the fallback.
+Text-only selectors keep their existing behavior and receipt shape. Record-budget
+hybrid receipts expose the selected vector and FTS record counts; unbounded fused
+hybrid receipts leave both counts unset because their source provenance is unavailable.
+
 Legacy profile names (`total`, `required_cap`, `core_cap`, `relevant_floor`, and
 `receipt_reserve`) still load, now with token semantics and the pinned default
 tokenizer. New registrations and receipts emit the explicit `*_tokens` names. Existing
 immutable records and receipts are not rewritten; newly assembled receipts use
-`equill.context-receipt.v3` and include requested/effective limits plus tier usage.
+`equill.context-receipt.v4` and include requested/effective limits plus tier usage.
 
 Coordinate matching is exact by default. A selector may opt individual keys
 into `set_or_wildcard`: record arrays then match a requested scalar by

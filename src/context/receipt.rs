@@ -53,9 +53,16 @@ pub fn bundle(
     let bundle_digest = sha256_hex(budgeted.content.as_bytes());
     let degraded = budgeted.degraded || !retrieved.degraded_strategies.is_empty();
     let empty = budgeted.selected.is_empty();
-    // Token accounting changes the receipt contract. Existing receipt files
-    // remain immutable; every newly assembled bundle names the v3 shape.
-    let schema = "equill.context-receipt.v3";
+    let mut semantic = retrieved.semantic;
+    if let Some(answer) = &mut semantic
+        && answer.vector_selected_records.is_some()
+    {
+        answer.vector_selected_records = Some(budgeted.vector_selected_records);
+        answer.fts_selected_records = Some(budgeted.fts_selected_records);
+    }
+    // Search-source accounting changes the receipt contract. Existing receipt
+    // files remain immutable; every newly assembled bundle names the v4 shape.
+    let schema = "equill.context-receipt.v4";
     let receipt = ContextReceipt {
         schema,
         profile,
@@ -74,7 +81,7 @@ pub fn bundle(
         degraded_strategies: retrieved.degraded_strategies,
         degraded,
         empty,
-        semantic: retrieved.semantic,
+        semantic,
         unmatched_coordinates: retrieved.unmatched_coordinates,
     };
     // One failure is tolerated and no others: the store would not take the

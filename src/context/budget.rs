@@ -17,6 +17,8 @@ pub struct Budgeted {
     pub degraded: bool,
     pub required_overflow: usize,
     pub effective_total: Option<usize>,
+    pub vector_selected_records: usize,
+    pub fts_selected_records: usize,
 }
 
 pub(super) struct Picked {

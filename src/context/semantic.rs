@@ -20,6 +20,7 @@ const PER_SELECTOR: u16 = 100;
 /// What a hybrid pass found, and how honestly it can be described.
 pub struct SemanticHits {
     pub ids: HashSet<uuid::Uuid>,
+    pub ordered: Vec<uuid::Uuid>,
     /// What the bundle may claim about its own assembly. `None` when no hybrid
     /// selector ran at all, which is what keeps a text-only receipt the shape
     /// it has always been.
@@ -30,6 +31,7 @@ impl SemanticHits {
     fn empty() -> Self {
         SemanticHits {
             ids: HashSet::new(),
+            ordered: Vec::new(),
             answer: None,
         }
     }
@@ -44,6 +46,7 @@ pub fn hits(
     store: &std::path::Path,
     selectors: &[Selector],
     request: &ContextRequest,
+    record_limit: Option<usize>,
 ) -> Result<SemanticHits, Error> {
     let wanted = selectors
         .iter()
@@ -52,6 +55,17 @@ pub fn hits(
     if request.query.trim().is_empty() || wanted.is_empty() {
         return Ok(SemanticHits::empty());
     }
+    match record_limit {
+        Some(limit) => limited(store, wanted, request, limit),
+        None => merged(store, wanted, request),
+    }
+}
+
+fn merged(
+    store: &std::path::Path,
+    wanted: Vec<&Selector>,
+    request: &ContextRequest,
+) -> Result<SemanticHits, Error> {
     let mut found = SemanticHits::empty();
     for selector in wanted {
         let report = vector::search(
@@ -74,14 +88,90 @@ pub fn hits(
             vector_freshness: report.vector_freshness,
             vector_indexed_records: report.vector_indexed_records,
             vector_pending_records: report.vector_pending_records,
+            vector_selected_records: None,
+            fts_selected_records: None,
         });
         if degraded {
             answer.answered_by = "fts".to_owned();
             answer.fallback = answer.fallback.take().or(report.fallback);
         }
-        found
-            .ids
-            .extend(report.hits.into_iter().map(|hit| hit.record.id));
+        for id in report.hits.into_iter().map(|hit| hit.record.id) {
+            if found.ids.insert(id) {
+                found.ordered.push(id);
+            }
+        }
     }
     Ok(found)
+}
+
+fn limited(
+    store: &std::path::Path,
+    wanted: Vec<&Selector>,
+    request: &ContextRequest,
+    limit: usize,
+) -> Result<SemanticHits, Error> {
+    let mut found = SemanticHits::empty();
+    for selector in wanted {
+        let report = match vector::search(
+            store,
+            &SearchRequest {
+                query: Some(request.query.clone()),
+                namespace: None,
+                type_name: Some(selector.type_name.clone()),
+                limit: u16::try_from(limit).unwrap_or(u16::MAX),
+            },
+            SearchStrategy::Vector,
+        ) {
+            Ok(report) => report,
+            Err(error) => return fallback(store, error.to_string()),
+        };
+        if report.vector_freshness != vector::VectorFreshness::Current {
+            let reason = match report.vector_freshness {
+                vector::VectorFreshness::Lagging => "vector index is lagging",
+                vector::VectorFreshness::Unknown => "vector index freshness is unknown",
+                vector::VectorFreshness::Current => unreachable!(),
+            };
+            return fallback(store, reason.to_owned());
+        }
+        found.answer = Some(answer(&report, "hybrid", None));
+        for id in report.hits.into_iter().map(|hit| hit.record.id) {
+            if found.ids.insert(id) {
+                found.ordered.push(id);
+            }
+        }
+    }
+    Ok(found)
+}
+
+fn fallback(store: &std::path::Path, reason: String) -> Result<SemanticHits, Error> {
+    let reading = vector::freshness_of(store)?;
+    Ok(SemanticHits {
+        ids: HashSet::new(),
+        ordered: Vec::new(),
+        answer: Some(SemanticAnswer {
+            answered_by: "fts".into(),
+            fallback: Some(reason),
+            vector_freshness: reading.freshness,
+            vector_indexed_records: reading.indexed_records,
+            vector_pending_records: reading.pending_records,
+            vector_selected_records: Some(0),
+            fts_selected_records: Some(0),
+        }),
+    })
+}
+
+fn answer(
+    report: &vector::StrategySearchReport,
+    answered_by: &str,
+    fallback: Option<String>,
+) -> SemanticAnswer {
+    SemanticAnswer {
+        answered_by: answered_by.into(),
+        fallback,
+        vector_freshness: report.vector_freshness,
+        vector_indexed_records: report.vector_indexed_records,
+        vector_pending_records: report.vector_pending_records,
+        vector_selected_records: Some(0),
+        fts_selected_records: Some(0),
+    }
 }

@@ -58,6 +58,7 @@ pub fn assemble(
         &request,
         filter,
         retrieval::Cardinality::Answering,
+        runtime_budget.records,
     )?;
     let budgeted = budget::apply(
         std::mem::take(&mut retrieved.candidates),

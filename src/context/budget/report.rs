@@ -41,6 +41,16 @@ pub(super) fn finish(
             .sum()
     };
     let content_tokens = crate::context::tokenizer::count(&content, &budget.tokenizer)?;
+    let vector_selected_records = picked
+        .iter()
+        .filter(|item| {
+            item.candidate.source == Some(crate::context::retrieval::SearchSource::Vector)
+        })
+        .count();
+    let fts_selected_records = picked
+        .iter()
+        .filter(|item| item.candidate.source == Some(crate::context::retrieval::SearchSource::Fts))
+        .count();
     let usage = TokenUsage {
         required: tier_tokens(Tier::Required),
         core: tier_tokens(Tier::Core),
@@ -70,6 +80,8 @@ pub(super) fn finish(
         degraded,
         required_overflow,
         effective_total,
+        vector_selected_records,
+        fts_selected_records,
     })
 }
 

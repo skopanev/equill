@@ -186,15 +186,24 @@ Optional tier exclusions mark a successful receipt as degraded.
 
 Old profile field names remain read-compatible and are interpreted as token counts with
 the pinned default tokenizer. Registry files, records, and existing receipts are never
-rewritten. New receipts use `equill.context-receipt.v3` and record the tokenizer,
+rewritten. New receipts use `equill.context-receipt.v4` and record the tokenizer,
 requested runtime cap, effective cap, exact content usage, tier attribution, and reserve.
 When supplied, the runtime record ceiling is also recorded in the receipt.
 
 Selection order is fixed:
 
 ```text
-grants → active/superseded/revoked → valid time → type selector → budget
+grants → active/superseded/revoked → valid time → type selector → retrieval mix → budget
 ```
+
+Required and core tiers consume record slots first. For the remaining relevant slots,
+hybrid retrieval is vector-first and size-independent: `N` semantic hits leave no FTS
+slots, while `V < N` leaves at most `N - V` slots for unique FTS records. Deduplication
+happens before FTS backfill, and FTS never displaces a semantic hit. If vectors cannot
+answer, FTS may fill the entire remainder. With a runtime record ceiling, the semantic
+receipt names the fallback and actual selected count from each source. Unbounded fused
+hybrid retrieval leaves both source counts unset because that path cannot recover exact
+provenance. FTS-only selectors retain their previous selection and receipt shape.
 
 Every selector ships with scenario gates containing expected inclusions and exclusions.
 Request coordinates are opaque keys. A selector may map them to payload fields with

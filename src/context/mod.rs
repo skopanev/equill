@@ -73,6 +73,7 @@ pub fn profile_faults(store_root: &Path) -> Result<usize, Error> {
             &request,
             &Filter::default(),
             retrieval::Cardinality::Diagnosing,
+            None,
         )?;
         let budgeted = budget::apply(
             retrieved.candidates,

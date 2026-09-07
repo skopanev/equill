@@ -6,6 +6,7 @@ use super::fixtures::support::{request, store};
 use crate::command::doctor;
 use crate::filter::Filter;
 use std::fs;
+mod mixed;
 mod records;
 
 #[test]
@@ -60,7 +61,7 @@ fn context_budget_counts_and_emits_payload_only() {
         bundle.receipt.usage.content,
         tiktoken_rs::o200k_base_singleton().count_ordinary(&bundle.content)
     );
-    assert_eq!(bundle.receipt.schema, "equill.context-receipt.v3");
+    assert_eq!(bundle.receipt.schema, "equill.context-receipt.v4");
     assert_eq!(bundle.receipt.budget.tokenizer.id, "o200k_base");
     fs::remove_dir_all(root).expect("remove store");
 }

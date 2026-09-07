@@ -146,6 +146,11 @@ pub struct SemanticAnswer {
     pub vector_indexed_records: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vector_pending_records: Option<usize>,
+    /// Actual records retained by a Hybrid call with a runtime record budget.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vector_selected_records: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fts_selected_records: Option<usize>,
 }
 
 #[derive(Clone, Debug, Serialize)]

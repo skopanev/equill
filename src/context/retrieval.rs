@@ -5,9 +5,16 @@ use super::model::{
 };
 use crate::filter::Filter;
 use crate::kernel::error::Error;
-use crate::projection::{self, ProjectionState, SearchRequest};
+use crate::projection::{self, ProjectionState};
 use crate::record::StoredRecord;
 use std::collections::{BTreeSet, HashMap, HashSet};
+mod search;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum SearchSource {
+    Vector,
+    Fts,
+}
 
 pub struct Candidate {
     pub record: StoredRecord,
@@ -15,6 +22,8 @@ pub struct Candidate {
     pub strategies: Vec<Strategy>,
     pub score: usize,
     pub rank: Option<f64>,
+    pub source: Option<SearchSource>,
+    pub search_rank: Option<usize>,
 }
 
 pub struct Retrieval {
@@ -50,6 +59,7 @@ pub fn retrieve(
     request: &ContextRequest,
     filter: &Filter,
     cardinality: Cardinality,
+    record_limit: Option<usize>,
 ) -> Result<Retrieval, Error> {
     let at: jiff::Timestamp = request
         .at
@@ -72,8 +82,7 @@ pub fn retrieve(
             .collect::<HashSet<_>>()
     };
     let projection = projection::state(store)?;
-    let fts = fts_hits(store, selectors, request, projection)?;
-    let semantic = super::semantic::hits(store, selectors, request)?;
+    let search = search::collect(store, selectors, request, projection, record_limit)?;
     let strategies: Vec<Strategy> = selectors
         .iter()
         .flat_map(|selector| selector.strategies.iter().copied())
@@ -113,25 +122,34 @@ pub fn retrieve(
             continue;
         }
         let selector = selector_map[record.type_name.as_str()];
-        match matching::classify(&record, selector, request, &fts, &semantic.ids) {
-            Some((tier, matched)) => candidates.push(Candidate {
-                // Negated for an ascending selector so that one comparator
-                // still orders every candidate. The number is never shown; it
-                // exists to sort by, and sorting is all it is used for.
-                rank: selector
-                    .rank_pointer
-                    .as_ref()
-                    .and_then(|pointer| record.payload.pointer(pointer))
-                    .and_then(serde_json::Value::as_f64)
-                    .map(|value| match selector.rank_order {
-                        RankOrder::Asc => -value,
-                        RankOrder::Desc => value,
-                    }),
-                record,
-                tier,
-                score: matched.len(),
-                strategies: matched,
-            }),
+        match matching::classify(&record, selector, request, &search.fts, &search.semantic) {
+            Some((tier, matched)) => {
+                let (source, search_rank) = if tier == Tier::Relevant {
+                    search.source(&record.id)
+                } else {
+                    (None, None)
+                };
+                candidates.push(Candidate {
+                    // Negated for an ascending selector so that one comparator
+                    // still orders every candidate. The number is never shown; it
+                    // exists to sort by, and sorting is all it is used for.
+                    rank: selector
+                        .rank_pointer
+                        .as_ref()
+                        .and_then(|pointer| record.payload.pointer(pointer))
+                        .and_then(serde_json::Value::as_f64)
+                        .map(|value| match selector.rank_order {
+                            RankOrder::Asc => -value,
+                            RankOrder::Desc => value,
+                        }),
+                    record,
+                    tier,
+                    score: matched.len(),
+                    strategies: matched,
+                    source,
+                    search_rank,
+                })
+            }
             None => excluded.push(matching::exclusion(
                 &record,
                 super::model::ExclusionReason::SelectorMismatch,
@@ -141,6 +159,8 @@ pub fn retrieve(
     candidates.sort_by(|left, right| {
         left.tier
             .cmp(&right.tier)
+            .then_with(|| source_order(left.source).cmp(&source_order(right.source)))
+            .then_with(|| left.search_rank.cmp(&right.search_rank))
             .then_with(|| match (left.rank, right.rank) {
                 (Some(left), Some(right)) => right.total_cmp(&left),
                 (Some(_), None) => std::cmp::Ordering::Less,
@@ -160,37 +180,17 @@ pub fn retrieve(
         unmatched_coordinates,
         strategies,
         degraded_strategies,
-        semantic: semantic.answer,
+        semantic: search.answer,
         projection,
     })
 }
 
-fn fts_hits(
-    store: &std::path::Path,
-    selectors: &[Selector],
-    request: &ContextRequest,
-    state: ProjectionState,
-) -> Result<HashSet<uuid::Uuid>, Error> {
-    let mut ids = HashSet::new();
-    if request.query.trim().is_empty() || state != ProjectionState::Ready {
-        return Ok(ids);
+fn source_order(source: Option<SearchSource>) -> u8 {
+    match source {
+        Some(SearchSource::Vector) => 0,
+        Some(SearchSource::Fts) => 1,
+        None => 2,
     }
-    for selector in selectors
-        .iter()
-        .filter(|item| item.strategies.contains(&Strategy::Fts))
-    {
-        let report = projection::search(
-            store,
-            &SearchRequest {
-                query: Some(request.query.clone()),
-                namespace: None,
-                type_name: Some(selector.type_name.clone()),
-                limit: 100,
-            },
-        )?;
-        ids.extend(report.hits.into_iter().map(|hit| hit.record.id));
-    }
-    Ok(ids)
 }
 
 /// Hold each selector to what the profile said it must find.
