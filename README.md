@@ -228,12 +228,14 @@ A profile binds selectors to read grants and a hard context budget:
 equill selector register --store .equill --file selector.json
 equill profile register --store .equill --file profile.json
 equill context --store .equill --profile worker.v1 --request request.json \
-  --format llm --budget 6000
+  --format llm --budget 6000 --budget-records 30
 ```
 
 `--budget` is a runtime token ceiling: it may lower but never raise the profile's
 `total_tokens`. Equill counts the exact final context string, including Markdown
-headings and list structure. Required-tier overflow fails with
+headings and list structure. `--budget-records` (MCP: `budget_records`) independently
+caps the selected records after deterministic ranking. Required-tier overflow against
+either runtime ceiling fails with
 `CONTEXT_REQUIRED_OVERFLOW`; mandatory context is never silently truncated.
 
 Legacy profile names (`total`, `required_cap`, `core_cap`, `relevant_floor`, and

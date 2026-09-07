@@ -25,6 +25,7 @@ pub(super) fn finish(
                 ExclusionReason::RequiredOverflow
                     | ExclusionReason::CoreCap
                     | ExclusionReason::TotalBudget
+                    | ExclusionReason::RecordBudget
             )
         });
     let records = picked

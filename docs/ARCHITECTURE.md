@@ -178,15 +178,17 @@ headings and list structure. The contract uses:
 - `receipt_reserve_tokens`: tokens reserved outside rendered context content.
 
 The profile total is a hard cap. A runtime `--budget` or MCP `budget` may lower it and
-can never raise it. An overflowing required set fails closed with the stable
-`CONTEXT_REQUIRED_OVERFLOW` code; Equill returns no partial bundle, and `doctor` fails
-until the profile is repaired. Optional tier exclusions mark a successful receipt as
-degraded.
+can never raise it. The independent `--budget-records` or MCP `budget_records` ceiling
+limits the selected record count after deterministic ranking. An overflowing required
+set against either ceiling fails closed with the stable `CONTEXT_REQUIRED_OVERFLOW`
+code; Equill returns no partial bundle, and `doctor` fails until the profile is repaired.
+Optional tier exclusions mark a successful receipt as degraded.
 
 Old profile field names remain read-compatible and are interpreted as token counts with
 the pinned default tokenizer. Registry files, records, and existing receipts are never
 rewritten. New receipts use `equill.context-receipt.v3` and record the tokenizer,
 requested runtime cap, effective cap, exact content usage, tier attribution, and reserve.
+When supplied, the runtime record ceiling is also recorded in the receipt.
 
 Selection order is fixed:
 

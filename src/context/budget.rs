@@ -1,5 +1,6 @@
 use super::model::{
-    ContextBudget, ExcludedCoordinate, ExclusionReason, SelectedCoordinate, Tier, TokenUsage,
+    ContextBudget, ExcludedCoordinate, ExclusionReason, RuntimeBudget, SelectedCoordinate, Tier,
+    TokenUsage,
 };
 use super::retrieval::Candidate;
 use crate::kernel::error::Error;
@@ -26,12 +27,12 @@ pub(super) struct Picked {
 pub fn apply(
     candidates: Vec<Candidate>,
     budget: &ContextBudget,
-    runtime_total: Option<usize>,
+    runtime: RuntimeBudget,
     render: &dyn Fn(&[StoredRecord]) -> Result<String, Error>,
     mut excluded: Vec<ExcludedCoordinate>,
 ) -> Result<Budgeted, Error> {
     super::tokenizer::validate(&budget.tokenizer)?;
-    let effective_total = budget.effective_total(runtime_total);
+    let effective_total = budget.effective_total(runtime.tokens);
     let reserve = effective_total
         .map(|_| budget.receipt_reserve())
         .unwrap_or(0);
@@ -41,6 +42,14 @@ pub fn apply(
     let required_limit = budget.required_cap.unwrap_or(usize::MAX).min(content_limit);
     let (required, core, relevant) = tiers(candidates);
     let required_count = required.len();
+    if let Some(limit) = runtime.records
+        && required_count > limit
+    {
+        return Err(Error::Context(format!(
+            "CONTEXT_REQUIRED_OVERFLOW: required context needs {required_count} records but the runtime record limit is {limit}; {} required record(s) would be excluded",
+            required_count - limit
+        )));
+    }
     let mut picked = Vec::new();
     for candidate in required {
         push(candidate, &mut picked, render, &budget.tokenizer)?;
@@ -80,6 +89,7 @@ pub fn apply(
         &mut picked,
         &mut excluded,
         ExclusionReason::CoreCap,
+        runtime.records,
         render,
         &budget.tokenizer,
     )?;
@@ -89,6 +99,7 @@ pub fn apply(
         &mut picked,
         &mut excluded,
         ExclusionReason::TotalBudget,
+        runtime.records,
         render,
         &budget.tokenizer,
     )?;
@@ -126,10 +137,20 @@ fn take(
     picked: &mut Vec<Picked>,
     excluded: &mut Vec<ExcludedCoordinate>,
     reason: ExclusionReason,
+    record_limit: Option<usize>,
     render: &dyn Fn(&[StoredRecord]) -> Result<String, Error>,
     tokenizer: &super::model::TokenizerCoordinate,
 ) -> Result<(), Error> {
     for candidate in source {
+        if record_limit.is_some_and(|limit| picked.len() >= limit) {
+            excluded.push(ExcludedCoordinate {
+                id: candidate.record.id,
+                namespace: candidate.record.namespace,
+                type_name: candidate.record.type_name,
+                reason: ExclusionReason::RecordBudget,
+            });
+            continue;
+        }
         let next = prospective_total(picked, std::slice::from_ref(&candidate), render, tokenizer)?;
         if next <= limit {
             push(candidate, picked, render, tokenizer)?;

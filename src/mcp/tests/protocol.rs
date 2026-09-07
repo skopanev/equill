@@ -23,9 +23,8 @@ fn the_handshake_advertises_every_tool_and_answers_ping() {
     assert_eq!(replies[0]["result"]["serverInfo"]["name"], "equill");
     // The version a client asked for comes back when we speak it.
     assert_eq!(replies[0]["result"]["protocolVersion"], "2025-06-18");
-    let names = replies[1]["result"]["tools"]
-        .as_array()
-        .expect("tools")
+    let tools = replies[1]["result"]["tools"].as_array().expect("tools");
+    let names = tools
         .iter()
         .map(|tool| tool["name"].as_str().expect("name").to_owned())
         .collect::<Vec<_>>();
@@ -44,6 +43,14 @@ fn the_handshake_advertises_every_tool_and_answers_ping() {
             "{expected} is offered"
         );
     }
+    let context = tools
+        .iter()
+        .find(|tool| tool["name"] == "context")
+        .expect("context tool");
+    assert_eq!(
+        context["inputSchema"]["properties"]["budget_records"]["minimum"],
+        1
+    );
     assert_eq!(replies[3]["error"]["code"], -32601);
     fs::remove_dir_all(root).expect("cleanup");
 }

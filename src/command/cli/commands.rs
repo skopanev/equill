@@ -143,6 +143,9 @@ pub enum Command {
         /// Runtime token ceiling. May lower, never raise, the profile hard cap.
         #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
         budget: Option<u32>,
+        /// Runtime record ceiling, applied after selection and ranking.
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+        budget_records: Option<u32>,
         #[command(flatten)]
         present: PresentationArgs,
     },

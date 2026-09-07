@@ -6,6 +6,7 @@ use super::fixtures::support::{request, store};
 use crate::command::doctor;
 use crate::filter::Filter;
 use std::fs;
+mod records;
 
 #[test]
 fn required_overflow_fails_context_and_doctor() {

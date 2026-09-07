@@ -1,5 +1,7 @@
 use super::budget::Budgeted;
-use super::model::{ContextBudget, ContextBundle, ContextReceipt, VersionCoordinate};
+use super::model::{
+    ContextBudget, ContextBundle, ContextReceipt, RuntimeBudget, VersionCoordinate,
+};
 use super::retrieval::Retrieval;
 use crate::kernel::digest::sha256_hex;
 use crate::kernel::error::Error;
@@ -44,7 +46,7 @@ pub fn bundle(
     selectors: Vec<VersionCoordinate>,
     request_digest: String,
     budget: ContextBudget,
-    runtime_budget_tokens: Option<usize>,
+    runtime_budget: RuntimeBudget,
     retrieved: Retrieval,
     budgeted: Budgeted,
 ) -> Result<ContextBundle, Error> {
@@ -63,7 +65,8 @@ pub fn bundle(
         excluded: budgeted.excluded,
         strategies: retrieved.strategies,
         budget,
-        runtime_budget_tokens,
+        runtime_budget_tokens: runtime_budget.tokens,
+        runtime_budget_records: runtime_budget.records,
         effective_total_tokens: budgeted.effective_total,
         usage: budgeted.usage,
         bundle_digest: bundle_digest.clone(),

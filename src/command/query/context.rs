@@ -22,6 +22,7 @@ pub fn context(
     at: Option<String>,
     include_superseded: bool,
     runtime_budget_tokens: Option<usize>,
+    runtime_budget_records: Option<usize>,
     filters: Vec<String>,
     strict: bool,
     format: command::cli::FormatArg,
@@ -52,46 +53,26 @@ pub fn context(
     let llm = |records: &[record::StoredRecord]| {
         command::present::records(records, command::present::Format::Llm, &[])
     };
+    let limits = context::RuntimeBudget {
+        tokens: runtime_budget_tokens,
+        records: runtime_budget_records,
+    };
     let bundle = match (request, matches!(format, command::cli::FormatArg::Llm)) {
-        (Some(path), true) => context::assemble_file_with_renderer(
-            &store,
-            &profile,
-            &path,
-            &actor,
-            &filter,
-            runtime_budget_tokens,
-            &llm,
+        (Some(path), true) => context::assemble_file_with_renderer_and_limits(
+            &store, &profile, &path, &actor, &filter, limits, &llm,
         )?,
-        (Some(path), false) => context::assemble_file_with_budget(
-            &store,
-            &profile,
-            &path,
-            &actor,
-            &filter,
-            runtime_budget_tokens,
-        )?,
+        (Some(path), false) => {
+            context::assemble_file_with_limits(&store, &profile, &path, &actor, &filter, limits)?
+        }
         (None, llm_format) => {
             let request =
                 context::inline_request(query, coordinates, tags, kinds, at, include_superseded)?;
             if llm_format {
-                context::assemble_with_renderer(
-                    &store,
-                    &profile,
-                    request,
-                    &actor,
-                    &filter,
-                    runtime_budget_tokens,
-                    &llm,
+                context::assemble_with_renderer_and_limits(
+                    &store, &profile, request, &actor, &filter, limits, &llm,
                 )?
             } else {
-                context::assemble_with_budget(
-                    &store,
-                    &profile,
-                    request,
-                    &actor,
-                    &filter,
-                    runtime_budget_tokens,
-                )?
+                context::assemble_with_limits(&store, &profile, request, &actor, &filter, limits)?
             }
         }
     };

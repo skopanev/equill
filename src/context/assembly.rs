@@ -1,4 +1,4 @@
-use super::model::{ContextBundle, ContextRequest};
+use super::model::{ContextBundle, ContextRequest, RuntimeBudget};
 use super::{budget, receipt, registry, retrieval};
 use crate::filter::Filter;
 use crate::kernel::digest::sha256_hex;
@@ -14,12 +14,17 @@ pub fn assemble(
     request: ContextRequest,
     actor: &str,
     filter: &Filter,
-    runtime_budget_tokens: Option<usize>,
+    runtime_budget: RuntimeBudget,
     render: &dyn Fn(&[StoredRecord]) -> Result<String, Error>,
 ) -> Result<ContextBundle, Error> {
-    if runtime_budget_tokens == Some(0) {
+    if runtime_budget.tokens == Some(0) {
         return Err(Error::Context(
             "runtime token budget must be positive".into(),
+        ));
+    }
+    if runtime_budget.records == Some(0) {
+        return Err(Error::Context(
+            "runtime record budget must be positive".into(),
         ));
     }
     let config = store::load(store_root)?;
@@ -57,7 +62,7 @@ pub fn assemble(
     let budgeted = budget::apply(
         std::mem::take(&mut retrieved.candidates),
         &profile.budget,
-        runtime_budget_tokens,
+        runtime_budget,
         render,
         std::mem::take(&mut retrieved.excluded),
     )?;
@@ -73,7 +78,7 @@ pub fn assemble(
         selector_coordinates,
         request_digest,
         profile.budget,
-        runtime_budget_tokens,
+        runtime_budget,
         retrieved,
         budgeted,
     )

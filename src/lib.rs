@@ -10,47 +10,17 @@ pub mod kernel;
 pub mod mcp;
 pub mod projection;
 pub mod record;
+mod runner;
 pub mod schema;
 pub mod telemetry;
 pub mod vector;
 
-pub fn run<I, T>(args: I) -> Result<String, kernel::error::Error>
-where
-    I: IntoIterator<Item = T>,
-    T: Into<std::ffi::OsString> + Clone,
-{
-    run_with_progress(args, None)
-}
+pub use runner::{run, run_cli};
 
-pub fn run_cli<I, T>(args: I) -> Result<String, kernel::error::Error>
-where
-    I: IntoIterator<Item = T>,
-    T: Into<std::ffi::OsString> + Clone,
-{
-    let mut progress = command::cli::HumanVectorProgress::stderr();
-    run_with_progress(args, Some(&mut progress))
-}
-
-fn run_with_progress<I, T>(
-    args: I,
+pub(crate) fn dispatch(
+    cli: command::cli::Cli,
     mut progress: Option<&mut dyn vector::VectorProgressSink>,
-) -> Result<String, kernel::error::Error>
-where
-    I: IntoIterator<Item = T>,
-    T: Into<std::ffi::OsString> + Clone,
-{
-    use clap::Parser;
-
-    let cli = command::cli::Cli::parse_from(args);
-    // One place, for every command that opens a store: make sure a lagging
-    // index is being caught up. Cheap and local — a current store spawns
-    // nothing — and skipped for the worker itself, which would otherwise try to
-    // start a second copy of the work it is about to do.
-    if let Some(store) = cli.command.store_to_resume()
-        && !command::cli::held_to_reading(store)
-    {
-        vector::resume(store);
-    }
+) -> Result<String, kernel::error::Error> {
     let json = cli.json;
     if json {
         progress = None;
@@ -158,6 +128,7 @@ where
             at,
             include_superseded,
             budget,
+            budget_records,
             present,
         } => command::query::context(
             json,
@@ -176,6 +147,7 @@ where
             at,
             include_superseded,
             budget.map(|value| value as usize),
+            budget_records.map(|value| value as usize),
             present.filters,
             present.strict,
             present.format,

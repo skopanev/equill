@@ -6,11 +6,12 @@
 //! written out of order printed them out of order, while the same call in JSON
 //! printed them correctly. Two answers to one question.
 mod harness;
+#[path = "context_order/support.rs"]
+mod support;
 
-use serde_json::json;
 use std::fs;
-use std::path::{Path, PathBuf};
 use std::process::Command;
+use support::{run, store};
 
 /// Written 0.3, 0.1, 0.2, so ledger order and rank order cannot agree by luck.
 const WRITTEN: [f64; 3] = [0.3, 0.1, 0.2];
@@ -156,16 +157,18 @@ fn runtime_budget_counts_the_exact_llm_stdout() {
 #[test]
 fn zero_runtime_budget_is_rejected_before_context_assembly() {
     let root = store();
-    let out = Command::new(harness::binary())
-        .args(["context", "--profile", "ranked", "--budget", "0"])
-        .arg("--store")
-        .arg(&root)
-        .env("EQUILL_ACTOR", "owner")
-        .output()
-        .expect("command");
+    for flag in ["--budget", "--budget-records"] {
+        let out = Command::new(harness::binary())
+            .args(["context", "--profile", "ranked", flag, "0"])
+            .arg("--store")
+            .arg(&root)
+            .env("EQUILL_ACTOR", "owner")
+            .output()
+            .expect("command");
 
-    assert!(!out.status.success());
-    assert!(String::from_utf8_lossy(&out.stderr).contains("--budget"));
+        assert!(!out.status.success());
+        assert!(String::from_utf8_lossy(&out.stderr).contains(flag));
+    }
     let _ = fs::remove_dir_all(&root);
 }
 
@@ -176,110 +179,4 @@ fn confidences(printed: &str) -> Vec<String> {
         .filter_map(|line| line.strip_prefix("Confidence: "))
         .map(str::to_owned)
         .collect()
-}
-
-fn run(root: &Path, args: &[&str]) -> String {
-    let out = Command::new(harness::binary())
-        .args(args)
-        .arg("--store")
-        .arg(root)
-        .env("EQUILL_ACTOR", "owner")
-        .output()
-        .expect("command");
-    assert!(
-        out.status.success(),
-        "{args:?} failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    String::from_utf8_lossy(&out.stdout).into_owned()
-}
-
-fn write(root: &Path, name: &str, value: serde_json::Value) -> PathBuf {
-    let path = root.join(name);
-    fs::write(&path, serde_json::to_vec(&value).expect("json")).expect("write");
-    path
-}
-
-fn store() -> PathBuf {
-    let root = std::env::temp_dir().join(format!(
-        "equill-context-order-{}-{}",
-        std::process::id(),
-        uuid::Uuid::now_v7().simple()
-    ));
-    let _ = fs::remove_dir_all(&root);
-    run(
-        &root,
-        &["init", "--owner", "owner", "--namespace", "agent.memory"],
-    );
-    let schema = write(
-        &root,
-        "schema.json",
-        json!({
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "$id": "equill://agent.lesson/v1",
-            "type": "object",
-            "required": ["rule"],
-            "additionalProperties": false,
-            "properties": { "rule": { "type": "string" }, "confidence": { "type": "number" } },
-            "x-equill-envelope": { "namespace": "agent.memory", "type": "agent.lesson.v1" }
-        }),
-    );
-    run(
-        &root,
-        &[
-            "schema",
-            "register",
-            "--file",
-            schema.to_str().expect("path"),
-        ],
-    );
-    let selector = write(
-        &root,
-        "selector.json",
-        json!({
-            "id": "ranked.v1", "version": "1", "type": "agent.lesson.v1",
-            "strategies": ["recency"], "rank_pointer": "/confidence", "rank_order": "asc"
-        }),
-    );
-    run(
-        &root,
-        &[
-            "selector",
-            "register",
-            "--file",
-            selector.to_str().expect("path"),
-        ],
-    );
-    let profile = write(
-        &root,
-        "profile.json",
-        json!({
-            "id": "ranked", "version": "1", "actors": [],
-            "grants": [{ "namespace": "agent.memory", "types": ["agent.lesson.v1"] }],
-            "selectors": ["ranked.v1"], "budget": {}
-        }),
-    );
-    run(
-        &root,
-        &[
-            "profile",
-            "register",
-            "--file",
-            profile.to_str().expect("path"),
-        ],
-    );
-    for confidence in WRITTEN {
-        let draft = write(
-            &root,
-            &format!("draft-{confidence}.json"),
-            json!({
-                "namespace": "agent.memory",
-                "type": "agent.lesson.v1",
-                "observed_at": "2026-01-01T00:00:00Z",
-                "payload": { "rule": format!("step {confidence}"), "confidence": confidence }
-            }),
-        );
-        run(&root, &["record", "--input", draft.to_str().expect("path")]);
-    }
-    root
 }

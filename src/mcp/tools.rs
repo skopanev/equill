@@ -36,6 +36,7 @@ pub fn catalog() -> Value {
                 "at": { "type": "string" },
                 "include_superseded": { "type": "boolean" },
                 "budget": { "type": "integer", "minimum": 1 },
+                "budget_records": { "type": "integer", "minimum": 1 },
                 "where": { "type": "array", "items": { "type": "string" } },
                 "strict": { "type": "boolean" }
             }})),
@@ -207,13 +208,17 @@ fn assemble(
         flag(arguments, "include_superseded"),
     )?;
     let runtime_budget_tokens = positive_usize(arguments, "budget")?;
-    let bundle = context::assemble_with_budget(
+    let runtime_budget_records = positive_usize(arguments, "budget_records")?;
+    let bundle = context::assemble_with_limits(
         store,
         &profile,
         request,
         actor,
         &filter,
-        runtime_budget_tokens,
+        context::RuntimeBudget {
+            tokens: runtime_budget_tokens,
+            records: runtime_budget_records,
+        },
     )?;
     telemetry::record_query(
         store,

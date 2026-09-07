@@ -62,6 +62,33 @@ pub fn cli_json_value(root: &Path, coordinates: &[&str]) -> serde_json::Value {
     serde_json::from_slice(&out.stdout).expect("cli json")
 }
 
+pub fn cli_json_value_with_record_budget(
+    root: &Path,
+    coordinates: &[&str],
+    budget_records: usize,
+) -> Value {
+    let mut args = vec![
+        "context",
+        "--profile",
+        "roles",
+        "--json",
+        "--budget-records",
+    ];
+    let budget = budget_records.to_string();
+    args.push(&budget);
+    for entry in coordinates {
+        args.push("--coordinate");
+        args.push(entry);
+    }
+    let out = equill(root, &args);
+    assert!(
+        out.status.success(),
+        "cli context failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    serde_json::from_slice(&out.stdout).expect("cli json")
+}
+
 pub fn cli_json(root: &Path, coordinates: &[&str]) -> Answer {
     let mut args = vec!["context", "--profile", "roles", "--json"];
     for entry in coordinates {
@@ -124,10 +151,15 @@ pub fn titles_of(root: &Path, ids: &BTreeSet<String>) -> BTreeSet<String> {
 
 /// The same, through a real MCP session rather than a helper.
 pub fn mcp(root: &Path, coordinates: &[&str]) -> Answer {
-    Answer::read(&mcp_value(root, coordinates, None))
+    Answer::read(&mcp_value(root, coordinates, None, None))
 }
 
-pub fn mcp_value(root: &Path, coordinates: &[&str], budget: Option<usize>) -> Value {
+pub fn mcp_value(
+    root: &Path,
+    coordinates: &[&str],
+    budget: Option<usize>,
+    budget_records: Option<usize>,
+) -> Value {
     let mut session = Session::open(root);
     let mut arguments = json!({
         "profile": "roles",
@@ -135,6 +167,9 @@ pub fn mcp_value(root: &Path, coordinates: &[&str], budget: Option<usize>) -> Va
     });
     if let Some(budget) = budget {
         arguments["budget"] = json!(budget);
+    }
+    if let Some(budget_records) = budget_records {
+        arguments["budget_records"] = json!(budget_records);
     }
     let (_, response) = session.tool("context", arguments);
     assert!(

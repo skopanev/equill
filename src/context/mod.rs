@@ -1,3 +1,4 @@
+mod api;
 mod assembly;
 mod budget;
 mod matching;
@@ -14,7 +15,12 @@ use crate::kernel::store;
 use std::fs;
 use std::path::Path;
 
-pub use model::{ContextBundle, ContextRequest, RegistryReport};
+pub use api::{
+    assemble, assemble_file, assemble_file_with_budget, assemble_file_with_limits,
+    assemble_file_with_renderer, assemble_file_with_renderer_and_limits, assemble_with_budget,
+    assemble_with_limits, assemble_with_renderer, assemble_with_renderer_and_limits,
+};
+pub use model::{ContextBundle, ContextRequest, RegistryReport, RuntimeBudget};
 
 pub fn register_profile(store: &Path, file: &Path, actor: &str) -> Result<RegistryReport, Error> {
     registry::register_profile(store, file, actor)
@@ -22,107 +28,6 @@ pub fn register_profile(store: &Path, file: &Path, actor: &str) -> Result<Regist
 
 pub fn register_selector(store: &Path, file: &Path, actor: &str) -> Result<RegistryReport, Error> {
     registry::register_selector(store, file, actor)
-}
-
-pub fn assemble_file(
-    store_root: &Path,
-    profile_id: &str,
-    request_file: &Path,
-    actor: &str,
-    filter: &Filter,
-) -> Result<ContextBundle, Error> {
-    assemble_file_with_budget(store_root, profile_id, request_file, actor, filter, None)
-}
-
-pub fn assemble_file_with_budget(
-    store_root: &Path,
-    profile_id: &str,
-    request_file: &Path,
-    actor: &str,
-    filter: &Filter,
-    runtime_budget_tokens: Option<usize>,
-) -> Result<ContextBundle, Error> {
-    assemble_file_with_renderer(
-        store_root,
-        profile_id,
-        request_file,
-        actor,
-        filter,
-        runtime_budget_tokens,
-        &payload,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn assemble_file_with_renderer(
-    store_root: &Path,
-    profile_id: &str,
-    request_file: &Path,
-    actor: &str,
-    filter: &Filter,
-    runtime_budget_tokens: Option<usize>,
-    render: &dyn Fn(&[crate::record::StoredRecord]) -> Result<String, Error>,
-) -> Result<ContextBundle, Error> {
-    let request: model::ContextRequest = serde_json::from_slice(&fs::read(request_file)?)?;
-    assemble_with_renderer(
-        store_root,
-        profile_id,
-        request,
-        actor,
-        filter,
-        runtime_budget_tokens,
-        render,
-    )
-}
-
-pub fn assemble(
-    store_root: &Path,
-    profile_id: &str,
-    request: model::ContextRequest,
-    actor: &str,
-    filter: &Filter,
-) -> Result<ContextBundle, Error> {
-    assemble_with_budget(store_root, profile_id, request, actor, filter, None)
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn assemble_with_renderer(
-    store_root: &Path,
-    profile_id: &str,
-    request: model::ContextRequest,
-    actor: &str,
-    filter: &Filter,
-    runtime_budget_tokens: Option<usize>,
-    render: &dyn Fn(&[crate::record::StoredRecord]) -> Result<String, Error>,
-) -> Result<ContextBundle, Error> {
-    assembly::assemble(
-        store_root,
-        profile_id,
-        request,
-        actor,
-        filter,
-        runtime_budget_tokens,
-        render,
-    )
-}
-
-pub fn assemble_with_budget(
-    store_root: &Path,
-    profile_id: &str,
-    request: model::ContextRequest,
-    actor: &str,
-    filter: &Filter,
-    runtime_budget_tokens: Option<usize>,
-) -> Result<ContextBundle, Error> {
-    assembly::assemble(
-        store_root,
-        profile_id,
-        request,
-        actor,
-        filter,
-        runtime_budget_tokens,
-        &payload,
-    )
 }
 
 /// The profile this store nominates, or a refusal that says so plainly.
@@ -172,7 +77,7 @@ pub fn profile_faults(store_root: &Path) -> Result<usize, Error> {
         let budgeted = budget::apply(
             retrieved.candidates,
             &profile.budget,
-            None,
+            model::RuntimeBudget::default(),
             &payload,
             retrieved.excluded,
         )?;

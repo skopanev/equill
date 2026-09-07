@@ -225,12 +225,19 @@ fn the_receipt_carries_its_records_as_objects_and_keeps_what_it_said_before() {
 }
 
 #[test]
-fn mcp_runtime_budget_uses_the_same_hard_token_ceiling() {
+fn runtime_budgets_are_enforced_through_cli_and_mcp() {
     let root = fixture("mcp-budget");
-    let body = surfaces::mcp_value(&root, &["project=finik", "role=pm"], Some(20));
+    let asked = &["project=finik", "role=pm"];
+    let body = surfaces::mcp_value(&root, asked, Some(20), None);
 
     assert_eq!(body["receipt"]["runtime_budget_tokens"], 20);
     assert_eq!(body["receipt"]["effective_total_tokens"], 20);
     assert!(body["receipt"]["usage"]["total"].as_u64().expect("tokens") <= 20);
+    let cli = surfaces::cli_json_value_with_record_budget(&root, asked, 2);
+    let mcp = surfaces::mcp_value(&root, asked, None, Some(2));
+    assert_eq!(cli["selected_record_ids"], mcp["selected_record_ids"]);
+    assert_eq!(cli["selected_record_ids"].as_array().expect("ids").len(), 2);
+    assert_eq!(cli["receipt"]["runtime_budget_records"], 2);
+    assert_eq!(mcp["receipt"]["runtime_budget_records"], 2);
     let _ = std::fs::remove_dir_all(root);
 }
