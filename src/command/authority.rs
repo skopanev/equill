@@ -33,10 +33,11 @@ pub(crate) fn grant(json: bool, command: GrantCommand) -> Result<String, Error> 
             namespace,
             types,
             payload_equals,
+            payload_equals_json,
             comment,
         } => {
             let actor = identity::actor_from_env()?;
-            let payload_equals = parse_payload_equals(&payload_equals)?;
+            let payload_equals = parse_payload_equals(&payload_equals, &payload_equals_json)?;
             let report = governance::grant_with_payload_equals(
                 &store,
                 &subject,
@@ -60,24 +61,40 @@ pub(crate) fn grant(json: bool, command: GrantCommand) -> Result<String, Error> 
     }
 }
 
-fn parse_payload_equals(entries: &[String]) -> Result<BTreeMap<String, Value>, Error> {
+fn parse_payload_equals(
+    strings: &[String],
+    json: &[String],
+) -> Result<BTreeMap<String, Value>, Error> {
     let mut parsed = BTreeMap::new();
-    for entry in entries {
-        let (pointer, value) = entry.split_once('=').ok_or_else(|| {
+    for entry in strings {
+        let (pointer, value) = assignment(entry, "POINTER=VALUE")?;
+        insert(&mut parsed, pointer, Value::String(value.to_owned()))?;
+    }
+    for entry in json {
+        let (pointer, value) = assignment(entry, "POINTER=JSON")?;
+        let value = serde_json::from_str(value).map_err(|error| {
             Error::Governance(format!(
-                "payload constraint {entry:?} must be POINTER=VALUE"
+                "payload JSON constraint at {pointer:?} is invalid: {error}"
             ))
         })?;
-        if parsed
-            .insert(pointer.to_owned(), Value::String(value.to_owned()))
-            .is_some()
-        {
-            return Err(Error::Governance(format!(
-                "payload constraint {pointer:?} was supplied twice"
-            )));
-        }
+        insert(&mut parsed, pointer, value)?;
     }
     Ok(parsed)
+}
+
+fn assignment<'a>(entry: &'a str, shape: &str) -> Result<(&'a str, &'a str), Error> {
+    entry
+        .split_once('=')
+        .ok_or_else(|| Error::Governance(format!("payload constraint {entry:?} must be {shape}")))
+}
+
+fn insert(parsed: &mut BTreeMap<String, Value>, pointer: &str, value: Value) -> Result<(), Error> {
+    if parsed.insert(pointer.to_owned(), value).is_some() {
+        return Err(Error::Governance(format!(
+            "payload constraint {pointer:?} was supplied twice"
+        )));
+    }
+    Ok(())
 }
 
 pub(crate) fn reader(json: bool, command: ReaderCommand) -> Result<String, Error> {
@@ -113,15 +130,31 @@ mod tests {
 
     #[test]
     fn payload_constraints_require_pointer_equals_value() {
-        let error = parse_payload_equals(&["/project".into()]).expect_err("malformed");
+        let error = parse_payload_equals(&["/project".into()], &[]).expect_err("malformed");
         assert!(error.to_string().contains("POINTER=VALUE"));
     }
 
     #[test]
     fn payload_constraints_refuse_duplicate_pointers() {
-        let error =
-            parse_payload_equals(&["/project=project-a".into(), "/project=project-b".into()])
-                .expect_err("duplicate");
+        let error = parse_payload_equals(
+            &["/project=project-a".into()],
+            &[r#"/project="project-b""#.into()],
+        )
+        .expect_err("duplicate");
         assert!(error.to_string().contains("supplied twice"));
+    }
+
+    #[test]
+    fn payload_json_constraint_preserves_the_whole_array() {
+        let parsed =
+            parse_payload_equals(&[], &[r#"/project=["project-a"]"#.into()]).expect("array");
+        assert!(matches!(parsed["/project"], serde_json::Value::Array(_)));
+        assert_eq!(parsed["/project"], serde_json::json!(["project-a"]));
+    }
+
+    #[test]
+    fn payload_json_constraint_refuses_malformed_json() {
+        let error = parse_payload_equals(&[], &["/project=[".into()]).expect_err("json");
+        assert!(error.to_string().contains("is invalid"));
     }
 }

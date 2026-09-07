@@ -171,8 +171,14 @@ actor a store-wide writer:
     {
       "actors": ["project-a-pm"],
       "namespace": "agent.memory",
-      "types": ["agent.lesson.v1", "agent.finding.v1"],
-      "payload_equals": { "/project": "project-a" }
+      "types": ["agent.lesson.v1"],
+      "payload_equals": { "/project": ["project-a"], "/scope": "project" }
+    },
+    {
+      "actors": ["project-a-pm"],
+      "namespace": "agent.memory",
+      "types": ["agent.finding.v1"],
+      "payload_equals": { "/project": ["project-a"] }
     }
   ]
 }
@@ -181,13 +187,17 @@ actor a store-wide writer:
 The root owner always retains write access. Existing `writers` entries remain
 store-wide for compatibility. `write_grants` add actor/namespace/type scope and optional
 exact payload constraints keyed by RFC 6901 JSON Pointer. Every constraint is ANDed;
-missing, `null`, or another value does not match `/project=project-a`.
+missing, `null`, a scalar, an empty array, or another array does not match the exact
+JSON value `["project-a"]`.
 
 ```bash
 EQUILL_ACTOR=local-orchestrator equill grant add --store .equill \
-  --actor project-a-pm --namespace agent.memory \
-  --types agent.lesson.v1,agent.finding.v1 \
-  --payload-equals /project=project-a
+  --actor project-a-pm --namespace agent.memory --types agent.lesson.v1 \
+  --payload-equals-json '/project=["project-a"]' \
+  --payload-equals-json '/scope="project"'
+EQUILL_ACTOR=local-orchestrator equill grant add --store .equill \
+  --actor project-a-pm --namespace agent.memory --types agent.finding.v1 \
+  --payload-equals-json '/project=["project-a"]'
 ```
 
 An MCP launcher uses the same actor and store; project and role variables are routing
@@ -211,7 +221,7 @@ Project agents send global or cross-project proposals to GM instead of writing t
 One shared `pm` actor cannot separate projects. Migrate launchers in three steps:
 
 1. Stop shared-actor launches; remove `pm` from legacy `writers` and revoke its grants.
-2. Add one exact constrained grant per project actor, such as `project-a-pm`.
+2. Add exact per-type JSON constraints for each project actor, such as `project-a-pm`.
 3. Launch MCP with that actor and matching routing metadata shown above.
 
 This is a cooperative local guardrail, not OS authentication: a process that can invoke

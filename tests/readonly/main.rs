@@ -14,6 +14,7 @@ mod fixture;
 mod harness;
 mod inspect;
 mod lagging;
+mod project_grant_fixture;
 mod project_grants;
 mod resume;
 

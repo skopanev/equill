@@ -212,7 +212,11 @@ store-wide for compatibility. `write_grants` add least-privilege append access s
 by actor, namespace, type, and optional `payload_equals`. Its keys are RFC 6901 JSON
 Pointers and its values require exact JSON equality; multiple entries are ANDed. Actor,
 namespace, and type support `*`, but payload constraints do not widen missing or `null`
-fields. Existing unconstrained grants retain their previous meaning.
+fields. Arrays compare as whole JSON values: `["project-a"]` does not authorize a
+multi-project array, an empty array, or the scalar `"project-a"`. Existing unconstrained
+grants retain their previous meaning. The CLI preserves typed values with repeatable
+`--payload-equals-json POINTER=JSON`; separate type grants express different constraints,
+such as project-plus-scope for lessons and project-only for findings.
 
 The writer checks the submitted payload and, for a supersede, the target payload against
 one same grant. A project-scoped actor therefore cannot replace a record from another
