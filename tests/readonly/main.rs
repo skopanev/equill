@@ -14,6 +14,7 @@ mod fixture;
 mod harness;
 mod inspect;
 mod lagging;
+mod project_grants;
 mod resume;
 
 pub use fixture::{READER, existing_record, plain_store, run, store, write};
@@ -76,16 +77,11 @@ fn a_read_only_actor_cannot_append_by_any_route() {
             !out.status.success(),
             "{route} succeeded for a read-only actor"
         );
-        // The exact contract, not a paraphrase: a caller keys on the token,
-        // and the escalation path is what the refused actor needs to read.
+        // The refusal names the generic write boundary and the held actor.
         let said = String::from_utf8_lossy(&out.stderr);
         assert!(
-            said.contains("PM_WRITE_DENIED"),
-            "{route} refused without the stable token: {said}"
-        );
-        assert!(
-            said.contains("Escalate to GM."),
-            "{route} refused without saying where to go: {said}"
+            said.contains("read-only") && said.contains("not allowed to write"),
+            "{route} refused without the generic contract: {said}"
         );
         assert!(said.contains(READER), "{route} refused without naming who");
     }
@@ -169,8 +165,8 @@ fn a_read_only_actor_cannot_govern() {
     );
     let said = String::from_utf8_lossy(&out.stderr);
     assert!(
-        said.contains("PM_WRITE_DENIED"),
-        "governance refused without the stable token: {said}"
+        said.contains("read-only") && said.contains("not allowed to write"),
+        "governance refused without the generic contract: {said}"
     );
 
     // The control on the same command: the owner still governs, so the refusal

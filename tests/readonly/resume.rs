@@ -33,7 +33,7 @@ fn a_refused_command_line_call_does_not_start_a_catch_up() {
     );
     assert!(!out.status.success(), "revoke succeeded for a held actor");
     assert!(
-        String::from_utf8_lossy(&out.stderr).contains("PM_WRITE_DENIED"),
+        String::from_utf8_lossy(&out.stderr).contains("read-only"),
         "revoke refused for another reason: {}",
         String::from_utf8_lossy(&out.stderr)
     );

@@ -51,6 +51,10 @@ pub enum GrantCommand {
         /// Types the grant covers. `*` covers every type.
         #[arg(long, value_delimiter = ',')]
         types: Vec<String>,
+        /// Exact durable payload value required by this grant. Repeat for
+        /// multiple JSON Pointers, for example `--payload-equals /project=project-a`.
+        #[arg(long = "payload-equals", value_name = "POINTER=VALUE")]
+        payload_equals: Vec<String>,
         /// Why the grant is being written. Only its sha256 digest is stored;
         /// the text itself never enters the ledger.
         #[arg(long)]

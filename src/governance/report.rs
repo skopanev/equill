@@ -1,4 +1,6 @@
 use serde::Serialize;
+use serde_json::Value;
+use std::collections::BTreeMap;
 use uuid::Uuid;
 
 #[derive(Debug, Serialize)]
@@ -46,6 +48,8 @@ pub struct GrantView {
     pub actors: Vec<String>,
     pub namespace: String,
     pub types: Vec<String>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub payload_equals: BTreeMap<String, Value>,
 }
 
 /// The outcome of naming, or unnaming, an actor that may only read.

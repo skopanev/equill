@@ -15,7 +15,7 @@ use std::path::Path;
 use uuid::Uuid;
 
 pub use audit::{TYPE as AUDIT_TYPE, TYPE_V2 as AUDIT_TYPE_V2};
-pub use grant::{grant, revoke_grant};
+pub use grant::{grant, grant_with_payload_equals, revoke_grant};
 pub use owner::transfer;
 pub use reader::{allow as allow_writes, deny as deny_writes};
 pub use report::{AuthorityReport, GrantReport, GrantView, OwnerReport, ReaderReport};
@@ -42,6 +42,7 @@ pub fn show(store_root: &Path) -> Result<AuthorityReport, Error> {
                 actors: grant.actors,
                 namespace: grant.namespace,
                 types: grant.types,
+                payload_equals: grant.payload_equals,
             })
             .collect(),
         store_sha256: metadata::digest(store_root)?,

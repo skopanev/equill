@@ -209,12 +209,29 @@ operation grant table for every transport.
 
 The store root owner can write every registered type. Legacy `writers` remain
 store-wide for compatibility. `write_grants` add least-privilege append access scoped
-by actor, namespace, and type; each dimension supports `*`. They are additive: an actor
-already present in `writers` is not narrowed by a scoped grant. Store metadata without
-`write_grants` continues to load with an empty scoped grant list.
+by actor, namespace, type, and optional `payload_equals`. Its keys are RFC 6901 JSON
+Pointers and its values require exact JSON equality; multiple entries are ANDed. Actor,
+namespace, and type support `*`, but payload constraints do not widen missing or `null`
+fields. Existing unconstrained grants retain their previous meaning.
+
+The writer checks the submitted payload and, for a supersede, the target payload against
+one same grant. A project-scoped actor therefore cannot replace a record from another
+project with an apparently in-scope successor. Revocation writes a successor carrying
+the target payload, so it crosses no boundary either. A read-only hold wins over every
+matching grant.
 
 Selector coordinates are not ACLs. They narrow records only after a profile's read
 grant succeeds and never authorize reads, writes, schema changes, or governance.
+Likewise, `EQUILL_PROJECT`, `EQUILL_ROLE`, and top-level MCP coordinates are launcher or
+retrieval metadata, never write authority. Only `EQUILL_ACTOR` chooses an identity;
+authorization then evaluates the immutable draft. Project actors route proposals for
+global records to GM.
+
+Project isolation requires distinct actor names. A shared role actor such as `pm` is one
+identity and must be removed from legacy `writers` and unconstrained grants before
+project-scoped launchers are enabled. This boundary prevents accidental cross-project
+writes among cooperating local agents; it does not authenticate the environment or
+defend against a process that can impersonate another actor and access the store.
 
 CLI and MCP call the same core operations. In particular, MCP `record` uses the same
 schema registry, grants, and immutable writer as CLI `record`.

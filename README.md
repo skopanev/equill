@@ -168,15 +168,56 @@ actor a store-wide writer:
 {
   "writers": [],
   "write_grants": [
-    { "actors": ["finding-agent"], "namespace": "agent.memory", "types": ["agent.finding.v1"] }
+    {
+      "actors": ["project-a-pm"],
+      "namespace": "agent.memory",
+      "types": ["agent.lesson.v1", "agent.finding.v1"],
+      "payload_equals": { "/project": "project-a" }
+    }
   ]
 }
 ```
 
 The root owner always retains write access. Existing `writers` entries remain
-store-wide for compatibility; `write_grants` add actor/namespace/type scope. No separate
-grant-management CLI is exposed. Request coordinates are retrieval filters, not read or
-write permissions.
+store-wide for compatibility. `write_grants` add actor/namespace/type scope and optional
+exact payload constraints keyed by RFC 6901 JSON Pointer. Every constraint is ANDed;
+missing, `null`, or another value does not match `/project=project-a`.
+
+```bash
+EQUILL_ACTOR=local-orchestrator equill grant add --store .equill \
+  --actor project-a-pm --namespace agent.memory \
+  --types agent.lesson.v1,agent.finding.v1 \
+  --payload-equals /project=project-a
+```
+
+An MCP launcher uses the same actor and store; project and role variables are routing
+metadata only:
+
+```json
+{
+  "command": "equill",
+  "args": ["mcp", "--store", "./stores/project-a"],
+  "env": {
+    "EQUILL_ACTOR": "project-a-pm",
+    "EQUILL_PROJECT": "project-a",
+    "EQUILL_ROLE": "pm"
+  }
+}
+```
+
+`EQUILL_ACTOR` selects the grant. `EQUILL_PROJECT`, `EQUILL_ROLE`, request coordinates,
+and extra MCP arguments never grant authority; the immutable draft's payload must match.
+Project agents send global or cross-project proposals to GM instead of writing them.
+One shared `pm` actor cannot separate projects. Migrate launchers in three steps:
+
+1. Stop shared-actor launches; remove `pm` from legacy `writers` and revoke its grants.
+2. Add one exact constrained grant per project actor, such as `project-a-pm`.
+3. Launch MCP with that actor and matching routing metadata shown above.
+
+This is a cooperative local guardrail, not OS authentication: a process that can invoke
+Equill against the store can choose `EQUILL_ACTOR`. Payload constraints prevent agents
+from accidentally writing across projects; filesystem/process isolation handles hostile
+impersonation.
 
 ## Context assembly
 

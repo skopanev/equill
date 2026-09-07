@@ -1,5 +1,6 @@
 use crate::kernel::error::Error;
 use crate::kernel::store::StoreConfig;
+use serde_json::Value;
 
 const ACTOR_ENV: &str = "EQUILL_ACTOR";
 
@@ -73,12 +74,61 @@ pub fn require_type_writer(
         permits(&grant.actors, actor)
             && matches(&grant.namespace, namespace)
             && grant.types.iter().any(|item| matches(item, type_name))
+            && grant.payload_equals.is_empty()
     });
     if valid(actor) && (actor == config.root_owner || permits(&config.writers, actor) || scoped) {
         Ok(())
     } else {
         Err(Error::PermissionDenied)
     }
+}
+
+#[derive(Clone, Copy)]
+pub struct WriteTarget<'a> {
+    pub namespace: &'a str,
+    pub type_name: &'a str,
+    pub payload: &'a Value,
+}
+
+/// Authorize the durable payload and, for a replacement, its predecessor.
+/// One grant must cover both ends, so two project grants cannot be combined to
+/// cross a boundary that neither grant permits by itself.
+pub fn require_record_writer(
+    config: &StoreConfig,
+    actor: &str,
+    record: WriteTarget<'_>,
+    predecessor: Option<WriteTarget<'_>>,
+) -> Result<(), Error> {
+    read_only(config, actor)?;
+    if valid(actor) && (actor == config.root_owner || permits(&config.writers, actor)) {
+        return Ok(());
+    }
+    let allowed = config.write_grants.iter().any(|grant| {
+        grant_allows(grant, actor, record)
+            && predecessor.is_none_or(|target| grant_allows(grant, actor, target))
+    });
+    if allowed {
+        Ok(())
+    } else {
+        Err(Error::PermissionDenied)
+    }
+}
+
+fn grant_allows(
+    grant: &crate::kernel::store::WriteGrant,
+    actor: &str,
+    target: WriteTarget<'_>,
+) -> bool {
+    permits(&grant.actors, actor)
+        && matches(&grant.namespace, target.namespace)
+        && grant
+            .types
+            .iter()
+            .any(|item| matches(item, target.type_name))
+        && grant
+            .payload_equals
+            .iter()
+            .all(|(pointer, expected)| target.payload.pointer(pointer) == Some(expected))
 }
 
 fn matches(expected: &str, actual: &str) -> bool {
@@ -106,6 +156,7 @@ mod tests {
                 actors: vec!["finding-agent".into()],
                 namespace: "agent.memory".into(),
                 types: vec!["agent.finding.v1".into()],
+                payload_equals: Default::default(),
             }],
             created_at_unix_ms: 1,
             extra: Default::default(),
@@ -131,11 +182,13 @@ mod tests {
             actors: vec!["*".into()],
             namespace: "*".into(),
             types: vec!["audit.event.v1".into()],
+            payload_equals: Default::default(),
         });
         config.write_grants.push(WriteGrant {
             actors: vec!["type-agent".into()],
             namespace: "agent.memory".into(),
             types: vec!["*".into()],
+            payload_equals: Default::default(),
         });
 
         for actor in ["owner", "legacy"] {

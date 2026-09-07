@@ -64,6 +64,10 @@ pub struct WriteGrant {
     pub actors: Vec<String>,
     pub namespace: String,
     pub types: Vec<String>,
+    /// Exact values required in the durable payload, keyed by JSON Pointer.
+    /// Empty preserves the original namespace/type-only grant semantics.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub payload_equals: BTreeMap<String, Value>,
 }
 
 pub fn load(root: &Path) -> Result<StoreConfig, Error> {
@@ -172,8 +176,50 @@ fn validate_write_grants(config: &StoreConfig) -> Result<(), Error> {
         if grant.types.is_empty() || grant.types.iter().any(|type_name| !valid_match(type_name)) {
             return Err(Error::InvalidType("store write grant".into()));
         }
+        if !grant.payload_equals.is_empty() {
+            if grant.actors.iter().any(|actor| actor == "*") {
+                return Err(Error::Governance(
+                    "payload-bound write grants require exact actors".into(),
+                ));
+            }
+            if grant.namespace == "*" || grant.types.iter().any(|item| item == "*") {
+                return Err(Error::Governance(
+                    "payload-bound write grants require exact namespace and types".into(),
+                ));
+            }
+            for (pointer, expected) in &grant.payload_equals {
+                if !valid_pointer(pointer) || unusable_bound(expected) {
+                    return Err(Error::Governance(format!(
+                        "invalid payload_equals constraint at {pointer:?}"
+                    )));
+                }
+            }
+        }
     }
     Ok(())
+}
+
+fn valid_pointer(pointer: &str) -> bool {
+    if pointer.is_empty() {
+        return true;
+    }
+    if !pointer.starts_with('/') {
+        return false;
+    }
+    let mut chars = pointer.chars();
+    while let Some(character) = chars.next() {
+        if character == '~' && !matches!(chars.next(), Some('0' | '1')) {
+            return false;
+        }
+    }
+    true
+}
+
+fn unusable_bound(value: &Value) -> bool {
+    value.is_null()
+        || value
+            .as_str()
+            .is_some_and(|text| text == "*" || text.trim().is_empty())
 }
 
 fn valid_match(value: &str) -> bool {

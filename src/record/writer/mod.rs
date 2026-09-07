@@ -1,10 +1,10 @@
+mod authority;
 mod blocked;
 
 use super::{AppendReport, RecordDraft, StoredRecord};
 use crate::defense;
 use crate::kernel::digest::sha256_hex;
 use crate::kernel::error::Error;
-use crate::kernel::identity;
 use crate::kernel::lock::StoreLock;
 use crate::kernel::store;
 use crate::projection::ProjectionState;
@@ -16,7 +16,11 @@ use std::path::Path;
 use uuid::Uuid;
 
 use super::receipt::{self, WriteReceipt, WriteStatus};
+use authority::{require_current_record_writer, require_draft_writer};
 use blocked::{block_write, ensure_clean_tail, unreachable_report};
+
+#[cfg(test)]
+pub(crate) use authority::require_current_writer;
 
 pub fn append_file(store_root: &Path, source: &Path, actor: &str) -> Result<AppendReport, Error> {
     let draft: RecordDraft = serde_json::from_slice(&fs::read(source)?)?;
@@ -42,21 +46,6 @@ pub fn append(store_root: &Path, draft: RecordDraft, actor: &str) -> Result<Appe
     Ok(report)
 }
 
-/// Re-read the authority from disk and check it again. Called while the writer
-/// lock is held, immediately before the append.
-///
-/// The check at the top of `append_only` happens before any lock is taken, so a
-/// handover landing in between would otherwise let an actor who has just lost
-/// access write anyway — authorized against a store that no longer exists.
-pub(crate) fn require_current_writer(
-    store_root: &Path,
-    actor: &str,
-    namespace: &str,
-    type_name: &str,
-) -> Result<(), Error> {
-    identity::require_type_writer(&store::load(store_root)?, actor, namespace, type_name)
-}
-
 pub fn append_only(
     store_root: &Path,
     draft: RecordDraft,
@@ -76,7 +65,6 @@ fn confirm(
     actor: &str,
 ) -> Result<(AppendReport, StoredRecord), Error> {
     let config = store::load(store_root)?;
-    identity::require_type_writer(&config, actor, &draft.namespace, &draft.type_name)?;
     let recorded_at = Timestamp::now().to_string();
     let month = month(&recorded_at)?;
     let defense = defense::apply(store_root, &mut draft)?;
@@ -87,6 +75,7 @@ fn confirm(
     }
     let definition = schema::load(store_root, &draft.type_name)?;
     super::validation::validate(&draft, &config, &definition)?;
+    require_draft_writer(&config, actor, &draft)?;
 
     let redacted = defense.redacted();
     let valid_at = draft
@@ -144,7 +133,7 @@ fn confirm(
     // a handover that landed in between would otherwise let an actor who has
     // just lost access write anyway — authorized against a store that no longer
     // exists.
-    require_current_writer(store_root, actor, &record.namespace, &record.type_name)?;
+    require_current_record_writer(store_root, actor, &record)?;
     // Lifecycle validation consults compact state, not the ledger. The state
     // carries only what the rules read — type, namespace, supersedes, key — and
     // is refused unless its watermark still describes the ledger, so a store it

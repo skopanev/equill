@@ -3,6 +3,8 @@ use super::{apply, authorize, metadata};
 use crate::kernel::error::Error;
 use crate::kernel::identity;
 use crate::kernel::store::{self, StoreConfig, WriteGrant};
+use serde_json::Value;
+use std::collections::BTreeMap;
 use std::path::Path;
 
 /// Add a scoped append grant. Least privilege is the point: an actor granted a
@@ -13,6 +15,28 @@ pub fn grant(
     subject: &str,
     namespace: &str,
     types: &[String],
+    comment: Option<&str>,
+    actor: &str,
+) -> Result<GrantReport, Error> {
+    grant_with_payload_equals(
+        store_root,
+        subject,
+        namespace,
+        types,
+        &BTreeMap::new(),
+        comment,
+        actor,
+    )
+}
+
+/// Add a grant whose authority is narrowed by exact durable payload values.
+#[allow(clippy::too_many_arguments)]
+pub fn grant_with_payload_equals(
+    store_root: &Path,
+    subject: &str,
+    namespace: &str,
+    types: &[String],
+    payload_equals: &BTreeMap<String, Value>,
     comment: Option<&str>,
     actor: &str,
 ) -> Result<GrantReport, Error> {
@@ -27,6 +51,7 @@ pub fn grant(
         actors: vec![subject.to_owned()],
         namespace: namespace.to_owned(),
         types: types.to_vec(),
+        payload_equals: payload_equals.clone(),
     };
     if config.write_grants.iter().any(|grant| same(grant, &wanted)) {
         return Ok(GrantReport {
@@ -50,6 +75,7 @@ pub fn grant(
                 actors: wanted.actors.clone(),
                 namespace: wanted.namespace.clone(),
                 types: wanted.types.clone(),
+                payload_equals: wanted.payload_equals.clone(),
             });
             Ok(())
         },
@@ -115,5 +141,8 @@ pub fn revoke_grant(
 }
 
 fn same(left: &WriteGrant, right: &WriteGrant) -> bool {
-    left.actors == right.actors && left.namespace == right.namespace && left.types == right.types
+    left.actors == right.actors
+        && left.namespace == right.namespace
+        && left.types == right.types
+        && left.payload_equals == right.payload_equals
 }

@@ -180,7 +180,7 @@ fn a_refused_session_call_changes_nothing_and_starts_no_catch_up() {
     );
     let said = response.to_string();
     assert!(
-        said.contains("PM_WRITE_DENIED") && said.contains("Escalate to GM."),
+        said.contains("read-only") && said.contains("not allowed to write"),
         "the session refused without the contract: {said}"
     );
 
@@ -204,7 +204,9 @@ fn a_refused_session_call_changes_nothing_and_starts_no_catch_up() {
         }}),
     );
     assert!(
-        !response.to_string().contains("PM_WRITE_DENIED"),
+        !response
+            .to_string()
+            .contains("read-only and not allowed to write"),
         "the control was refused: {response}"
     );
     drop(session);

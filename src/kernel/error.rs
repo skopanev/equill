@@ -75,13 +75,12 @@ impl Display for Error {
             }
             Self::Governance(detail) => write!(formatter, "{detail}"),
             Self::PermissionDenied => write!(formatter, "actor is not allowed to write"),
-            // A stable token first, so a caller can key on the refusal without
-            // parsing prose, and the escalation path last, because the actor
-            // reading this cannot lift the restriction itself.
-            Self::ReadOnlyActor(actor) => write!(
-                formatter,
-                "PM_WRITE_DENIED: {actor} may read this store and may not change it. Escalate to GM."
-            ),
+            Self::ReadOnlyActor(actor) => {
+                write!(
+                    formatter,
+                    "actor {actor} is read-only and not allowed to write"
+                )
+            }
             Self::PostCommit(reason) => write!(formatter, "post-commit failure: {reason}"),
             Self::Projection(reason) => write!(formatter, "projection failed: {reason}"),
             Self::StoreExists(path) => write!(

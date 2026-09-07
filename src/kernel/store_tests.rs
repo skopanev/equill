@@ -44,6 +44,7 @@ fn scoped_grants_reject_empty_or_control_dimensions() {
         actors: vec!["agent\n".into()],
         namespace: "agent.memory".into(),
         types: vec!["agent.finding.v1".into()],
+        payload_equals: Default::default(),
     }];
     assert!(validate_write_grants(&config).is_err());
 
