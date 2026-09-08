@@ -1,5 +1,5 @@
 //! Native compaction end to end: plan, stage, swap, reconcile.
-use super::{apply, plan};
+use super::{apply, plan, projections};
 use crate::kernel::error::Error;
 use crate::kernel::governance::RootGuard;
 use serde::Serialize;
@@ -21,7 +21,18 @@ pub struct NativeReport {
 
 pub fn run(store_root: &Path, apply_changes: bool, actor: &str) -> Result<NativeReport, Error> {
     let (_guard, _config) = RootGuard::acquire(store_root, actor)?;
+    // Governance and the writer hold different locks on purpose, so holding the
+    // governance one says nothing about appends. Reading the ledger without the
+    // writer's lock means a record written between here and the swap would be
+    // dropped by the rewrite that never saw it.
+    let writer = crate::kernel::lock::StoreLock::exclusive(store_root)?;
     let records = crate::record::read_all(store_root)?;
+    // The window a concurrent append would fall into. Real compaction spends
+    // real time here; a test needs the window to be wide enough to aim at, and
+    // guessing at timing is how a race test comes out green whether or not the
+    // lock is held.
+    #[cfg(test)]
+    pause_after_read();
     let plan = plan::build(&records)?;
     let report = NativeReport {
         ok: true,
@@ -40,19 +51,21 @@ pub fn run(store_root: &Path, apply_changes: bool, actor: &str) -> Result<Native
         // a second run a no-op rather than a rewrite that happens to match.
         return Ok(report);
     }
+    // Taken before the ledger stops naming them.
+    let condemned = projections::condemned(&report.detail);
     let transaction = uuid::Uuid::now_v7().simple().to_string();
     let shadow = super::super::transaction::sibling(store_root, "native", &transaction)?;
     stage(store_root, &shadow, &records, &report.detail)?;
-    match publish(store_root, &shadow, &transaction) {
-        Ok(()) => {
-            super::super::transaction::cleanup_tree(&shadow);
-            Ok(report)
-        }
-        Err(error) => {
-            super::super::transaction::cleanup_tree(&shadow);
-            Err(error)
-        }
-    }
+    let published = publish(store_root, &shadow, &transaction);
+    super::super::transaction::cleanup_tree(&shadow);
+    published?;
+    // Released before reconciling: rebuilding the text projection takes the
+    // same writer lock, and holding it here would deadlock against ourselves.
+    // An append landing in this window is fine — it is in the ledger, and the
+    // rebuild that follows reads the ledger.
+    drop(writer);
+    projections::reconcile(store_root, &condemned)?;
+    Ok(report)
 }
 
 /// The whole new state is built beside the store first. Nothing the reader can
@@ -110,4 +123,34 @@ fn copy_tree(from: &Path, to: &Path) -> Result<(), Error> {
         }
     }
     Ok(())
+}
+
+// How long to linger between reading the ledger and publishing, for tests that
+// need a concurrent write to land in the middle. Zero everywhere else, and
+// compiled out of a release build entirely.
+#[cfg(test)]
+thread_local! {
+    static PAUSE: std::cell::Cell<std::time::Duration> =
+        const { std::cell::Cell::new(std::time::Duration::ZERO) };
+}
+
+#[cfg(test)]
+fn pause_after_read() {
+    let waiting = PAUSE.with(std::cell::Cell::get);
+    if !waiting.is_zero() {
+        std::thread::sleep(waiting);
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn with_pause<T>(waiting: std::time::Duration, body: impl FnOnce() -> T) -> T {
+    struct Restore(std::time::Duration);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            PAUSE.with(|slot| slot.set(self.0));
+        }
+    }
+    let _restore = Restore(PAUSE.with(std::cell::Cell::get));
+    PAUSE.with(|slot| slot.set(waiting));
+    body()
 }
