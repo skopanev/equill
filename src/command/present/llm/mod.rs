@@ -1,7 +1,9 @@
 //! Prompt-ready Markdown made only from selected domain content.
+mod fallback;
+mod kind;
 mod render;
+mod render_steps;
 
-use super::classify::{Kind, classify};
 use crate::record::StoredRecord;
 use serde_json::Value;
 
@@ -14,6 +16,17 @@ struct Sections {
     communication: Vec<Rule>,
     ticketing: Vec<Rule>,
     memory: Vec<Vec<String>>,
+    /// What has already been said, keyed by the record's namespace, type and
+    /// whole payload. Two records that differ only in scope render the same
+    /// sentence, and collapsing on that sentence would silently answer one
+    /// question where two were asked; envelope identity is excluded so that a
+    /// genuine re-record of the same fact still coalesces.
+    seen: Vec<(String, String, Value)>,
+    /// Everything the specialized sections did not say. A record the selection
+    /// returned is part of the contract whether or not this formatter knows a
+    /// shape for it, and dropping it makes the receipt lie: selection and
+    /// receipt stay green while the agent never sees what it was given.
+    records: Vec<Vec<String>>,
 }
 
 struct Ordered {
@@ -37,95 +50,68 @@ struct Rule {
 pub(super) fn answer(records: &[StoredRecord]) -> String {
     let mut sections = Sections::default();
     for record in records {
-        match classify_llm(record) {
-            LlmKind::Role => role(&mut sections, record),
-            LlmKind::Process => process(&mut sections, record),
-            LlmKind::Step => step(&mut sections, record),
-            LlmKind::Communication => rule(&mut sections.communication, record),
-            LlmKind::Ticketing => rule(&mut sections.ticketing, record),
-            LlmKind::Lesson => memory(&mut sections, lesson(record)),
-            LlmKind::Finding => memory(&mut sections, finding(record)),
-            LlmKind::Note => memory(&mut sections, field(record, "text")),
-            LlmKind::Other => {}
-        }
+        // Whether the specialized branch actually said anything, not whether one
+        // exists. A role with no `do`, a process with neither purpose nor
+        // ends_when, a rule with no text: all correctly recognized and all
+        // silently dropped, which no check against the unknown-type case can
+        // catch.
+        let rendered = match kind::classify_llm(record) {
+            kind::LlmKind::Role => role(&mut sections, record),
+            kind::LlmKind::Process => process(&mut sections, record),
+            kind::LlmKind::Step => step(&mut sections, record),
+            kind::LlmKind::Communication => rule(&mut sections.communication, record),
+            kind::LlmKind::Ticketing => rule(&mut sections.ticketing, record),
+            kind::LlmKind::Lesson => memory(&mut sections, record, lesson(record)),
+            kind::LlmKind::Finding => memory(&mut sections, record, finding(record)),
+            kind::LlmKind::Note => memory(&mut sections, record, field(record, "text")),
+            kind::LlmKind::Other => false,
+        };
+        // Counted separately: steps carried inside a record are content, but
+        // they are not the rest of that record's payload, so finding them is
+        // not a reason to consider the record said.
         inline_steps(&mut sections, record);
+        if !rendered {
+            fallback::fallback(&mut sections, record);
+        }
     }
     render::sections(sections)
 }
 
-#[derive(Clone, Copy)]
-enum LlmKind {
-    Role,
-    Process,
-    Step,
-    Communication,
-    Ticketing,
-    Lesson,
-    Finding,
-    Note,
-    Other,
-}
-
-fn classify_llm(record: &StoredRecord) -> LlmKind {
-    if let Some(kind) = rule_kind(record) {
-        return kind;
-    }
-    let tokens = record
-        .type_name
-        .split(|ch: char| !ch.is_ascii_alphanumeric())
-        .collect::<Vec<_>>();
-    if tokens.contains(&"lesson") {
-        return LlmKind::Lesson;
-    }
-    if tokens.contains(&"finding") {
-        return LlmKind::Finding;
-    }
-    if tokens.contains(&"note") {
-        return LlmKind::Note;
-    }
-    match classify(record) {
-        Kind::Role => LlmKind::Role,
-        Kind::Process => LlmKind::Process,
-        Kind::Step => LlmKind::Step,
-        Kind::Other => LlmKind::Other,
-    }
-}
-
-fn rule_kind(record: &StoredRecord) -> Option<LlmKind> {
-    let category = ["module", "rules"]
-        .iter()
-        .find_map(|name| record.payload.get(*name).and_then(Value::as_str))?;
-    match category {
-        "communication" | "comm" => Some(LlmKind::Communication),
-        "tickets" | "ticketing" => Some(LlmKind::Ticketing),
-        _ => None,
-    }
-}
-
-fn role(sections: &mut Sections, record: &StoredRecord) {
+fn role(sections: &mut Sections, record: &StoredRecord) -> bool {
     if let Some(text) = string(record.payload.get("do")) {
         sections.roles.push(Ordered {
             order: number(record.payload.get("order")),
             text,
             id: record.id,
         });
+        return true;
     }
+    false
 }
 
-fn process(sections: &mut Sections, record: &StoredRecord) {
-    push_unique(&mut sections.goals, string(record.payload.get("purpose")));
-    push_unique(
+fn process(sections: &mut Sections, record: &StoredRecord) -> bool {
+    let purpose = push_unique(&mut sections.goals, string(record.payload.get("purpose")));
+    let ends = push_unique(
         &mut sections.finishes,
         string(record.payload.get("ends_when")),
     );
+    purpose || ends
 }
 
-fn step(sections: &mut Sections, record: &StoredRecord) {
+/// Whether the step will actually be printed, asked with the renderer's own
+/// predicate rather than assumed from having pushed one.
+///
+/// A step with no instruction is dropped at render time, so a record counted as
+/// covered because a `Step` was pushed would disappear anyway — the same silent
+/// loss, one layer down.
+fn step(sections: &mut Sections, record: &StoredRecord) -> bool {
+    let rendered = render_steps::renders_as_step(&record.payload);
     sections.steps.push(Step {
         number: number(record.payload.get("step")),
         value: record.payload.clone(),
         id: record.id,
     });
+    rendered
 }
 
 fn inline_steps(sections: &mut Sections, record: &StoredRecord) {
@@ -141,15 +127,16 @@ fn inline_steps(sections: &mut Sections, record: &StoredRecord) {
     }
 }
 
-fn rule(out: &mut Vec<Rule>, record: &StoredRecord) {
+fn rule(out: &mut Vec<Rule>, record: &StoredRecord) -> bool {
     let Some(text) = string(record.payload.get("rule")) else {
-        return;
+        return false;
     };
     out.push(Rule {
         key: string(record.payload.get("key")).unwrap_or_default(),
         text,
         id: record.id,
     });
+    true
 }
 
 fn lesson(record: &StoredRecord) -> Vec<String> {
@@ -190,10 +177,34 @@ fn append(lines: &mut Vec<String>, label: &str, value: Option<&Value>, code: boo
     }
 }
 
-fn memory(sections: &mut Sections, lines: Vec<String>) {
-    if !lines.is_empty() && !sections.memory.contains(&lines) {
+/// Identical rendered text from two records collapses, because printing the
+/// same sentence twice tells a reader nothing. Content that differs never
+/// collapses — the comparison is over the whole rendered block, so two lessons
+/// sharing a rule but differing in scope stay two.
+fn memory(sections: &mut Sections, record: &StoredRecord, lines: Vec<String>) -> bool {
+    if lines.is_empty() {
+        return false;
+    }
+    if fresh(&mut sections.seen, record) {
         sections.memory.push(lines);
     }
+    // Coalesced, not lost: an identical record's content is already there.
+    true
+}
+
+/// True the first time this exact record is seen, by namespace, type and full
+/// payload.
+pub(super) fn fresh(seen: &mut Vec<(String, String, Value)>, record: &StoredRecord) -> bool {
+    let key = (
+        record.namespace.clone(),
+        record.type_name.clone(),
+        record.payload.clone(),
+    );
+    if seen.contains(&key) {
+        return false;
+    }
+    seen.push(key);
+    true
 }
 
 fn string(value: Option<&Value>) -> Option<String> {
@@ -208,13 +219,19 @@ fn number(value: Option<&Value>) -> Option<i64> {
     value.as_i64().or_else(|| value.as_str()?.parse().ok())
 }
 
-fn push_unique(out: &mut Vec<String>, value: Option<String>) {
-    if let Some(value) = value
-        && !out.contains(&value)
-    {
+fn push_unique(out: &mut Vec<String>, value: Option<String>) -> bool {
+    let Some(value) = value else {
+        return false;
+    };
+    if !out.contains(&value) {
         out.push(value);
     }
+    true
 }
 
+#[cfg(test)]
+mod category_tests;
+#[cfg(test)]
+mod coverage_tests;
 #[cfg(test)]
 mod tests;

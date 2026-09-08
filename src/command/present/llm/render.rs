@@ -1,5 +1,5 @@
 //! Stable section ordering and Markdown details for the LLM presentation.
-use super::{Rule, Sections, Step};
+use super::{Rule, Sections};
 use serde_json::Value;
 
 pub(super) fn sections(mut sections: Sections) -> String {
@@ -19,7 +19,7 @@ pub(super) fn sections(mut sections: Sections) -> String {
     );
     prose(&mut blocks, "GOAL", sections.goals);
     prose(&mut blocks, "FINISH", sections.finishes);
-    steps(&mut blocks, sections.steps);
+    super::render_steps::steps(&mut blocks, sections.steps);
     bullets(
         &mut blocks,
         "COMMUNICATION RULES",
@@ -39,6 +39,10 @@ pub(super) fn sections(mut sections: Sections) -> String {
             .collect(),
     );
     memories(&mut blocks, sections.memory);
+    // Last, because it is what the named sections did not claim — and present,
+    // because a selected record that reaches no section still reached the
+    // answer.
+    records(&mut blocks, sections.records);
     blocks.join("\n\n")
 }
 
@@ -67,36 +71,6 @@ fn bullets(blocks: &mut Vec<String>, heading: &str, values: Vec<String>) {
     }
 }
 
-fn steps(blocks: &mut Vec<String>, steps: Vec<Step>) {
-    let mut lines = Vec::new();
-    for (index, step) in steps.iter().enumerate() {
-        let Some(fields) = step.value.as_object() else {
-            let text = content(&step.value, false).join(" ");
-            if !text.is_empty() {
-                lines.push(format!("{}. {}", index + 1, commands(&text)));
-            }
-            continue;
-        };
-        let instruction = first(fields, &["does", "do", "instruction", "text"]);
-        let Some(instruction) = instruction else {
-            continue;
-        };
-        lines.push(format!("{}. {}", index + 1, commands(&instruction)));
-        detail(&mut lines, fields.get("gate"), "Gate");
-        detail(&mut lines, fields.get("on_fail"), "On fail");
-    }
-    if !lines.is_empty() {
-        blocks.push(format!("## STEPS\n{}", lines.join("\n")));
-    }
-}
-
-fn detail(lines: &mut Vec<String>, value: Option<&Value>, label: &str) {
-    let values = value.map(|value| content(value, false)).unwrap_or_default();
-    if !values.is_empty() {
-        lines.push(format!("   {label}: {}", commands(&values.join("; "))));
-    }
-}
-
 fn memories(blocks: &mut Vec<String>, memories: Vec<Vec<String>>) {
     if memories.is_empty() {
         return;
@@ -112,7 +86,24 @@ fn memories(blocks: &mut Vec<String>, memories: Vec<Vec<String>>) {
     blocks.push(format!("## RETRIEVED MEMORY\n{}", lines.join("\n")));
 }
 
-fn first(fields: &serde_json::Map<String, Value>, names: &[&str]) -> Option<String> {
+/// What the specialized sections did not say, one block per record, in the
+/// order the selection returned them.
+fn records(blocks: &mut Vec<String>, records: Vec<Vec<String>>) {
+    if records.is_empty() {
+        return;
+    }
+    let mut lines = Vec::new();
+    for record in records {
+        let mut values = record.into_iter();
+        if let Some(first) = values.next() {
+            lines.push(format!("- {}", commands(&first)));
+        }
+        lines.extend(values.map(|value| format!("  {}", commands(&value))));
+    }
+    blocks.push(format!("## RECORDS\n{}", lines.join("\n")));
+}
+
+pub(super) fn first(fields: &serde_json::Map<String, Value>, names: &[&str]) -> Option<String> {
     names.iter().find_map(|name| {
         fields
             .get(*name)
