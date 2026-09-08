@@ -46,6 +46,16 @@ pub fn run(store_root: &Path, apply_changes: bool, actor: &str) -> Result<Native
     if !apply_changes {
         return Ok(report);
     }
+    // An earlier run that swapped the ledger and then failed to reconcile left
+    // its list here. The ledger no longer names those records, so this is the
+    // only thing that still can.
+    let unfinished = projections::unfinished(store_root)?;
+    if !unfinished.is_empty() {
+        drop(writer);
+        projections::reconcile(store_root, &unfinished)?;
+        projections::settled(store_root);
+        return Ok(report);
+    }
     if report.removed == 0 {
         // Nothing to do, and saying so without touching the store is what makes
         // a second run a no-op rather than a rewrite that happens to match.
@@ -53,6 +63,9 @@ pub fn run(store_root: &Path, apply_changes: bool, actor: &str) -> Result<Native
     }
     // Taken before the ledger stops naming them.
     let condemned = projections::condemned(&report.detail);
+    // Written before the swap, so an interruption anywhere after it leaves the
+    // work recoverable.
+    projections::stash(store_root, &condemned)?;
     let transaction = uuid::Uuid::now_v7().simple().to_string();
     let shadow = super::super::transaction::sibling(store_root, "native", &transaction)?;
     stage(store_root, &shadow, &records, &report.detail)?;
@@ -65,6 +78,8 @@ pub fn run(store_root: &Path, apply_changes: bool, actor: &str) -> Result<Native
     // rebuild that follows reads the ledger.
     drop(writer);
     projections::reconcile(store_root, &condemned)?;
+    // Only now: while this file exists the compaction is not finished.
+    projections::settled(store_root);
     Ok(report)
 }
 
@@ -84,6 +99,7 @@ fn stage(
         &shadow.join("receipts/writes"),
     )?;
     apply::drop_receipts(shadow, plan)?;
+    apply::reconcile_receipts(shadow, &kept)?;
     Ok(())
 }
 

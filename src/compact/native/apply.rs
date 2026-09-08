@@ -64,6 +64,51 @@ pub fn stage_records(shadow: &Path, records: &[StoredRecord]) -> Result<(), Erro
 /// Receipts for records that no longer exist go with them: a receipt that
 /// verifies nothing is not evidence, it is an orphan that makes `doctor` green
 /// for the wrong reason.
+/// A retained record whose link was cut has a new hash, and its receipt still
+/// carries the old one.
+///
+/// Left alone, every one of those receipts would disagree with the record it
+/// attests to — and a verification comparing them would report corruption for
+/// records nobody touched. The receipt is updated to the bytes that are now in
+/// the ledger, which is what it was always meant to describe.
+pub fn reconcile_receipts(shadow: &Path, kept: &[StoredRecord]) -> Result<(), Error> {
+    let writes = shadow.join("receipts/writes");
+    if !writes.is_dir() {
+        return Ok(());
+    }
+    let mut current = std::collections::HashMap::new();
+    for record in kept {
+        current.insert(
+            record.id.to_string(),
+            crate::kernel::digest::sha256_hex(&serde_json::to_vec(record)?),
+        );
+    }
+    for month in fs::read_dir(&writes)? {
+        let month = month?.path();
+        if !month.is_dir() {
+            continue;
+        }
+        for entry in fs::read_dir(&month)? {
+            let path = entry?.path();
+            let named = path
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .unwrap_or_default()
+                .to_owned();
+            let Some(digest) = current.get(&named) else {
+                continue;
+            };
+            let mut receipt: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+            if receipt["record_sha256"].as_str() == Some(digest.as_str()) {
+                continue;
+            }
+            receipt["record_sha256"] = serde_json::json!(digest);
+            fs::write(&path, serde_json::to_vec(&receipt)?)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn drop_receipts(shadow: &Path, plan: &Plan) -> Result<(), Error> {
     let writes = shadow.join("receipts/writes");
     if !writes.is_dir() {
