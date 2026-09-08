@@ -1,5 +1,5 @@
 //! Native compaction end to end: plan, stage, swap, reconcile.
-use super::{apply, plan, projections};
+use super::{apply, journal, plan, projections};
 use crate::kernel::error::Error;
 use crate::kernel::governance::RootGuard;
 use serde::Serialize;
@@ -19,18 +19,32 @@ pub struct NativeReport {
     pub detail: plan::Plan,
 }
 
+/// Finishes any interrupted compaction, then compacts. Two operations with
+/// their own locks: recovery must release the writer lock before reconciling,
+/// since the rebuild takes it.
 pub fn run(store_root: &Path, apply_changes: bool, actor: &str) -> Result<NativeReport, Error> {
+    super::recover::recover_previous(store_root, actor)?;
+    compact_once(store_root, apply_changes, actor)
+}
+
+fn compact_once(
+    store_root: &Path,
+    apply_changes: bool,
+    actor: &str,
+) -> Result<NativeReport, Error> {
     let (_guard, _config) = RootGuard::acquire(store_root, actor)?;
     // Governance and the writer hold different locks on purpose, so holding the
     // governance one says nothing about appends. Reading the ledger without the
     // writer's lock means a record written between here and the swap would be
     // dropped by the rewrite that never saw it.
     let writer = crate::kernel::lock::StoreLock::exclusive(store_root)?;
+    // Before the ledger is read, because an interruption inside a rename can
+    // leave the ledger directory missing entirely — and then reading it first
+    // means the store can never repair itself.
     let records = crate::record::read_all(store_root)?;
-    // The window a concurrent append would fall into. Real compaction spends
-    // real time here; a test needs the window to be wide enough to aim at, and
-    // guessing at timing is how a race test comes out green whether or not the
-    // lock is held.
+    // The window a concurrent append falls into. A test needs it wide enough to
+    // aim at: guessing at timing is how a race test comes out green whether or
+    // not the lock is held.
     #[cfg(test)]
     pause_after_read();
     let plan = plan::build(&records)?;
@@ -46,16 +60,6 @@ pub fn run(store_root: &Path, apply_changes: bool, actor: &str) -> Result<Native
     if !apply_changes {
         return Ok(report);
     }
-    // An earlier run that swapped the ledger and then failed to reconcile left
-    // its list here. The ledger no longer names those records, so this is the
-    // only thing that still can.
-    let unfinished = projections::unfinished(store_root)?;
-    if !unfinished.is_empty() {
-        drop(writer);
-        projections::reconcile(store_root, &unfinished)?;
-        projections::settled(store_root);
-        return Ok(report);
-    }
     if report.removed == 0 {
         // Nothing to do, and saying so without touching the store is what makes
         // a second run a no-op rather than a rewrite that happens to match.
@@ -63,23 +67,29 @@ pub fn run(store_root: &Path, apply_changes: bool, actor: &str) -> Result<Native
     }
     // Taken before the ledger stops naming them.
     let condemned = projections::condemned(&report.detail);
-    // Written before the swap, so an interruption anywhere after it leaves the
-    // work recoverable.
-    projections::stash(store_root, &condemned)?;
     let transaction = uuid::Uuid::now_v7().simple().to_string();
     let shadow = super::super::transaction::sibling(store_root, "native", &transaction)?;
+    // Staged in full first: a journal pointing at an incomplete shadow would
+    // send recovery forward into a state that was never prepared.
     stage(store_root, &shadow, &records, &report.detail)?;
-    let published = publish(store_root, &shadow, &transaction);
-    super::super::transaction::cleanup_tree(&shadow);
-    published?;
+    let mut journal = journal::Journal {
+        transaction: transaction.clone(),
+        shadow: shadow.clone(),
+        phase: journal::Phase::Staged,
+        condemned: condemned.clone(),
+    };
+    journal.write(store_root)?;
+    publish(store_root, &shadow, &transaction, &mut journal)?;
     // Released before reconciling: rebuilding the text projection takes the
     // same writer lock, and holding it here would deadlock against ourselves.
     // An append landing in this window is fine — it is in the ledger, and the
     // rebuild that follows reads the ledger.
     drop(writer);
     projections::reconcile(store_root, &condemned)?;
-    // Only now: while this file exists the compaction is not finished.
-    projections::settled(store_root);
+    // Only after the projections agree. Until then the journal is what makes
+    // the work findable again.
+    cleanup(store_root, &shadow, &transaction)?;
+    journal::Journal::clear(store_root)?;
     Ok(report)
 }
 
@@ -106,20 +116,58 @@ fn stage(
 /// Swap the directories the compaction rewrote, rolling every one of them back
 /// if any fails: a store with a new ledger and old receipts is worse than one
 /// that was never compacted.
-fn publish(store_root: &Path, shadow: &Path, transaction: &str) -> Result<(), Error> {
-    let mut swaps = Vec::new();
-    for relative in ["records", "receipts/writes"] {
+/// Publishes each prepared directory and records how far it got.
+///
+/// The phase is written after the rename it describes, so it always lags by one
+/// window — which is why recovery reads the directories and treats the journal
+/// as a statement of intent.
+/// Backups and the staged copy go only once the projections agree: until then
+/// they are what makes an interrupted compaction recoverable.
+pub(super) fn cleanup(store_root: &Path, shadow: &Path, transaction: &str) -> Result<(), Error> {
+    for relative in journal::STEPS {
+        let current = store_root.join(relative);
+        let backup = super::super::transaction::sibling(&current, "backup", transaction)?;
+        super::super::transaction::cleanup_tree(&backup);
+    }
+    super::super::transaction::cleanup_tree(shadow);
+    Ok(())
+}
+
+fn publish(
+    store_root: &Path,
+    shadow: &Path,
+    transaction: &str,
+    journal: &mut journal::Journal,
+) -> Result<(), Error> {
+    for (index, relative) in journal::STEPS.iter().enumerate() {
         let current = store_root.join(relative);
         let incoming = shadow.join(relative);
         let backup = super::super::transaction::sibling(&current, "backup", transaction)?;
-        if let Err(error) = super::super::transaction::swap(&current, &incoming, &backup) {
-            super::super::transaction::rollback_swaps(&swaps);
-            return Err(error);
+        #[cfg(test)]
+        journal::interrupt_at(&format!("before-{relative}"))?;
+        // The gap inside the pair: old directory aside, new one not yet there.
+        #[cfg(test)]
+        if journal::interrupting(&format!("inside-{relative}")) {
+            std::fs::rename(&current, &backup)?;
+            journal::sync_directory(store_root)?;
+            return Err(Error::Compact("interrupted inside the rename".into()));
         }
-        swaps.push(super::super::transaction::Swap { current, backup });
-    }
-    for swap in &swaps {
-        super::super::transaction::cleanup_tree(&swap.backup);
+        super::super::transaction::swap(&current, &incoming, &backup)?;
+        if let Some(parent) = current.parent() {
+            journal::sync_directory(parent)?;
+        }
+        // Between the rename and the phase write: the directory has moved and
+        // the journal has not caught up.
+        #[cfg(test)]
+        journal::interrupt_at(&format!("after-{relative}"))?;
+        journal.advance(
+            store_root,
+            if index == 0 {
+                journal::Phase::RecordsSwapped
+            } else {
+                journal::Phase::ReceiptsSwapped
+            },
+        )?;
     }
     Ok(())
 }

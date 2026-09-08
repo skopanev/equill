@@ -65,37 +65,3 @@ pub fn drop_points(index: &impl Forgetful, condemned: &[Uuid]) -> Result<(), Err
     let physical = index.active()?;
     index.forget(&physical, condemned)
 }
-
-/// Where the condemned ids wait between the swap and a successful
-/// reconciliation.
-///
-/// Without this, a compaction that swapped the ledger and then failed — or
-/// died — has lost the only list of what to remove: the ledger no longer names
-/// those records, so a second run plans nothing and exits, leaving the points
-/// behind forever. The file is written before the swap and deleted only once
-/// the projections agree, so it is a step in a transaction rather than a
-/// history of the dead.
-const PENDING: &str = "compact-pending.json";
-
-pub fn stash(store_root: &std::path::Path, condemned: &[Uuid]) -> Result<(), Error> {
-    if condemned.is_empty() {
-        return Ok(());
-    }
-    let path = store_root.join(PENDING);
-    std::fs::write(&path, serde_json::to_vec(condemned)?)?;
-    Ok(())
-}
-
-/// What an interrupted compaction left to finish, if anything.
-pub fn unfinished(store_root: &std::path::Path) -> Result<Vec<Uuid>, Error> {
-    let path = store_root.join(PENDING);
-    match std::fs::read(&path) {
-        Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
-        Err(error) => Err(error.into()),
-    }
-}
-
-pub fn settled(store_root: &std::path::Path) {
-    let _ = std::fs::remove_file(store_root.join(PENDING));
-}

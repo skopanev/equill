@@ -1,0 +1,146 @@
+//! Finishing a compaction that was interrupted.
+//!
+//! Always forward, never back. A rollback would be correct only if nothing had
+//! happened since the crash, and something has: the store accepts writes again
+//! as soon as the process is gone, so undoing a published ledger would erase
+//! records appended after it. What was prepared is completed instead.
+//!
+//! The journal says what was being attempted; the directories say how far it
+//! got. The phase alone cannot answer that, because it is written after the
+//! rename it describes — so between the two there is always a moment where the
+//! directory has moved and the journal has not.
+use super::journal;
+use super::journal::{Journal, STEPS, sync_directory};
+use super::projections;
+use crate::kernel::error::Error;
+use crate::kernel::governance::RootGuard;
+use std::fs;
+use std::path::Path;
+use std::path::PathBuf;
+
+/// What one directory's publication looks like on disk.
+enum Step {
+    /// Prepared, not yet published.
+    Pending,
+    /// Published; nothing left to do.
+    Done,
+    /// The old directory was moved aside and the new one never arrived. This is
+    /// the gap inside a rename pair, and the only state where the store is
+    /// missing a directory it needs.
+    Interrupted,
+    /// Neither the prepared copy nor the current directory is there, or both
+    /// claim to be authoritative. Not something to guess at.
+    Unclear,
+}
+
+fn inspect(
+    store_root: &Path,
+    shadow: &Path,
+    relative: &str,
+    transaction: &str,
+) -> Result<Step, Error> {
+    let current = store_root.join(relative);
+    let incoming = shadow.join(relative);
+    let backup = super::super::transaction::sibling(&current, "backup", transaction)?;
+    Ok(
+        match (current.is_dir(), incoming.is_dir(), backup.is_dir()) {
+            (true, true, _) => Step::Pending,
+            (true, false, _) => Step::Done,
+            (false, true, _) => Step::Interrupted,
+            (false, false, true) => Step::Interrupted,
+            (false, false, false) => Step::Unclear,
+        },
+    )
+}
+
+/// Completes an interrupted publication and reconciles what follows it.
+pub fn resume(store_root: &Path, journal: Journal) -> Result<(), Error> {
+    let shadow = journal.shadow.clone();
+    for relative in STEPS {
+        match inspect(store_root, &shadow, relative, &journal.transaction)? {
+            Step::Done => {}
+            Step::Pending | Step::Interrupted => {
+                publish_step(store_root, &shadow, relative, &journal.transaction)?;
+            }
+            Step::Unclear => {
+                return Err(Error::Compact(format!(
+                    "compaction {} left {relative} in a state that cannot be resumed safely",
+                    journal.transaction
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Moves the prepared directory into place, or restores the backup when the
+/// prepared one is gone. Nothing is deleted here: deleting is what a rollback
+/// does, and this is not one.
+fn publish_step(
+    store_root: &Path,
+    shadow: &Path,
+    relative: &str,
+    transaction: &str,
+) -> Result<(), Error> {
+    let current = store_root.join(relative);
+    let incoming = shadow.join(relative);
+    let backup = super::super::transaction::sibling(&current, "backup", transaction)?;
+    if current.is_dir() && incoming.is_dir() {
+        fs::rename(&current, &backup)?;
+    }
+    if incoming.is_dir() {
+        fs::rename(&incoming, &current)?;
+    } else if !current.is_dir() && backup.is_dir() {
+        // The old directory was moved aside and the new one never arrived: put
+        // the old one back, so the store is readable and the next run can plan
+        // the work again from a ledger that exists.
+        fs::rename(&backup, &current)?;
+    }
+    if let Some(parent) = current.parent() {
+        sync_directory(parent)?;
+    }
+    Ok(())
+}
+
+/// Completes an interrupted publication and reconciles what it left, if any.
+pub(super) fn recover_previous(store_root: &Path, actor: &str) -> Result<(), Error> {
+    let recovered = {
+        let (_guard, _config) = RootGuard::acquire(store_root, actor)?;
+        // Under the writer lock and before anything is read: an interruption
+        // inside a rename can leave the ledger directory missing, and reading
+        // first would mean the store can never repair itself.
+        let _writer = crate::kernel::lock::StoreLock::exclusive(store_root)?;
+        finish_previous(store_root)?
+    };
+    let Some(recovered) = recovered else {
+        return Ok(());
+    };
+    projections::reconcile(store_root, &recovered.condemned)?;
+    super::run::cleanup(store_root, &recovered.shadow, &recovered.transaction)?;
+    journal::Journal::clear(store_root)
+}
+
+/// Completes an interrupted publication, before this run reads anything: an
+/// interruption inside a rename can leave the ledger directory missing, and
+/// then reading first means the store can never repair itself.
+///
+/// Returns what still has to be dropped from the projections. That part waits
+/// until the writer lock is released.
+struct Recovered {
+    condemned: Vec<uuid::Uuid>,
+    shadow: PathBuf,
+    transaction: String,
+}
+
+fn finish_previous(store_root: &Path) -> Result<Option<Recovered>, Error> {
+    let Some(journal) = journal::Journal::read(store_root)? else {
+        return Ok(None);
+    };
+    let recovered = Recovered {
+        condemned: journal.condemned.clone(),
+        shadow: journal.shadow.clone(),
+        transaction: journal.transaction.clone(),
+    };
+    resume(store_root, journal)?;
+    Ok(Some(recovered))
+}

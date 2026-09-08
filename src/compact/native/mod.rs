@@ -1,11 +1,13 @@
 //! Compaction for a store that was written record by record.
 mod apply;
-mod plan;
 #[cfg(test)]
-mod projection_tests;
+mod crash_tests;
+mod journal;
+mod plan;
 mod projections;
 #[cfg(test)]
 mod race_tests;
+mod recover;
 mod run;
 
 pub use apply::{drop_receipts, rewrite, stage_records};
