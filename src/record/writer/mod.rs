@@ -5,11 +5,15 @@ use super::{AppendReport, RecordDraft, StoredRecord};
 use crate::defense;
 use crate::kernel::digest::sha256_hex;
 use crate::kernel::error::Error;
+mod revocation;
 use crate::kernel::lock::StoreLock;
 use crate::kernel::store;
 use crate::projection::ProjectionState;
 use crate::schema;
 use jiff::Timestamp;
+pub use revocation::append_only;
+pub(crate) use revocation::append_revocation;
+use revocation::month;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::Path;
@@ -32,7 +36,7 @@ pub fn append_file(store_root: &Path, source: &Path, actor: &str) -> Result<Appe
 /// forty records is the difference between a usable import and an unusable one
 /// — so batch callers use `append_only` and drain once at the end.
 pub fn append(store_root: &Path, draft: RecordDraft, actor: &str) -> Result<AppendReport, Error> {
-    let (mut report, _record) = confirm(store_root, draft, actor)?;
+    let (mut report, _record) = confirm(store_root, draft, actor, None)?;
     // Nothing but waking the worker. The text index used to be written here,
     // one transaction inside the call the user waits on, on the argument that a
     // record should be findable the instant it is written.
@@ -46,14 +50,6 @@ pub fn append(store_root: &Path, draft: RecordDraft, actor: &str) -> Result<Appe
     Ok(report)
 }
 
-pub fn append_only(
-    store_root: &Path,
-    draft: RecordDraft,
-    actor: &str,
-) -> Result<AppendReport, Error> {
-    confirm(store_root, draft, actor).map(|(report, _)| report)
-}
-
 /// The confirmation itself, returning the record it wrote.
 ///
 /// Callers that need to index or project the record afterwards already have it
@@ -63,6 +59,7 @@ fn confirm(
     store_root: &Path,
     mut draft: RecordDraft,
     actor: &str,
+    revoking: Option<&StoredRecord>,
 ) -> Result<(AppendReport, StoredRecord), Error> {
     let config = store::load(store_root)?;
     let recorded_at = Timestamp::now().to_string();
@@ -76,6 +73,25 @@ fn confirm(
     let definition = schema::load(store_root, &draft.type_name)?;
     super::validation::validate(&draft, &config, &definition)?;
     require_draft_writer(&config, actor, &draft)?;
+    // Here, and only here: every ordinary write and every batch entry passes
+    // through this function, so the limit binds the four actors the written
+    // rule never reached as firmly as the one it did. Before the append,
+    // because a refusal after it would leave the record in the ledger.
+    // After redaction, on the payload that will actually be appended: what the
+    // defense removed is not what the store keeps, and counting the original
+    // would refuse a record for words it never stored.
+    // Exempt only a retraction that still says exactly what the stored record
+    // says, compared here because this is where the payload has stopped
+    // changing. A retraction that rewrote the claim is new writing and is
+    // capped like any other.
+    let faithful = revoking.is_some_and(|target| target.payload == draft.payload);
+    if !faithful {
+        super::word_limit::check(
+            &crate::retrieval::word_limits(store_root)?,
+            &draft.type_name,
+            &draft.payload,
+        )?;
+    }
 
     let redacted = defense.redacted();
     let valid_at = draft
@@ -229,11 +245,4 @@ fn confirm(
         },
         record,
     ))
-}
-
-fn month(timestamp: &str) -> Result<String, Error> {
-    timestamp
-        .get(..7)
-        .map(str::to_owned)
-        .ok_or_else(|| Error::InvalidRecord("system clock is out of range".into()))
 }
