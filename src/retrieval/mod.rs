@@ -6,7 +6,7 @@ use std::path::Path;
 
 const SETTINGS: &str = "settings.json";
 pub const DEFAULT_QUERY_INSTRUCTION: &str =
-    "Retrieve durable software-engineering knowledge directly applicable to the current task.";
+    "Retrieve durable memory directly applicable to the current request.";
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]

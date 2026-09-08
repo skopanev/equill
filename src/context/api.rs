@@ -1,12 +1,14 @@
+mod options;
+
 use super::model::{ContextBundle, ContextRequest, RuntimeBudget};
-use super::options::{
-    assemble_file_with_renderer_and_options, assemble_with_options,
-    assemble_with_renderer_and_options,
-};
 use super::payload;
 use crate::filter::Filter;
 use crate::kernel::error::Error;
 use crate::record::StoredRecord;
+pub use options::{
+    assemble_file_with_renderer_and_options, assemble_with_options,
+    assemble_with_renderer_and_options,
+};
 use std::path::Path;
 
 pub fn assemble_file(

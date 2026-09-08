@@ -16,7 +16,7 @@ fn the_embedding_contract_is_pinned() {
     assert_eq!(MAX_TOKENS, 512);
     assert_eq!(
         instructed_query(crate::retrieval::DEFAULT_QUERY_INSTRUCTION, "question"),
-        "Instruct: Retrieve durable software-engineering knowledge directly applicable to the current task.\nQuery:question"
+        "Instruct: Retrieve durable memory directly applicable to the current request.\nQuery:question"
     );
 }
 

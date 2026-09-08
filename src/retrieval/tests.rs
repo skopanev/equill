@@ -13,7 +13,7 @@ fn configured() -> serde_json::Value {
     json!({
         "retrieval": {
             "default_budget_records": 30,
-            "query_instruction": "Retrieve durable software-engineering knowledge directly applicable to the current task.",
+            "query_instruction": "Retrieve durable memory directly applicable to the current request.",
             "vector": { "enabled": true, "score_threshold": 0.48 },
             "hybrid": {
                 "order": ["vector", "fts"],

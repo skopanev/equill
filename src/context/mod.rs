@@ -3,7 +3,6 @@ mod assembly;
 mod budget;
 mod matching;
 mod model;
-mod options;
 mod receipt;
 mod registry;
 mod retrieval;
@@ -18,14 +17,12 @@ use std::path::Path;
 
 pub use api::{
     assemble, assemble_file, assemble_file_with_budget, assemble_file_with_limits,
-    assemble_file_with_renderer, assemble_file_with_renderer_and_limits, assemble_with_budget,
-    assemble_with_limits, assemble_with_renderer, assemble_with_renderer_and_limits,
-};
-pub use model::{ContextBundle, ContextRequest, RegistryReport, RuntimeBudget};
-pub use options::{
-    assemble_file_with_renderer_and_options, assemble_with_options,
+    assemble_file_with_renderer, assemble_file_with_renderer_and_limits,
+    assemble_file_with_renderer_and_options, assemble_with_budget, assemble_with_limits,
+    assemble_with_options, assemble_with_renderer, assemble_with_renderer_and_limits,
     assemble_with_renderer_and_options,
 };
+pub use model::{ContextBundle, ContextRequest, RegistryReport, RuntimeBudget};
 
 pub fn register_profile(store: &Path, file: &Path, actor: &str) -> Result<RegistryReport, Error> {
     registry::register_profile(store, file, actor)
