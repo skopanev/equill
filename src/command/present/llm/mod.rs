@@ -39,7 +39,13 @@ struct Sections {
 /// would bury the compact answer under metadata nobody asked for — so the
 /// difference is added when, and only when, there is one.
 pub(super) struct Said {
+    /// The text as first rendered, never annotated. Matching runs on this:
+    /// annotating what is matched on breaks the group the moment it grows past
+    /// two, because the later arrivals no longer recognize the earlier ones.
+    pub(super) key: Vec<String>,
     pub(super) payload: Value,
+    pub(super) namespace: String,
+    pub(super) type_name: String,
     pub(super) lines: Vec<String>,
 }
 

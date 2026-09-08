@@ -1,54 +1,89 @@
-//! Saying a thing once, and telling two records apart when they say the same.
+//! Saying a thing once, and telling records apart when they say the same.
 use super::Said;
 use super::fallback;
 use crate::record::StoredRecord;
-use serde_json::Value;
 
-/// Adds a block, distinguishing it from an existing one that reads the same.
+/// Adds a block and re-annotates every block that reads the same.
 ///
-/// Both sides get the field that differs, not just the newcomer: told only on
-/// the second bullet, the reader learns that one of them is scoped and cannot
-/// tell what the first one is.
-pub(super) fn say(said: &mut Vec<Said>, record: &StoredRecord, mut lines: Vec<String>) -> bool {
+/// The whole group, not just the newcomer: annotate only the arrival and the
+/// third record finds no match, because the first two no longer read the way
+/// they were written. Matching runs on the text as first rendered — kept
+/// unchanged for exactly this reason — while what is displayed carries the
+/// annotations on top.
+///
+/// Nothing coalesces here. Whether two records are one fact was decided once,
+/// above, on namespace, type and full payload; deciding it again on a weaker
+/// signal is how a record of a different type silently disappeared behind an
+/// identical sentence.
+pub(super) fn say(said: &mut Vec<Said>, record: &StoredRecord, lines: Vec<String>) -> bool {
     if lines.is_empty() {
         return false;
     }
-    if let Some(existing) = said.iter_mut().find(|item| item.lines == lines) {
-        let (mine, theirs) = differing(&record.payload, &existing.payload);
-        if mine.is_empty() && theirs.is_empty() {
-            // Same words, same payload, different envelope: one fact.
-            return true;
-        }
-        existing.lines.extend(theirs);
-        lines.extend(mine);
-    }
+    let key = lines.clone();
     said.push(Said {
+        key: key.clone(),
         payload: record.payload.clone(),
+        namespace: record.namespace.clone(),
+        type_name: record.type_name.clone(),
         lines,
     });
+    annotate(said, &key);
     true
 }
 
-/// The fields that tell two payloads apart, rendered for each side.
-fn differing(mine: &Value, theirs: &Value) -> (Vec<String>, Vec<String>) {
-    let (Some(mine), Some(theirs)) = (mine.as_object(), theirs.as_object()) else {
-        return (Vec::new(), Vec::new());
-    };
-    let mut names: Vec<&String> = mine.keys().chain(theirs.keys()).collect();
-    names.sort();
-    names.dedup();
-    let (mut left, mut right) = (Vec::new(), Vec::new());
-    for name in names {
-        let (a, b) = (mine.get(name), theirs.get(name));
-        if a == b {
-            continue;
+/// Rewrites the display lines of one group: the text as written, plus whatever
+/// distinguishes its members from each other.
+///
+/// A group of one is left exactly as it was — a lone record has nothing to be
+/// told apart from, and an annotation there would be metadata nobody asked for.
+fn annotate(said: &mut [Said], key: &[String]) {
+    let members: Vec<usize> = said
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| item.key == key)
+        .map(|(index, _)| index)
+        .collect();
+    if members.len() < 2 {
+        return;
+    }
+    let names = distinguishing(said, &members);
+    for index in members {
+        let mut lines = said[index].key.clone();
+        if names.is_empty() {
+            // Nothing in the payload separates them, so what separates them is
+            // what they are. The smallest true label, and only here.
+            lines.push(format!(
+                "type: {}/{}",
+                said[index].namespace, said[index].type_name
+            ));
         }
-        if let Some(value) = a {
-            left.push(format!("{name}: {}", fallback::literal(value)));
+        for name in &names {
+            if let Some(value) = said[index].payload.get(name) {
+                lines.push(format!("{name}: {}", fallback::literal(value)));
+            }
         }
-        if let Some(value) = b {
-            right.push(format!("{name}: {}", fallback::literal(value)));
+        said[index].lines = lines;
+    }
+}
+
+/// The payload field names on which the group's members disagree.
+fn distinguishing(said: &[Said], members: &[usize]) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for index in members {
+        if let Some(fields) = said[*index].payload.as_object() {
+            for name in fields.keys() {
+                if !names.contains(name) {
+                    names.push(name.clone());
+                }
+            }
         }
     }
-    (left, right)
+    names.sort();
+    names.retain(|name| {
+        let first = said[members[0]].payload.get(name);
+        members
+            .iter()
+            .any(|index| said[*index].payload.get(name) != first)
+    });
+    names
 }

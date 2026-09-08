@@ -125,3 +125,100 @@ fn an_identical_record_recorded_twice_is_said_once() {
 
     assert_eq!(out.matches("Measure before claiming.").count(), 1, "{out}");
 }
+
+/// Every member of the group, not the first two.
+///
+/// Annotating only the arriving record leaves the third matching nothing — the
+/// first two no longer read the way they were written — so it lands unlabelled
+/// beside two labelled ones. A pair passes that test; a triple is what shows it.
+#[test]
+fn every_member_of_a_group_is_distinguished_not_just_the_first_two() {
+    let out = answer(&[
+        record(
+            "agent.lesson.v1",
+            json!({ "rule": "Measure first.", "project": "scope-one" }),
+        ),
+        record(
+            "agent.lesson.v1",
+            json!({ "rule": "Measure first.", "project": "scope-two" }),
+        ),
+        record(
+            "agent.lesson.v1",
+            json!({ "rule": "Measure first.", "project": "scope-three" }),
+        ),
+    ]);
+
+    for scope in ["scope-one", "scope-two", "scope-three"] {
+        assert!(out.contains(scope), "{scope} lost its scope:\n{out}");
+    }
+}
+
+/// The same for the prose sections, which hold a sentence rather than a block.
+#[test]
+fn a_third_process_sharing_a_purpose_keeps_its_scope() {
+    let out = answer(&[
+        record(
+            "agent.process.v2",
+            json!({ "purpose": "Keep main green", "project": "scope-one" }),
+        ),
+        record(
+            "agent.process.v2",
+            json!({ "purpose": "Keep main green", "project": "scope-two" }),
+        ),
+        record(
+            "agent.process.v2",
+            json!({ "purpose": "Keep main green", "project": "scope-three" }),
+        ),
+    ]);
+
+    for scope in ["scope-one", "scope-two", "scope-three"] {
+        assert!(out.contains(scope), "{scope} lost its scope:\n{out}");
+    }
+}
+
+/// Two records of different types can hold the same payload and still be two
+/// records. Nothing in the payload separates them, so the smallest true thing
+/// that does is what they are.
+#[test]
+fn records_differing_only_by_type_are_both_shown() {
+    let out = answer(&[
+        record("agent.lesson.v1", json!({ "rule": "Measure first." })),
+        record("other.lesson.v1", json!({ "rule": "Measure first." })),
+    ]);
+
+    assert_eq!(
+        out.matches("Measure first.").count(),
+        2,
+        "a record of another type disappeared behind an identical sentence:\n{out}"
+    );
+    assert!(
+        out.contains("agent.lesson.v1") && out.contains("other.lesson.v1"),
+        "{out}"
+    );
+}
+
+/// A single record is left exactly as it reads. The label exists to separate
+/// records from each other; alone there is nothing to separate, and adding it
+/// would be metadata nobody asked for.
+#[test]
+fn a_lone_record_carries_no_label() {
+    let out = answer(&[record(
+        "agent.lesson.v1",
+        json!({ "rule": "Measure first." }),
+    )]);
+
+    assert_eq!(out, "## RETRIEVED MEMORY\n- Measure first.");
+}
+
+/// The one case that still coalesces: the same fact recorded twice. Identity is
+/// namespace, type and payload — the envelope differs on every append and says
+/// nothing about whether the fact is the same.
+#[test]
+fn the_same_fact_recorded_twice_is_still_said_once() {
+    let out = answer(&[
+        record("agent.lesson.v1", json!({ "rule": "Measure first." })),
+        record("agent.lesson.v1", json!({ "rule": "Measure first." })),
+    ]);
+
+    assert_eq!(out, "## RETRIEVED MEMORY\n- Measure first.");
+}
