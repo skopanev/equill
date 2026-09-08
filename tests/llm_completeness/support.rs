@@ -47,8 +47,12 @@ pub fn records() -> Vec<serde_json::Value> {
         // A step the renderer drops for having no instruction.
         json!({ "type": "sample.step.v1", "payload": { "step": 7, "gate": "sample-zeta" } }),
         // Two lessons that read the same and hold for different projects.
-        json!({ "type": "sample.lesson.v1", "payload": { "rule": "Measure before claiming.", "project": "sample-alpha" } }),
-        json!({ "type": "sample.lesson.v1", "payload": { "rule": "Measure before claiming.", "project": "sample-beta" } }),
+        // Their scopes appear nowhere else in this fixture on purpose: with
+        // shared values, an unrelated row carrying the same word satisfies the
+        // assertion while the two lessons stay indistinguishable, and the test
+        // passes having measured nothing.
+        json!({ "type": "sample.lesson.v1", "payload": { "rule": "Measure before claiming.", "project": "scope-only-one" } }),
+        json!({ "type": "sample.lesson.v1", "payload": { "rule": "Measure before claiming.", "project": "scope-only-two" } }),
     ]
 }
 

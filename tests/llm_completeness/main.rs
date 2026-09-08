@@ -54,13 +54,25 @@ fn records_that_read_alike_but_differ_stay_distinguishable() {
         &["context", "--profile", "sample", "--format", "llm"],
     );
 
+    // Association, not presence. Searching the whole prompt for the scope lets
+    // any unrelated row carrying that word answer for the lessons — which is
+    // how the first version of this test passed while the two lessons were
+    // still printed as two identical bullets.
+    let block = prompt
+        .split("\n\n")
+        .find(|block| block.contains("Measure before claiming."))
+        .unwrap_or_else(|| panic!("the lesson is missing entirely:\n{prompt}"));
+
     assert_eq!(
-        prompt.matches("Measure before claiming.").count(),
+        block.matches("Measure before claiming.").count(),
         2,
-        "two differently scoped lessons collapsed:\n{prompt}"
+        "two differently scoped lessons collapsed:\n{block}"
     );
-    for scope in ["sample-alpha", "sample-beta"] {
-        assert!(prompt.contains(scope), "{scope} is not visible:\n{prompt}");
+    for scope in ["scope-only-one", "scope-only-two"] {
+        assert!(
+            block.contains(scope),
+            "{scope} is not shown beside the rule it scopes:\n{block}"
+        );
     }
     let _ = fs::remove_dir_all(&root);
 }
