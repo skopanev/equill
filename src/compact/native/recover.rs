@@ -59,7 +59,21 @@ pub fn resume(store_root: &Path, journal: Journal) -> Result<(), Error> {
     for relative in STEPS {
         match inspect(store_root, &shadow, relative, &journal.transaction)? {
             Step::Done => {}
-            Step::Pending | Step::Interrupted => {
+            Step::Pending => {
+                // The store has been writable since the crash, and an append
+                // lands in the directory that is still current. Publishing the
+                // prepared copy over it would carry that record away in the
+                // backup — lost from an immutable ledger. The prepared copy is
+                // only good if nothing has been added to what it replaces.
+                if changed_since_staging(store_root, relative, &journal.source)? {
+                    return Err(Error::Compact(format!(
+                        "{relative} changed after the interrupted compaction staged it; \
+                         resolve by hand rather than lose the newer writes"
+                    )));
+                }
+                publish_step(store_root, &shadow, relative, &journal.transaction)?;
+            }
+            Step::Interrupted => {
                 publish_step(store_root, &shadow, relative, &journal.transaction)?;
             }
             Step::Unclear => {
@@ -71,6 +85,27 @@ pub fn resume(store_root: &Path, journal: Journal) -> Result<(), Error> {
         }
     }
     Ok(())
+}
+
+/// Whether the live directory has gained anything since the staged copy was
+/// built. An append adds a record to a month file, so the staged copy either
+/// lacks that file or holds fewer bytes of it.
+fn changed_since_staging(
+    store_root: &Path,
+    relative: &str,
+    source: &std::collections::BTreeMap<String, u64>,
+) -> Result<bool, Error> {
+    let now = super::journal::measure(store_root, relative)?;
+    let then: std::collections::BTreeMap<_, _> = source
+        .iter()
+        .filter(|(name, _)| name.starts_with(relative))
+        .collect();
+    if now.len() != then.len() {
+        return Ok(true);
+    }
+    Ok(now
+        .iter()
+        .any(|(name, size)| then.get(name).is_none_or(|before| *before != size)))
 }
 
 /// Moves the prepared directory into place, or restores the backup when the
@@ -104,11 +139,15 @@ fn publish_step(
 
 /// Completes an interrupted publication and reconciles what it left, if any.
 pub(super) fn recover_previous(store_root: &Path, actor: &str) -> Result<(), Error> {
+    // Held for the whole recovery, not just the directory work: two
+    // compactions racing for one journal would each believe they own it.
+    let (_guard, _config) = RootGuard::acquire(store_root, actor)?;
     let recovered = {
-        let (_guard, _config) = RootGuard::acquire(store_root, actor)?;
         // Under the writer lock and before anything is read: an interruption
         // inside a rename can leave the ledger directory missing, and reading
         // first would mean the store can never repair itself.
+        // The writer lock is released here and not before reconciling, because
+        // the rebuild takes it.
         let _writer = crate::kernel::lock::StoreLock::exclusive(store_root)?;
         finish_previous(store_root)?
     };

@@ -202,3 +202,49 @@ fn the_store_still_accepts_writes_and_revocations_after_compaction() {
     );
     let _ = fs::remove_dir_all(&root);
 }
+
+/// A real process killed inside the rename, not an error returned inside one.
+///
+/// An error unwinds: the stack is cleaned up and the directories may be put
+/// back on the way out. A crash does none of that, and the state it leaves —
+/// the ledger directory missing entirely — is the one recovery has to survive.
+/// Asserting that the directory is really gone before recovering is what
+/// separates this from an error-injection test.
+#[test]
+fn a_process_killed_inside_the_rename_is_recovered_by_the_next_run() {
+    let root = store("killed");
+    let first = record(&root, "sample-old", None);
+    record(&root, "sample-live", Some(&first));
+
+    let killed = std::process::Command::new(harness::binary())
+        .args(["compact", "--apply", "--store"])
+        .arg(&root)
+        .env("EQUILL_ACTOR", "owner")
+        .env("EQUILL_COMPACT_HALT", "kill-inside-records")
+        .output()
+        .expect("compact process");
+    assert!(!killed.status.success(), "the child was not killed");
+    assert!(
+        !root.join("records").is_dir(),
+        "the fixture did not reach the gap inside the rename"
+    );
+
+    let recovered = run(&root, &["compact", "--apply"]);
+    assert!(
+        recovered.status.success(),
+        "recovery failed after a real kill: {}",
+        stderr(&recovered)
+    );
+    assert!(root.join("records").is_dir(), "the ledger was not restored");
+    let after = ledger_lines(&root);
+    assert!(
+        after
+            .iter()
+            .any(|record| record["payload"]["rule"].as_str() == Some("sample-live")),
+        "the surviving record was lost: {after:?}"
+    );
+
+    let written = record(&root, "sample-after-recovery", None);
+    assert!(!written.is_empty(), "the store stopped accepting writes");
+    let _ = fs::remove_dir_all(&root);
+}

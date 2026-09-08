@@ -11,6 +11,7 @@
 //! go. It is deleted once the work is done.
 use crate::kernel::error::Error;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -40,6 +41,41 @@ pub struct Journal {
     /// The points that still have to be dropped. After the swap the ledger no
     /// longer names these records, so this is the only thing that can.
     pub condemned: Vec<Uuid>,
+    /// What the live directories held when the staged copy was built, by path
+    /// and length.
+    ///
+    /// The store keeps taking writes the moment the process dies, and an append
+    /// lands in the directory that is still current. Publishing the prepared
+    /// copy over it would carry that record away in the backup. The staged copy
+    /// cannot answer this by itself, since compaction makes it shorter on
+    /// purpose, so what it replaced is measured here.
+    pub source: BTreeMap<String, u64>,
+}
+
+/// The lengths of every file under one directory, keyed by path relative to the
+/// store, so the same map can be compared against the same directory later.
+pub fn measure(store_root: &Path, relative: &str) -> Result<BTreeMap<String, u64>, Error> {
+    let mut sizes = BTreeMap::new();
+    walk(store_root, &store_root.join(relative), &mut sizes)?;
+    Ok(sizes)
+}
+
+fn walk(store_root: &Path, at: &Path, sizes: &mut BTreeMap<String, u64>) -> Result<(), Error> {
+    if !at.is_dir() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(at)? {
+        let path = entry?.path();
+        if path.is_dir() {
+            walk(store_root, &path, sizes)?;
+        } else if let Ok(key) = path.strip_prefix(store_root) {
+            sizes.insert(
+                key.to_string_lossy().into_owned(),
+                fs::metadata(&path)?.len(),
+            );
+        }
+    }
+    Ok(())
 }
 
 impl Journal {
@@ -57,12 +93,39 @@ impl Journal {
         Ok(())
     }
 
+    /// Reads the journal and checks that its paths are the ones this store
+    /// would have produced.
+    ///
+    /// The paths travel through a JSON file, and they are used for renames and
+    /// recursive deletes. A journal naming somewhere else — corrupted, copied
+    /// from another store, or written by something that is not this — must not
+    /// be able to point those operations at it. The transaction name is
+    /// checked, and the staged path is recomputed from it rather than taken.
     pub fn read(store_root: &Path) -> Result<Option<Self>, Error> {
-        match fs::read(store_root.join(JOURNAL)) {
-            Ok(bytes) => Ok(Some(serde_json::from_slice(&bytes)?)),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(error.into()),
+        let bytes = match fs::read(store_root.join(JOURNAL)) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        let journal: Self = serde_json::from_slice(&bytes)?;
+        if journal.transaction.len() != 32
+            || !journal
+                .transaction
+                .chars()
+                .all(|character| character.is_ascii_hexdigit())
+        {
+            return Err(Error::Compact(
+                "compaction journal names a transaction this store did not write".into(),
+            ));
         }
+        let expected =
+            super::super::transaction::sibling(store_root, "native", &journal.transaction)?;
+        if journal.shadow != expected {
+            return Err(Error::Compact(
+                "compaction journal points outside the store it was found in".into(),
+            ));
+        }
+        Ok(Some(journal))
     }
 
     pub fn advance(&mut self, store_root: &Path, phase: Phase) -> Result<(), Error> {
@@ -79,6 +142,21 @@ impl Journal {
             // finished.
             Err(error) => Err(error.into()),
         }
+    }
+}
+
+/// Where a process is asked to stop dead, read from the environment so a test
+/// can kill a real child rather than return an error inside itself: an error
+/// unwinds, and a crash does not.
+pub(super) fn asked_to_halt(point: &str) -> bool {
+    std::env::var("EQUILL_COMPACT_HALT").ok().as_deref() == Some(point)
+}
+
+/// Death, not an error: an error unwinds and puts things back, and a crash
+/// does neither.
+pub(super) fn halt_if_asked(point: &str) {
+    if asked_to_halt(point) {
+        std::process::abort();
     }
 }
 

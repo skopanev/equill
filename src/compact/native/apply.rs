@@ -56,8 +56,24 @@ pub fn stage_records(shadow: &Path, records: &[StoredRecord]) -> Result<(), Erro
         line.push(b'\n');
     }
     for (month, bytes) in by_month {
-        fs::write(directory.join(format!("{month}.jsonl")), bytes)?;
+        durable_write(&directory.join(format!("{month}.jsonl")), &bytes)?;
     }
+    crate::compact::native::journal::sync_directory(&directory)?;
+    Ok(())
+}
+
+/// A staged file the journal will point at has to survive the crash the
+/// journal exists for. Writing it into the page cache and recording that it is
+/// ready are two different claims.
+pub fn durable_write(path: &Path, bytes: &[u8]) -> Result<(), Error> {
+    let file = fs::File::create(path)?;
+    {
+        use std::io::Write as _;
+        let mut writer = std::io::BufWriter::new(&file);
+        writer.write_all(bytes)?;
+        writer.flush()?;
+    }
+    file.sync_all()?;
     Ok(())
 }
 
@@ -103,7 +119,7 @@ pub fn reconcile_receipts(shadow: &Path, kept: &[StoredRecord]) -> Result<(), Er
                 continue;
             }
             receipt["record_sha256"] = serde_json::json!(digest);
-            fs::write(&path, serde_json::to_vec(&receipt)?)?;
+            durable_write(&path, &serde_json::to_vec(&receipt)?)?;
         }
     }
     Ok(())

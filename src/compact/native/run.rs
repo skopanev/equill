@@ -23,6 +23,17 @@ pub struct NativeReport {
 /// their own locks: recovery must release the writer lock before reconciling,
 /// since the rebuild takes it.
 pub fn run(store_root: &Path, apply_changes: bool, actor: &str) -> Result<NativeReport, Error> {
+    if !apply_changes {
+        // A dry run changes nothing, including finishing somebody else's
+        // transaction. An unfinished one is reported rather than repaired: the
+        // caller asked what would happen, not for the store to be altered.
+        if journal::Journal::read(store_root)?.is_some() {
+            return Err(Error::Compact(
+                "an interrupted compaction is still pending; run with --apply to finish it".into(),
+            ));
+        }
+        return compact_once(store_root, false, actor);
+    }
     super::recover::recover_previous(store_root, actor)?;
     compact_once(store_root, apply_changes, actor)
 }
@@ -69,14 +80,19 @@ fn compact_once(
     let condemned = projections::condemned(&report.detail);
     let transaction = uuid::Uuid::now_v7().simple().to_string();
     let shadow = super::super::transaction::sibling(store_root, "native", &transaction)?;
-    // Staged in full first: a journal pointing at an incomplete shadow would
-    // send recovery forward into a state that was never prepared.
+    // Staged in full first: a journal pointing at an incomplete copy would send
+    // recovery into a state that was never prepared.
     stage(store_root, &shadow, &records, &report.detail)?;
+    let mut source = std::collections::BTreeMap::new();
+    for relative in journal::STEPS {
+        source.extend(journal::measure(store_root, relative)?);
+    }
     let mut journal = journal::Journal {
         transaction: transaction.clone(),
         shadow: shadow.clone(),
         phase: journal::Phase::Staged,
         condemned: condemned.clone(),
+        source,
     };
     journal.write(store_root)?;
     publish(store_root, &shadow, &transaction, &mut journal)?;
@@ -113,26 +129,33 @@ fn stage(
     Ok(())
 }
 
-/// Swap the directories the compaction rewrote, rolling every one of them back
-/// if any fails: a store with a new ledger and old receipts is worse than one
-/// that was never compacted.
-/// Publishes each prepared directory and records how far it got.
-///
-/// The phase is written after the rename it describes, so it always lags by one
-/// window — which is why recovery reads the directories and treats the journal
-/// as a statement of intent.
-/// Backups and the staged copy go only once the projections agree: until then
-/// they are what makes an interrupted compaction recoverable.
+/// Backups and the staged copy go once the projections agree: until then they
+/// are what makes an interrupted compaction recoverable.
 pub(super) fn cleanup(store_root: &Path, shadow: &Path, transaction: &str) -> Result<(), Error> {
     for relative in journal::STEPS {
         let current = store_root.join(relative);
         let backup = super::super::transaction::sibling(&current, "backup", transaction)?;
-        super::super::transaction::cleanup_tree(&backup);
+        remove(&backup)?;
     }
-    super::super::transaction::cleanup_tree(shadow);
-    Ok(())
+    remove(shadow)
 }
 
+/// A swallowed failure here reads as a finished transaction while leaving the
+/// staged copy behind, and the next run would find a store it cannot explain.
+fn remove(path: &Path) -> Result<(), Error> {
+    match std::fs::remove_dir_all(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(Error::Compact(format!(
+            "could not remove {}: {error}",
+            path.display()
+        ))),
+    }
+}
+
+/// Publishes each prepared directory and records how far it got. The phase is
+/// written after the rename it describes, so it always lags by one window,
+/// which is why recovery reads the directories rather than the phase.
 fn publish(
     store_root: &Path,
     shadow: &Path,
@@ -143,6 +166,7 @@ fn publish(
         let current = store_root.join(relative);
         let incoming = shadow.join(relative);
         let backup = super::super::transaction::sibling(&current, "backup", transaction)?;
+        journal::halt_if_asked(&format!("kill-before-{relative}"));
         #[cfg(test)]
         journal::interrupt_at(&format!("before-{relative}"))?;
         // The gap inside the pair: old directory aside, new one not yet there.
@@ -151,6 +175,12 @@ fn publish(
             std::fs::rename(&current, &backup)?;
             journal::sync_directory(store_root)?;
             return Err(Error::Compact("interrupted inside the rename".into()));
+        }
+        if journal::asked_to_halt(&format!("kill-inside-{relative}")) {
+            // Leave the gap a crash would leave, then die without unwinding.
+            std::fs::rename(&current, &backup)?;
+            journal::sync_directory(store_root)?;
+            std::process::abort();
         }
         super::super::transaction::swap(&current, &incoming, &backup)?;
         if let Some(parent) = current.parent() {
