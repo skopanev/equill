@@ -29,6 +29,22 @@ pub fn reconcile(store_root: &std::path::Path, condemned: &[Uuid]) -> Result<(),
         drop_points(&projection, condemned)?;
     }
     crate::projection::rebuild(store_root)?;
+    // The survivors whose links were cut have new record hashes, and their
+    // points still carry the old ones. Left to the next ordinary write, the
+    // index would disagree with the ledger until something unrelated happened
+    // to touch it — so the catch-up runs here, in the operation that caused the
+    // disagreement.
+    //
+    // It costs no embeddings: the embedding input carries no provenance, so a
+    // cut link changes the record hash and not the text. Those points are
+    // relabelled rather than recomputed, and the catch-up settles the cursor
+    // and the watermark on the way.
+    let caught_up = crate::vector::after_commit_inline(store_root, 0);
+    if let Some(error) = caught_up.attempt_error {
+        return Err(Error::Compact(format!(
+            "compaction could not bring the vector projection up to date: {error}"
+        )));
+    }
     Ok(())
 }
 

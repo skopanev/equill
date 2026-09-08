@@ -145,21 +145,6 @@ impl Journal {
     }
 }
 
-/// Where a process is asked to stop dead, read from the environment so a test
-/// can kill a real child rather than return an error inside itself: an error
-/// unwinds, and a crash does not.
-pub(super) fn asked_to_halt(point: &str) -> bool {
-    std::env::var("EQUILL_COMPACT_HALT").ok().as_deref() == Some(point)
-}
-
-/// Death, not an error: an error unwinds and puts things back, and a crash
-/// does neither.
-pub(super) fn halt_if_asked(point: &str) {
-    if asked_to_halt(point) {
-        std::process::abort();
-    }
-}
-
 /// A rename is only durable once the directory holding the name is.
 pub fn sync_directory(path: &Path) -> Result<(), Error> {
     let directory = fs::File::open(path)?;
@@ -199,4 +184,23 @@ pub(crate) fn with_interrupt<T>(point: &str, body: impl FnOnce() -> T) -> T {
     let _restore = Restore(INTERRUPT.with(|slot| slot.borrow_mut().take()));
     INTERRUPT.with(|slot| *slot.borrow_mut() = Some(point.to_owned()));
     body()
+}
+
+/// Where a test child is asked to stop dead.
+///
+/// Compiled out of the product entirely: a release binary must not carry a
+/// switch that ends a compaction halfway, however useful it is to a test. The
+/// crash test runs the test binary as its own child, which is built with this.
+#[cfg(test)]
+pub(super) fn asked_to_halt(point: &str) -> bool {
+    std::env::var("EQUILL_TEST_COMPACT_HALT").ok().as_deref() == Some(point)
+}
+
+/// Death, not an error: an error unwinds and puts things back, a crash does
+/// neither.
+#[cfg(test)]
+pub(super) fn halt_if_asked(point: &str) {
+    if asked_to_halt(point) {
+        std::process::abort();
+    }
 }

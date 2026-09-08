@@ -20,13 +20,13 @@ pub struct NativeReport {
 }
 
 /// Finishes any interrupted compaction, then compacts. Two operations with
-/// their own locks: recovery must release the writer lock before reconciling,
-/// since the rebuild takes it.
+/// their own locks: recovery releases the writer lock before reconciling,
+/// which the rebuild needs.
 pub fn run(store_root: &Path, apply_changes: bool, actor: &str) -> Result<NativeReport, Error> {
     if !apply_changes {
         // A dry run changes nothing, including finishing somebody else's
-        // transaction. An unfinished one is reported rather than repaired: the
-        // caller asked what would happen, not for the store to be altered.
+        // transaction: the caller asked what would happen, not for the store
+        // to be altered.
         if journal::Journal::read(store_root)?.is_some() {
             return Err(Error::Compact(
                 "an interrupted compaction is still pending; run with --apply to finish it".into(),
@@ -135,22 +135,9 @@ pub(super) fn cleanup(store_root: &Path, shadow: &Path, transaction: &str) -> Re
     for relative in journal::STEPS {
         let current = store_root.join(relative);
         let backup = super::super::transaction::sibling(&current, "backup", transaction)?;
-        remove(&backup)?;
+        apply::remove(&backup)?;
     }
-    remove(shadow)
-}
-
-/// A swallowed failure here reads as a finished transaction while leaving the
-/// staged copy behind, and the next run would find a store it cannot explain.
-fn remove(path: &Path) -> Result<(), Error> {
-    match std::fs::remove_dir_all(path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(Error::Compact(format!(
-            "could not remove {}: {error}",
-            path.display()
-        ))),
-    }
+    apply::remove(shadow)
 }
 
 /// Publishes each prepared directory and records how far it got. The phase is
@@ -166,6 +153,7 @@ fn publish(
         let current = store_root.join(relative);
         let incoming = shadow.join(relative);
         let backup = super::super::transaction::sibling(&current, "backup", transaction)?;
+        #[cfg(test)]
         journal::halt_if_asked(&format!("kill-before-{relative}"));
         #[cfg(test)]
         journal::interrupt_at(&format!("before-{relative}"))?;
@@ -176,6 +164,7 @@ fn publish(
             journal::sync_directory(store_root)?;
             return Err(Error::Compact("interrupted inside the rename".into()));
         }
+        #[cfg(test)]
         if journal::asked_to_halt(&format!("kill-inside-{relative}")) {
             // Leave the gap a crash would leave, then die without unwinding.
             std::fs::rename(&current, &backup)?;

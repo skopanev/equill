@@ -153,3 +153,16 @@ pub fn drop_receipts(shadow: &Path, plan: &Plan) -> Result<(), Error> {
     }
     Ok(())
 }
+
+/// A swallowed failure here reads as a finished transaction while leaving the
+/// staged copy behind, and the next run would find a store it cannot explain.
+pub fn remove(path: &Path) -> Result<(), Error> {
+    match std::fs::remove_dir_all(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(Error::Compact(format!(
+            "could not remove {}: {error}",
+            path.display()
+        ))),
+    }
+}

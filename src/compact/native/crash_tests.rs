@@ -139,3 +139,96 @@ fn an_append_after_the_crash_is_not_lost_to_the_prepared_copy() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// The child half of the crash test: compacts and dies inside the rename.
+///
+/// It is a test rather than a binary because the failpoints exist only in a
+/// test build — a release binary must not carry a switch that ends a
+/// compaction halfway. Ordinary runs of the suite skip it: without the
+/// variable it does nothing.
+#[test]
+fn compaction_child_aborts_inside_the_rename() {
+    let Ok(root) = std::env::var("EQUILL_TEST_COMPACT_CHILD") else {
+        return;
+    };
+    let _ = run(std::path::Path::new(&root), true, "owner");
+}
+
+/// A real process killed inside the rename, not an error returned inside one.
+///
+/// An error unwinds: the stack is cleaned up and the directories may be put
+/// back on the way out. A crash does none of that, and the state it leaves —
+/// the ledger directory missing entirely — is the one recovery has to survive.
+/// Asserting the directory is really gone before recovering is what separates
+/// this from error injection.
+#[test]
+fn a_process_killed_inside_the_rename_is_recovered_by_the_next_run() {
+    let root = store("killed");
+    let first = add(&root, "older", None);
+    let survivor = add(&root, "newer", Some(first));
+
+    let child = std::process::Command::new(std::env::current_exe().expect("test binary"))
+        .args([
+            "compact::native::crash_tests::compaction_child_aborts_inside_the_rename",
+            "--exact",
+            "--nocapture",
+        ])
+        .env("EQUILL_TEST_COMPACT_CHILD", &root)
+        .env("EQUILL_TEST_COMPACT_HALT", "kill-inside-records")
+        .output()
+        .expect("child process");
+
+    assert!(!child.status.success(), "the child was not killed");
+    assert!(
+        !root.join("records").is_dir(),
+        "the child did not reach the gap inside the rename"
+    );
+
+    run(&root, true, "owner").expect("recovery after a real kill");
+
+    assert!(root.join("records").is_dir(), "the ledger was not restored");
+    let after = read_all(&root).expect("ledger");
+    assert!(
+        after.iter().any(|record| record.id == survivor),
+        "the surviving record was lost"
+    );
+    let written = add(&root, "written after recovery", None);
+    assert!(
+        read_all(&root)
+            .expect("ledger")
+            .iter()
+            .any(|record| record.id == written),
+        "the store stopped accepting writes"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A store with no vector configured compacts and keeps working.
+///
+/// Named for what it measures. It does not prove the relabelling: with no
+/// provider configured the catch-up has nothing to do, so removing the call
+/// leaves this green. What it does prove is that the catch-up cannot fail a
+/// compaction on a store that never asked for a vector.
+#[test]
+fn a_store_without_a_vector_compacts_and_keeps_working() {
+    let root = store("vector-settled");
+    let first = add(&root, "older", None);
+    add(&root, "newer", Some(first));
+
+    let report = run(&root, true, "owner").expect("compaction");
+    assert_eq!(report.removed, 1);
+
+    // And the store is caught up enough that an ordinary write lands and is
+    // findable without any repair step in between.
+    let written = add(&root, "written after compaction", None);
+    let after = read_all(&root).expect("ledger");
+    assert!(
+        after.iter().any(|record| record.id == written),
+        "the store did not accept a write after compaction"
+    );
+    assert!(
+        after.iter().all(|record| record.supersedes.is_none()),
+        "a dangling link survived"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
