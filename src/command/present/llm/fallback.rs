@@ -1,5 +1,5 @@
 //! What a record says when no section claimed it.
-use super::{Sections, fresh};
+use super::Sections;
 use crate::record::StoredRecord;
 use serde_json::Value;
 
@@ -17,19 +17,22 @@ use serde_json::Value;
 /// with a different need, not a replacement.
 pub(super) fn fallback(sections: &mut Sections, record: &StoredRecord) {
     let mut lines = Vec::new();
-    if let Some(fields) = record.payload.as_object() {
-        for (name, value) in fields {
-            lines.push(format!("{name}: {}", literal(value)));
+    match record.payload.as_object() {
+        Some(fields) if !fields.is_empty() => {
+            for (name, value) in fields {
+                lines.push(format!("{name}: {}", literal(value)));
+            }
         }
-    } else if !record.payload.is_null() {
-        lines.push(literal(&record.payload));
+        // An empty object and a null payload are what the record says. Dropping
+        // them here would be the same silence this fix exists to remove: the
+        // record was selected, and the answer has to account for it.
+        _ => lines.push(format!(
+            "{}: {}",
+            record.type_name,
+            literal(&record.payload)
+        )),
     }
-    if lines.is_empty() {
-        return;
-    }
-    if fresh(&mut sections.seen, record) {
-        sections.records.push(lines);
-    }
+    sections.records.push(lines);
 }
 
 /// A value written so that what it is stays readable: a string as itself, and

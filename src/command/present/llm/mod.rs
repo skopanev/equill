@@ -1,8 +1,10 @@
 //! Prompt-ready Markdown made only from selected domain content.
 mod fallback;
 mod kind;
+mod recall;
 mod render;
 mod render_steps;
+mod said;
 
 use crate::record::StoredRecord;
 use serde_json::Value;
@@ -10,12 +12,12 @@ use serde_json::Value;
 #[derive(Default)]
 struct Sections {
     roles: Vec<Ordered>,
-    goals: Vec<String>,
-    finishes: Vec<String>,
+    goals: Vec<Said>,
+    finishes: Vec<Said>,
     steps: Vec<Step>,
     communication: Vec<Rule>,
     ticketing: Vec<Rule>,
-    memory: Vec<Vec<String>>,
+    memory: Vec<Said>,
     /// What has already been said, keyed by the record's namespace, type and
     /// whole payload. Two records that differ only in scope render the same
     /// sentence, and collapsing on that sentence would silently answer one
@@ -27,6 +29,18 @@ struct Sections {
     /// shape for it, and dropping it makes the receipt lie: selection and
     /// receipt stay green while the agent never sees what it was given.
     records: Vec<Vec<String>>,
+}
+
+/// A block that has been said, kept with the payload that said it.
+///
+/// The payload is here for one reason: when a second record renders to the
+/// same words, the reader needs to see which is which. Keeping only the words
+/// would leave two identical bullets, and keeping the whole payload always
+/// would bury the compact answer under metadata nobody asked for — so the
+/// difference is added when, and only when, there is one.
+pub(super) struct Said {
+    pub(super) payload: Value,
+    pub(super) lines: Vec<String>,
 }
 
 struct Ordered {
@@ -50,6 +64,12 @@ struct Rule {
 pub(super) fn answer(records: &[StoredRecord]) -> String {
     let mut sections = Sections::default();
     for record in records {
+        // Asked once per record, here. A record recorded twice unchanged is one
+        // fact and is said once; everything below then decides only where the
+        // records that remain are said.
+        if !fresh(&mut sections.seen, record) {
+            continue;
+        }
         // Whether the specialized branch actually said anything, not whether one
         // exists. A role with no `do`, a process with neither purpose nor
         // ends_when, a rule with no text: all correctly recognized and all
@@ -61,9 +81,9 @@ pub(super) fn answer(records: &[StoredRecord]) -> String {
             kind::LlmKind::Step => step(&mut sections, record),
             kind::LlmKind::Communication => rule(&mut sections.communication, record),
             kind::LlmKind::Ticketing => rule(&mut sections.ticketing, record),
-            kind::LlmKind::Lesson => memory(&mut sections, record, lesson(record)),
-            kind::LlmKind::Finding => memory(&mut sections, record, finding(record)),
-            kind::LlmKind::Note => memory(&mut sections, record, field(record, "text")),
+            kind::LlmKind::Lesson => memory(&mut sections, record, recall::lesson(record)),
+            kind::LlmKind::Finding => memory(&mut sections, record, recall::finding(record)),
+            kind::LlmKind::Note => memory(&mut sections, record, recall::field(record, "text")),
             kind::LlmKind::Other => false,
         };
         // Counted separately: steps carried inside a record are content, but
@@ -89,13 +109,27 @@ fn role(sections: &mut Sections, record: &StoredRecord) -> bool {
     false
 }
 
+/// Same rule as `memory`, for the sections that hold bare sentences: a repeat
+/// of a sentence is not an answer for a different record, only for the same one.
 fn process(sections: &mut Sections, record: &StoredRecord) -> bool {
-    let purpose = push_unique(&mut sections.goals, string(record.payload.get("purpose")));
-    let ends = push_unique(
+    let purpose = say_one(
+        &mut sections.goals,
+        record,
+        string(record.payload.get("purpose")),
+    );
+    let ends = say_one(
         &mut sections.finishes,
+        record,
         string(record.payload.get("ends_when")),
     );
     purpose || ends
+}
+
+fn say_one(said: &mut Vec<Said>, record: &StoredRecord, value: Option<String>) -> bool {
+    match value {
+        Some(value) => said::say(said, record, vec![value]),
+        None => false,
+    }
 }
 
 /// Whether the step will actually be printed, asked with the renderer's own
@@ -139,62 +173,23 @@ fn rule(out: &mut Vec<Rule>, record: &StoredRecord) -> bool {
     true
 }
 
-fn lesson(record: &StoredRecord) -> Vec<String> {
-    field(record, "rule")
-}
-
-fn finding(record: &StoredRecord) -> Vec<String> {
-    let mut lines = field(record, "claim");
-    if let Some(evidence) = record.payload.get("evidence").and_then(Value::as_object) {
-        append(&mut lines, "Evidence", evidence.get("how"), true);
-        append(&mut lines, "Result", evidence.get("result"), false);
-        append(&mut lines, "Location", evidence.get("where"), false);
-    }
-    append(
-        &mut lines,
-        "Boundary",
-        record.payload.get("not_proven"),
-        false,
-    );
-    lines
-}
-
-fn field(record: &StoredRecord, name: &str) -> Vec<String> {
-    record
-        .payload
-        .get(name)
-        .map(|value| render::content(value, false))
-        .unwrap_or_default()
-}
-
-fn append(lines: &mut Vec<String>, label: &str, value: Option<&Value>, code: bool) {
-    if let Some(value) = value {
-        lines.extend(
-            render::content(value, code)
-                .into_iter()
-                .map(|value| format!("{label}: {value}")),
-        );
-    }
-}
-
 /// Identical rendered text from two records collapses, because printing the
 /// same sentence twice tells a reader nothing. Content that differs never
 /// collapses — the comparison is over the whole rendered block, so two lessons
 /// sharing a rule but differing in scope stay two.
+/// Adds the block, and says whether this record is answered by it.
+///
+/// A record whose rendering is already on the page is only answered by it when
+/// the record itself is the same one. Two lessons sharing a sentence and
+/// differing in scope are two facts: printing the sentence twice shows the
+/// reader nothing, and printing it once answers one of the two questions. So
+/// the second is not claimed here — it goes to RECORDS, where the field that
+/// makes it different is visible.
 fn memory(sections: &mut Sections, record: &StoredRecord, lines: Vec<String>) -> bool {
-    if lines.is_empty() {
-        return false;
-    }
-    if fresh(&mut sections.seen, record) {
-        sections.memory.push(lines);
-    }
-    // Coalesced, not lost: an identical record's content is already there.
-    true
+    said::say(&mut sections.memory, record, lines)
 }
 
-/// True the first time this exact record is seen, by namespace, type and full
-/// payload.
-pub(super) fn fresh(seen: &mut Vec<(String, String, Value)>, record: &StoredRecord) -> bool {
+fn fresh(seen: &mut Vec<(String, String, Value)>, record: &StoredRecord) -> bool {
     let key = (
         record.namespace.clone(),
         record.type_name.clone(),
@@ -217,16 +212,6 @@ fn string(value: Option<&Value>) -> Option<String> {
 fn number(value: Option<&Value>) -> Option<i64> {
     let value = value?;
     value.as_i64().or_else(|| value.as_str()?.parse().ok())
-}
-
-fn push_unique(out: &mut Vec<String>, value: Option<String>) -> bool {
-    let Some(value) = value else {
-        return false;
-    };
-    if !out.contains(&value) {
-        out.push(value);
-    }
-    true
 }
 
 #[cfg(test)]

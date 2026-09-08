@@ -1,5 +1,5 @@
 //! Stable section ordering and Markdown details for the LLM presentation.
-use super::{Rule, Sections};
+use super::{Rule, Said, Sections};
 use serde_json::Value;
 
 pub(super) fn sections(mut sections: Sections) -> String {
@@ -17,8 +17,8 @@ pub(super) fn sections(mut sections: Sections) -> String {
         "ROLE",
         sections.roles.into_iter().map(|item| item.text).collect(),
     );
-    prose(&mut blocks, "GOAL", sections.goals);
-    prose(&mut blocks, "FINISH", sections.finishes);
+    prose(&mut blocks, "GOAL", flatten(sections.goals));
+    prose(&mut blocks, "FINISH", flatten(sections.finishes));
     super::render_steps::steps(&mut blocks, sections.steps);
     bullets(
         &mut blocks,
@@ -38,7 +38,10 @@ pub(super) fn sections(mut sections: Sections) -> String {
             .map(|item| item.text)
             .collect(),
     );
-    memories(&mut blocks, sections.memory);
+    memories(
+        &mut blocks,
+        sections.memory.into_iter().map(|said| said.lines).collect(),
+    );
     // Last, because it is what the named sections did not claim — and present,
     // because a selected record that reaches no section still reached the
     // answer.
@@ -69,6 +72,14 @@ fn bullets(blocks: &mut Vec<String>, heading: &str, values: Vec<String>) {
             .join("\n");
         blocks.push(format!("## {heading}\n{body}"));
     }
+}
+
+/// A sentence and, when one was needed to tell it from another, the field that
+/// distinguishes it — joined so the prose sections stay prose.
+fn flatten(said: Vec<Said>) -> Vec<String> {
+    said.into_iter()
+        .map(|item| item.lines.join(" — "))
+        .collect()
 }
 
 fn memories(blocks: &mut Vec<String>, memories: Vec<Vec<String>>) {

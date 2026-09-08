@@ -73,10 +73,37 @@ fn records_with_the_same_text_but_different_scope_stay_distinct() {
         ),
     ]);
 
-    assert_eq!(
-        out.matches("Measure before claiming.").count(),
-        2,
-        "two differently scoped lessons collapsed into one:\n{out}"
+    // Counting the sentence is not the check: two identical bullets would pass
+    // it while telling the reader nothing about which project each holds for.
+    // What has to survive is the field that makes them different.
+    assert!(
+        out.contains("sample-alpha") && out.contains("sample-beta"),
+        "the scopes that make these two different are not visible:\n{out}"
+    );
+    assert!(
+        !out.contains("- Measure before claiming.\n- Measure before claiming."),
+        "the answer repeats one sentence instead of distinguishing two records:\n{out}"
+    );
+}
+
+/// The sections that hold bare sentences follow the same rule: a sentence
+/// already printed is not an answer for a different record.
+#[test]
+fn processes_sharing_a_purpose_stay_distinguishable() {
+    let out = answer(&[
+        record(
+            "agent.process.v2",
+            json!({ "purpose": "Keep main green", "project": "sample-alpha" }),
+        ),
+        record(
+            "agent.process.v2",
+            json!({ "purpose": "Keep main green", "project": "sample-beta" }),
+        ),
+    ]);
+
+    assert!(
+        out.contains("sample-alpha") && out.contains("sample-beta"),
+        "one process was absorbed by the other's sentence:\n{out}"
     );
 }
 

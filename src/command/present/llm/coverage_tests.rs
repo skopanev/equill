@@ -124,3 +124,25 @@ fn inline_steps_do_not_stand_in_for_the_records_own_payload() {
         "the record's own payload was hidden by its steps: {out}"
     );
 }
+
+/// A record whose payload is empty, or absent entirely, was still selected.
+///
+/// "It says nothing" is what this record says, and dropping it is the same
+/// silence this fix removes: the answer has to account for what the selection
+/// returned, including the record that turned out to hold nothing.
+#[test]
+fn an_empty_or_null_payload_still_reaches_the_answer() {
+    let out = answer(&[
+        record("sample.empty.v1", json!({})),
+        record("sample.null.v1", Value::Null),
+    ]);
+
+    assert!(
+        out.contains("sample.empty.v1"),
+        "an empty payload vanished: {out}"
+    );
+    assert!(
+        out.contains("sample.null.v1"),
+        "a null payload vanished: {out}"
+    );
+}
