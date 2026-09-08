@@ -1,4 +1,5 @@
 mod arguments;
+mod environment;
 mod protocol;
 #[cfg(test)]
 mod tests;

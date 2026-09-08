@@ -1,4 +1,5 @@
 use super::arguments::{flag, optional, strings, text, value};
+use super::environment;
 use crate::kernel::error::Error;
 use crate::{context, filter, projection, record, schema, telemetry, vector};
 use serde_json::{Value, json};
@@ -191,14 +192,7 @@ fn assemble(
         Some(named) => named,
         None => context::default_profile(store)?,
     };
-    // The shorthands the CLI offers, spelled the same way here so the two
-    // surfaces cannot drift into asking different questions.
-    let mut coordinates = strings(arguments, "coordinates");
-    for key in ["project", "role", "phase", "harness", "process"] {
-        if let Some(value) = optional(arguments, key) {
-            coordinates.push(format!("{key}={value}"));
-        }
-    }
+    let coordinates = environment::context_coordinates(arguments);
     let request = context::inline_request(
         optional(arguments, "query"),
         coordinates,
