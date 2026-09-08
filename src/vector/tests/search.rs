@@ -23,7 +23,8 @@ impl VectorIndex for FakeIndex {
 }
 
 impl QueryEmbedder for FakeEmbedder {
-    fn embed_query(&self, _: &str) -> Result<Vec<f32>, Error> {
+    fn embed_query(&self, instruction: &str, _: &str) -> Result<Vec<f32>, Error> {
+        assert_eq!(instruction, crate::retrieval::DEFAULT_QUERY_INSTRUCTION);
         Ok(vec![0.0, 1.0, 0.0])
     }
 }
@@ -73,6 +74,29 @@ fn an_empty_query_is_refused_before_the_index_is_asked() {
     fs::remove_dir_all(root).expect("cleanup");
 }
 
+#[test]
+fn raw_vector_scores_below_the_threshold_are_not_returned() {
+    let root = store("threshold");
+    let id = add(&root, "Always run the build checks before merging.");
+    let (ledger, _) = corpus(&root).expect("corpus");
+    let (record, digest) = ledger
+        .iter()
+        .find(|(record, _)| record.id == id)
+        .expect("stored");
+    let truth = canonical(record, digest).expect("canonical");
+    let mut low = hit(record.clone(), &truth.input_sha256);
+    low.score = 0.47;
+    let mut search = request(10);
+    search.score_threshold = Some(0.48);
+
+    let verified =
+        retrieve(&FakeIndex(vec![low]), &FakeEmbedder, "build", search).expect("retrieve");
+
+    assert!(verified.records.is_empty());
+    assert!(verified.rejected.is_empty());
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
 /// Hybrid is the strategy a caller reaches for when it wants semantics but can
 /// live without them. The point of the report is that living without them is
 /// never silent: the answer says it came from text and why.
@@ -113,6 +137,8 @@ fn hybrid_falls_back_to_text_and_says_so_while_vector_refuses() {
 fn request(limit: u16) -> VectorSearchRequest {
     VectorSearchRequest {
         vector: Vec::new(),
+        query_instruction: crate::retrieval::DEFAULT_QUERY_INSTRUCTION.into(),
+        score_threshold: None,
         namespaces: Vec::new(),
         type_names: Vec::new(),
         limit,

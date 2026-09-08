@@ -13,7 +13,7 @@ pub trait VectorIndex {
 }
 
 pub trait QueryEmbedder {
-    fn embed_query(&self, query: &str) -> Result<Vec<f32>, Error>;
+    fn embed_query(&self, instruction: &str, query: &str) -> Result<Vec<f32>, Error>;
 }
 
 impl VectorIndex for VectorProjection {
@@ -23,8 +23,8 @@ impl VectorIndex for VectorProjection {
 }
 
 impl QueryEmbedder for super::super::EmbeddingRuntime {
-    fn embed_query(&self, query: &str) -> Result<Vec<f32>, Error> {
-        super::super::EmbeddingRuntime::embed_query(self, query)
+    fn embed_query(&self, instruction: &str, query: &str) -> Result<Vec<f32>, Error> {
+        super::super::EmbeddingRuntime::embed_query(self, instruction, query)
     }
 }
 
@@ -56,9 +56,20 @@ pub struct VerifiedHits {
 /// still leave an embedding behind. So the canonical input is re-derived and
 /// compared, and anything stale is dropped rather than returned.
 pub fn verify(hits: Vec<VectorSearchHit>, limit: usize) -> Result<VerifiedHits, Error> {
+    verify_with_threshold(hits, limit, None)
+}
+
+fn verify_with_threshold(
+    hits: Vec<VectorSearchHit>,
+    limit: usize,
+    score_threshold: Option<f32>,
+) -> Result<VerifiedHits, Error> {
     let mut records = Vec::new();
     let mut rejected = Vec::new();
     for hit in hits {
+        if score_threshold.is_some_and(|threshold| hit.score < threshold) {
+            continue;
+        }
         let digest = sha256_hex(&serde_json::to_vec(&hit.record)?);
         match document::canonical(&hit.record, &digest) {
             Ok(document) if document.input_sha256 == hit.input_sha256 => {
@@ -85,10 +96,12 @@ pub fn retrieve(
         return Err(vector_error("search requires a query"));
     }
     let limit = request.limit as usize;
-    let vector = embedder.embed_query(query)?;
-    verify(
+    let vector = embedder.embed_query(&request.query_instruction, query)?;
+    let score_threshold = request.score_threshold;
+    verify_with_threshold(
         index.search(&VectorSearchRequest { vector, ..request })?,
         limit,
+        score_threshold,
     )
 }
 

@@ -47,6 +47,7 @@ pub fn hits(
     selectors: &[Selector],
     request: &ContextRequest,
     record_limit: Option<usize>,
+    policy: &crate::retrieval::Policy,
 ) -> Result<SemanticHits, Error> {
     let wanted = selectors
         .iter()
@@ -56,8 +57,8 @@ pub fn hits(
         return Ok(SemanticHits::empty());
     }
     match record_limit {
-        Some(limit) => limited(store, wanted, request, limit),
-        None => merged(store, wanted, request),
+        Some(limit) => limited(store, wanted, request, limit, policy),
+        None => merged(store, wanted, request, policy),
     }
 }
 
@@ -65,10 +66,11 @@ fn merged(
     store: &std::path::Path,
     wanted: Vec<&Selector>,
     request: &ContextRequest,
+    policy: &crate::retrieval::Policy,
 ) -> Result<SemanticHits, Error> {
     let mut found = SemanticHits::empty();
     for selector in wanted {
-        let report = vector::search(
+        let report = vector::search_with_policy(
             store,
             &SearchRequest {
                 query: Some(request.query.clone()),
@@ -77,6 +79,7 @@ fn merged(
                 limit: PER_SELECTOR,
             },
             SearchStrategy::Hybrid,
+            policy,
         )?;
         // The weakest answer wins the label. One selector served by text alone
         // makes the bundle partly text-answered, and saying `hybrid` because
@@ -109,10 +112,11 @@ fn limited(
     wanted: Vec<&Selector>,
     request: &ContextRequest,
     limit: usize,
+    policy: &crate::retrieval::Policy,
 ) -> Result<SemanticHits, Error> {
     let mut found = SemanticHits::empty();
     for selector in wanted {
-        let report = match vector::search(
+        let report = match vector::search_with_policy(
             store,
             &SearchRequest {
                 query: Some(request.query.clone()),
@@ -121,18 +125,11 @@ fn limited(
                 limit: u16::try_from(limit).unwrap_or(u16::MAX),
             },
             SearchStrategy::Vector,
+            policy,
         ) {
             Ok(report) => report,
             Err(error) => return fallback(store, error.to_string()),
         };
-        if report.vector_freshness != vector::VectorFreshness::Current {
-            let reason = match report.vector_freshness {
-                vector::VectorFreshness::Lagging => "vector index is lagging",
-                vector::VectorFreshness::Unknown => "vector index freshness is unknown",
-                vector::VectorFreshness::Current => unreachable!(),
-            };
-            return fallback(store, reason.to_owned());
-        }
         found.answer = Some(answer(&report, "hybrid", None));
         for id in report.hits.into_iter().map(|hit| hit.record.id) {
             if found.ids.insert(id) {

@@ -1,10 +1,12 @@
-use super::assembly;
 use super::model::{ContextBundle, ContextRequest, RuntimeBudget};
+use super::options::{
+    assemble_file_with_renderer_and_options, assemble_with_options,
+    assemble_with_renderer_and_options,
+};
 use super::payload;
 use crate::filter::Filter;
 use crate::kernel::error::Error;
 use crate::record::StoredRecord;
-use std::fs;
 use std::path::Path;
 
 pub fn assemble_file(
@@ -90,8 +92,16 @@ pub fn assemble_file_with_renderer_and_limits(
     budget: RuntimeBudget,
     render: &dyn Fn(&[StoredRecord]) -> Result<String, Error>,
 ) -> Result<ContextBundle, Error> {
-    let request: ContextRequest = serde_json::from_slice(&fs::read(request)?)?;
-    assemble_with_renderer_and_limits(store, profile, request, actor, filter, budget, render)
+    assemble_file_with_renderer_and_options(
+        store,
+        profile,
+        request,
+        actor,
+        filter,
+        budget,
+        Default::default(),
+        render,
+    )
 }
 
 pub fn assemble(
@@ -140,7 +150,15 @@ pub fn assemble_with_limits(
     filter: &Filter,
     budget: RuntimeBudget,
 ) -> Result<ContextBundle, Error> {
-    assembly::assemble(store, profile, request, actor, filter, budget, &payload)
+    assemble_with_options(
+        store,
+        profile,
+        request,
+        actor,
+        filter,
+        budget,
+        Default::default(),
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -177,5 +195,14 @@ pub fn assemble_with_renderer_and_limits(
     budget: RuntimeBudget,
     render: &dyn Fn(&[StoredRecord]) -> Result<String, Error>,
 ) -> Result<ContextBundle, Error> {
-    assembly::assemble(store, profile, request, actor, filter, budget, render)
+    assemble_with_renderer_and_options(
+        store,
+        profile,
+        request,
+        actor,
+        filter,
+        budget,
+        Default::default(),
+        render,
+    )
 }

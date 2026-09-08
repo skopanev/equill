@@ -52,6 +52,7 @@ pub enum Cardinality {
     Diagnosing,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn retrieve(
     store: &std::path::Path,
     profile: &ContextProfile,
@@ -60,6 +61,7 @@ pub fn retrieve(
     filter: &Filter,
     cardinality: Cardinality,
     record_limit: Option<usize>,
+    policy: &crate::retrieval::Policy,
 ) -> Result<Retrieval, Error> {
     let at: jiff::Timestamp = request
         .at
@@ -82,7 +84,7 @@ pub fn retrieve(
             .collect::<HashSet<_>>()
     };
     let projection = projection::state(store)?;
-    let search = search::collect(store, selectors, request, projection, record_limit)?;
+    let search = search::collect(store, selectors, request, projection, record_limit, policy)?;
     let strategies: Vec<Strategy> = selectors
         .iter()
         .flat_map(|selector| selector.strategies.iter().copied())
@@ -159,7 +161,9 @@ pub fn retrieve(
     candidates.sort_by(|left, right| {
         left.tier
             .cmp(&right.tier)
-            .then_with(|| source_order(left.source).cmp(&source_order(right.source)))
+            .then_with(|| {
+                source_order(left.source, policy).cmp(&source_order(right.source, policy))
+            })
             .then_with(|| left.search_rank.cmp(&right.search_rank))
             .then_with(|| match (left.rank, right.rank) {
                 (Some(left), Some(right)) => right.total_cmp(&left),
@@ -185,11 +189,16 @@ pub fn retrieve(
     })
 }
 
-fn source_order(source: Option<SearchSource>) -> u8 {
-    match source {
-        Some(SearchSource::Vector) => 0,
-        Some(SearchSource::Fts) => 1,
-        None => 2,
+fn source_order(source: Option<SearchSource>, policy: &crate::retrieval::Policy) -> u8 {
+    let wanted = match source {
+        Some(SearchSource::Vector) => crate::retrieval::Source::Vector,
+        Some(SearchSource::Fts) => crate::retrieval::Source::Fts,
+        None => return 2,
+    };
+    if policy.hybrid_order[0] == wanted {
+        0
+    } else {
+        1
     }
 }
 

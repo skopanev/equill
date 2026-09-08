@@ -14,7 +14,8 @@ pub fn assemble(
     request: ContextRequest,
     actor: &str,
     filter: &Filter,
-    runtime_budget: RuntimeBudget,
+    mut runtime_budget: RuntimeBudget,
+    retrieval_overrides: crate::retrieval::Overrides,
     render: &dyn Fn(&[StoredRecord]) -> Result<String, Error>,
 ) -> Result<ContextBundle, Error> {
     if runtime_budget.tokens == Some(0) {
@@ -27,6 +28,8 @@ pub fn assemble(
             "runtime record budget must be positive".into(),
         ));
     }
+    let policy = crate::retrieval::resolve(store_root, retrieval_overrides)?;
+    runtime_budget.records = runtime_budget.records.or(policy.default_budget_records);
     let config = store::load(store_root)?;
     if actor != config.root_owner {
         identity::require_root(&config, actor).or_else(|_| {
@@ -59,6 +62,7 @@ pub fn assemble(
         filter,
         retrieval::Cardinality::Answering,
         runtime_budget.records,
+        &policy,
     )?;
     let budgeted = budget::apply(
         std::mem::take(&mut retrieved.candidates),

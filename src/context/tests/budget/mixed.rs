@@ -173,20 +173,17 @@ fn unavailable_vector_falls_back_to_the_full_record_budget() {
 }
 
 #[test]
-fn lagging_vector_with_record_ceiling_falls_back_to_full_fts_budget() {
+fn lagging_vector_with_record_ceiling_answers_and_reports_its_freshness() {
     let root = seeded("mixed-lagging", "hybrid");
     crate::vector::tests::support::stage_lagging_index(&root, 20);
     let bundle = with_semantic_half(vector::<30>, || context(&root, 7));
-    let semantic = bundle.receipt.semantic.as_ref().expect("fallback account");
+    let semantic = bundle.receipt.semantic.as_ref().expect("hybrid account");
 
     assert_eq!(bundle.selected_record_ids.len(), 7);
-    assert_eq!(semantic.answered_by, "fts");
-    assert_eq!(semantic.vector_selected_records, Some(0));
-    assert_eq!(semantic.fts_selected_records, Some(7));
-    assert_eq!(
-        semantic.fallback.as_deref(),
-        Some("vector index is lagging")
-    );
+    assert_eq!(semantic.answered_by, "hybrid");
+    assert_eq!(semantic.vector_selected_records, Some(7));
+    assert_eq!(semantic.fts_selected_records, Some(0));
+    assert!(semantic.fallback.is_none());
     assert_eq!(
         semantic.vector_freshness,
         crate::vector::VectorFreshness::Lagging

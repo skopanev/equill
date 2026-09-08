@@ -282,6 +282,38 @@ equill context --store .equill --profile worker.v1 --request request.json \
   --format llm --budget 6000 --budget-records 30
 ```
 
+Store-level retrieval policy lives in `<store>/settings.json`:
+
+```json
+{
+  "retrieval": {
+    "default_budget_records": 30,
+    "query_instruction": "Retrieve durable software-engineering knowledge directly applicable to the current task.",
+    "vector": { "enabled": true, "score_threshold": 0.48 },
+    "hybrid": {
+      "order": ["vector", "fts"],
+      "fill_remaining": true,
+      "deduplicate": true
+    }
+  }
+}
+```
+
+These are also the built-in defaults when the file is absent. Explicit CLI flags or
+their same-named MCP arguments override the store: `--query-instruction`,
+`--vector-enabled`, `--vector-score-threshold`, `--hybrid-order`,
+`--hybrid-fill-remaining`, and `--hybrid-deduplicate`. `--budget-records` overrides
+`default_budget_records`; a SessionStart call may use 100 while prompt calls need not
+repeat any store settings.
+
+Only the vector query is embedded with `query_instruction`. Raw cosine candidates below
+`score_threshold` are discarded, accepted vector hits keep their order, and unique FTS
+hits fill the unused capacity. A discarded vector tail is never restored. Setting
+`fill_remaining` to false uses only the first source; disabling `deduplicate` permits
+the same record from both sources. `registry/vector/qdrant.json` remains limited to the
+physical backend, model, collection, and index lifecycle. Moving query-time policy into
+`settings.json` needs no vector rebuild because stored record embeddings do not change.
+
 `--budget` is a runtime token ceiling: it may lower but never raise the profile's
 `total_tokens`. Equill counts the exact final context string, including Markdown
 headings and list structure. `--budget-records` (MCP: `budget_records`) independently
@@ -311,8 +343,8 @@ request. The mode is explicit because widening a scope must never be implicit.
 Coordinates are evaluated only after profile read grants and never act as ACLs.
 
 The receipt names every included and excluded coordinate, strategy degradation, budget
-use, and the bundle digest without copying payloads into the receipt. `search` remains a
-simple SQLite/FTS inspection command; both surfaces reuse the same projection operation.
+use, and the bundle digest without copying payloads into the receipt. `search` and
+`context` resolve the same store policy and use the same projection operations.
 
 ## Explicit compaction
 

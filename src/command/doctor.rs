@@ -1,6 +1,6 @@
 use crate::kernel::error::Error;
 use crate::kernel::store;
-use crate::{context, defense, integrity};
+use crate::{context, defense, integrity, retrieval};
 use serde::Serialize;
 use std::path::Path;
 
@@ -31,8 +31,14 @@ pub fn report(store_root: Option<&Path>, full: bool, deep: bool) -> Result<Docto
         items: 1,
     }];
     if store_initialized.is_some() {
+        let root = store_root.expect("store root accompanies initialized state");
+        retrieval::resolve(root, Default::default())?;
         checks.push(Check {
             id: "store-metadata",
+            items: 1,
+        });
+        checks.push(Check {
+            id: "retrieval-settings",
             items: 1,
         });
     }

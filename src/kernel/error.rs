@@ -9,6 +9,7 @@ pub enum Error {
     InvalidOwner,
     InvalidNamespace,
     InvalidRecord(String),
+    InvalidSettings(String),
     InvalidSchema(String),
     InvalidType(String),
     Compact(String),
@@ -51,6 +52,7 @@ impl Display for Error {
                 "namespace must contain dot-separated lowercase identifiers"
             ),
             Self::InvalidRecord(reason) => write!(formatter, "invalid record: {reason}"),
+            Self::InvalidSettings(reason) => write!(formatter, "invalid store settings: {reason}"),
             Self::InvalidSchema(reason) => write!(formatter, "invalid schema: {reason}"),
             Self::InvalidType(reason) => write!(formatter, "invalid record type: {reason}"),
             Self::Compact(reason) => write!(formatter, "compaction failed: {reason}"),

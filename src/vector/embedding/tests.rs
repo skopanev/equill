@@ -1,7 +1,7 @@
 use super::super::config::{EmbeddingConfig, LocalEmbeddingConfig, ModelArtifact, VectorConfig};
 use super::super::model::DistanceMetric;
 use super::super::{Embedder, EmbeddingDocument, INPUT_SCHEMA};
-use super::{EMBED_MODEL_ID, EmbeddingRuntime, MAX_TOKENS, QUERY_PREFIX, VECTOR_DIMENSIONS};
+use super::{EMBED_MODEL_ID, EmbeddingRuntime, MAX_TOKENS, VECTOR_DIMENSIONS, instructed_query};
 use crate::kernel::digest::sha256_hex;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -15,8 +15,8 @@ fn the_embedding_contract_is_pinned() {
     assert_eq!(VECTOR_DIMENSIONS, 1024);
     assert_eq!(MAX_TOKENS, 512);
     assert_eq!(
-        QUERY_PREFIX,
-        "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:"
+        instructed_query(crate::retrieval::DEFAULT_QUERY_INSTRUCTION, "question"),
+        "Instruct: Retrieve durable software-engineering knowledge directly applicable to the current task.\nQuery:question"
     );
 }
 
@@ -59,7 +59,10 @@ fn real_artifacts_produce_a_deterministic_and_semantic_embedding() {
         .embed(&[document("The grocery list has apples and bread.")])
         .expect("far");
     let query = embedder
-        .embed_query("how do I verify a change")
+        .embed_query(
+            crate::retrieval::DEFAULT_QUERY_INSTRUCTION,
+            "how do I verify a change",
+        )
         .expect("query");
 
     assert_eq!(first[0].len(), VECTOR_DIMENSIONS as usize);

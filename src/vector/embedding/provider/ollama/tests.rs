@@ -17,7 +17,10 @@ fn pinned_model_embeds_a_prefixed_query_through_loopback() {
 
     let runtime = OllamaRuntime::load(&config, embedding).expect("load provider");
     let vector = runtime
-        .embed_query("how to verify a change")
+        .embed_query(
+            crate::retrieval::DEFAULT_QUERY_INSTRUCTION,
+            "how to verify a change",
+        )
         .expect("embed");
     let request = received.recv().expect("request body");
 

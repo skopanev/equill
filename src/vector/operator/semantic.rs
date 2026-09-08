@@ -55,17 +55,19 @@ pub(crate) fn with_semantic_half<T>(half: Half, body: impl FnOnce() -> T) -> T {
 pub(super) fn semantic(
     store_root: &Path,
     request: &SearchRequest,
+    policy: &crate::retrieval::Policy,
 ) -> Result<(Vec<StoredRecord>, Vec<RejectedHit>), Error> {
     #[cfg(test)]
     if let Some(injected) = HALF.with(|slot| slot.get()) {
         return injected(store_root, request);
     }
-    live(store_root, request)
+    live(store_root, request, policy)
 }
 
 fn live(
     store_root: &Path,
     request: &SearchRequest,
+    policy: &crate::retrieval::Policy,
 ) -> Result<(Vec<StoredRecord>, Vec<RejectedHit>), Error> {
     // Health, not freshness: a lagging index still answers from the points it
     // has. Refusing here would mean one append silences semantic search until
@@ -77,6 +79,13 @@ fn live(
     let config = super::super::config::load(store_root)?
         .filter(|config| config.enabled)
         .ok_or_else(|| vector_error("vector projection is not configured"))?;
+    if policy.vector_score_threshold.is_some()
+        && config.distance != super::super::model::DistanceMetric::Cosine
+    {
+        return Err(vector_error(
+            "vector score threshold requires a cosine collection",
+        ));
+    }
     let projection = VectorProjection::open(store_root)?
         .ok_or_else(|| vector_error("vector projection is not configured"))?;
     let embedder = EmbeddingRuntime::load(store_root, &config)?;
@@ -92,6 +101,8 @@ fn live(
         request.query.as_deref().unwrap_or_default(),
         VectorSearchRequest {
             vector: Vec::new(),
+            query_instruction: policy.query_instruction.clone(),
+            score_threshold: policy.vector_score_threshold,
             namespaces: request.namespace.clone().into_iter().collect(),
             type_names: request.type_name.clone().into_iter().collect(),
             limit: overfetch,

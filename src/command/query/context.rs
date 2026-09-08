@@ -23,6 +23,7 @@ pub fn context(
     include_superseded: bool,
     runtime_budget_tokens: Option<usize>,
     runtime_budget_records: Option<usize>,
+    retrieval: crate::retrieval::Overrides,
     filters: Vec<String>,
     strict: bool,
     format: command::cli::FormatArg,
@@ -58,21 +59,30 @@ pub fn context(
         records: runtime_budget_records,
     };
     let bundle = match (request, matches!(format, command::cli::FormatArg::Llm)) {
-        (Some(path), true) => context::assemble_file_with_renderer_and_limits(
-            &store, &profile, &path, &actor, &filter, limits, &llm,
+        (Some(path), true) => context::assemble_file_with_renderer_and_options(
+            &store, &profile, &path, &actor, &filter, limits, retrieval, &llm,
         )?,
-        (Some(path), false) => {
-            context::assemble_file_with_limits(&store, &profile, &path, &actor, &filter, limits)?
-        }
+        (Some(path), false) => context::assemble_file_with_renderer_and_options(
+            &store,
+            &profile,
+            &path,
+            &actor,
+            &filter,
+            limits,
+            retrieval,
+            &context::payload,
+        )?,
         (None, llm_format) => {
             let request =
                 context::inline_request(query, coordinates, tags, kinds, at, include_superseded)?;
             if llm_format {
-                context::assemble_with_renderer_and_limits(
-                    &store, &profile, request, &actor, &filter, limits, &llm,
+                context::assemble_with_renderer_and_options(
+                    &store, &profile, request, &actor, &filter, limits, retrieval, &llm,
                 )?
             } else {
-                context::assemble_with_limits(&store, &profile, request, &actor, &filter, limits)?
+                context::assemble_with_options(
+                    &store, &profile, request, &actor, &filter, limits, retrieval,
+                )?
             }
         }
     };

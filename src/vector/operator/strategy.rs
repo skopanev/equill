@@ -106,11 +106,43 @@ pub fn search(
     request: &SearchRequest,
     strategy: SearchStrategy,
 ) -> Result<StrategySearchReport, Error> {
+    search_with(
+        store_root,
+        request,
+        strategy,
+        crate::retrieval::Overrides::default(),
+    )
+}
+
+pub fn search_with(
+    store_root: &Path,
+    request: &SearchRequest,
+    strategy: SearchStrategy,
+    overrides: crate::retrieval::Overrides,
+) -> Result<StrategySearchReport, Error> {
+    let policy = crate::retrieval::resolve(store_root, overrides)?;
+    search_with_policy(store_root, request, strategy, &policy)
+}
+
+pub(crate) fn search_with_policy(
+    store_root: &Path,
+    request: &SearchRequest,
+    strategy: SearchStrategy,
+    policy: &crate::retrieval::Policy,
+) -> Result<StrategySearchReport, Error> {
     let state = super::super::state(store_root)?;
     if strategy == SearchStrategy::Fts {
         return text_only(store_root, request, strategy, state, None);
     }
-    match semantic(store_root, request) {
+    if !policy.vector_enabled {
+        let reason = "vector retrieval is disabled by store settings".to_owned();
+        return if strategy == SearchStrategy::Hybrid {
+            text_only(store_root, request, strategy, state, Some(reason))
+        } else {
+            Err(crate::vector::model::vector_error(&reason))
+        };
+    }
+    match semantic(store_root, request, policy) {
         Ok((records, rejected)) => {
             let mut hits = records
                 .into_iter()
@@ -123,7 +155,7 @@ pub fn search(
             // semantics answered at all.
             let answered_by = if strategy == SearchStrategy::Hybrid {
                 let text = projection::search(store_root, request)?.hits;
-                hits = crate::vector::fuse(hits, text);
+                hits = crate::vector::ordered(hits, text, policy, request.limit as usize);
                 "hybrid"
             } else {
                 "vector"

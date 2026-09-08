@@ -3,6 +3,7 @@ mod assembly;
 mod budget;
 mod matching;
 mod model;
+mod options;
 mod receipt;
 mod registry;
 mod retrieval;
@@ -21,6 +22,10 @@ pub use api::{
     assemble_with_limits, assemble_with_renderer, assemble_with_renderer_and_limits,
 };
 pub use model::{ContextBundle, ContextRequest, RegistryReport, RuntimeBudget};
+pub use options::{
+    assemble_file_with_renderer_and_options, assemble_with_options,
+    assemble_with_renderer_and_options,
+};
 
 pub fn register_profile(store: &Path, file: &Path, actor: &str) -> Result<RegistryReport, Error> {
     registry::register_profile(store, file, actor)
@@ -74,6 +79,7 @@ pub fn profile_faults(store_root: &Path) -> Result<usize, Error> {
             &Filter::default(),
             retrieval::Cardinality::Diagnosing,
             None,
+            &crate::retrieval::resolve(store_root, Default::default())?,
         )?;
         let budgeted = budget::apply(
             retrieved.candidates,

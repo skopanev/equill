@@ -13,6 +13,7 @@ pub(super) struct Hits {
     pub(super) vector: HashSet<Uuid>,
     pub(super) ranks: HashMap<Uuid, usize>,
     pub(super) answer: Option<crate::context::model::SemanticAnswer>,
+    order: [crate::retrieval::Source; 2],
     mixed: bool,
 }
 
@@ -21,13 +22,13 @@ impl Hits {
         if !self.mixed {
             return (None, None);
         }
-        let source = if self.vector.contains(id) {
-            Some(SearchSource::Vector)
-        } else if self.fts.contains(id) {
-            Some(SearchSource::Fts)
-        } else {
-            None
-        };
+        let source = self.order.iter().find_map(|source| match source {
+            crate::retrieval::Source::Vector if self.vector.contains(id) => {
+                Some(SearchSource::Vector)
+            }
+            crate::retrieval::Source::Fts if self.fts.contains(id) => Some(SearchSource::Fts),
+            _ => None,
+        });
         (source, self.ranks.get(id).copied())
     }
 }
@@ -38,9 +39,10 @@ pub(super) fn collect(
     request: &ContextRequest,
     state: ProjectionState,
     record_limit: Option<usize>,
+    policy: &crate::retrieval::Policy,
 ) -> Result<Hits, Error> {
     let text = text(store, selectors, request, state, record_limit)?;
-    let semantic = crate::context::semantic::hits(store, selectors, request, record_limit)?;
+    let semantic = crate::context::semantic::hits(store, selectors, request, record_limit, policy)?;
     let mixed = record_limit.is_some() && semantic.answer.is_some();
     if !mixed {
         return Ok(Hits {
@@ -49,18 +51,30 @@ pub(super) fn collect(
             vector: HashSet::new(),
             ranks: HashMap::new(),
             answer: semantic.answer,
+            order: policy.hybrid_order,
             mixed: false,
         });
     }
     let vector = semantic.ids;
-    let mut hybrid = vector.clone();
-    hybrid.extend(text.ids.iter().copied());
-    let mut ranks = HashMap::new();
-    for (rank, id) in semantic.ordered.into_iter().enumerate() {
-        ranks.entry(id).or_insert(rank);
+    let (primary, secondary) = if policy.hybrid_order[0] == crate::retrieval::Source::Vector {
+        (&vector, &text.ids)
+    } else {
+        (&text.ids, &vector)
+    };
+    let mut hybrid = primary.clone();
+    if policy.hybrid_fill_remaining {
+        hybrid.extend(secondary.iter().copied());
     }
-    for (rank, id) in text.ordered.into_iter().enumerate() {
-        ranks.entry(id).or_insert(rank);
+    let mut ranks = HashMap::new();
+    for source in policy.hybrid_order {
+        let ordered = if source == crate::retrieval::Source::Vector {
+            &semantic.ordered
+        } else {
+            &text.ordered
+        };
+        for (rank, id) in ordered.iter().copied().enumerate() {
+            ranks.entry(id).or_insert(rank);
+        }
     }
     Ok(Hits {
         fts: text.ids,
@@ -68,6 +82,7 @@ pub(super) fn collect(
         vector,
         ranks,
         answer: semantic.answer,
+        order: policy.hybrid_order,
         mixed: true,
     })
 }

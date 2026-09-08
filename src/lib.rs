@@ -10,6 +10,7 @@ pub mod kernel;
 pub mod mcp;
 pub mod projection;
 pub mod record;
+pub mod retrieval;
 mod runner;
 pub mod schema;
 pub mod telemetry;
@@ -148,6 +149,7 @@ pub(crate) fn dispatch(
             include_superseded,
             budget.map(|value| value as usize),
             budget_records.map(|value| value as usize),
+            present.retrieval.overrides(),
             present.filters,
             present.strict,
             present.format,
@@ -166,7 +168,7 @@ pub(crate) fn dispatch(
             strategy,
             present,
             all,
-        } => command::query::search(
+        } => command::query::search_with_options(
             json,
             store,
             query,
@@ -174,6 +176,7 @@ pub(crate) fn dispatch(
             type_name,
             limit,
             strategy,
+            present.retrieval.overrides(),
             present.filters,
             present.strict,
             present.format,

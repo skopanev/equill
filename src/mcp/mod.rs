@@ -1,6 +1,8 @@
 mod arguments;
+mod catalog;
 mod environment;
 mod protocol;
+mod retrieval;
 #[cfg(test)]
 mod tests;
 mod tools;
@@ -82,12 +84,12 @@ fn handle(store: &Path, actor: &str, log_queries: bool, line: &str) -> Option<Re
                 "serverInfo": { "name": "equill", "version": env!("CARGO_PKG_VERSION") }
             }),
         ),
-        "tools/list" => Response::ok(id, tools::catalog()),
+        "tools/list" => Response::ok(id, catalog::catalog()),
         "tools/call" => match request.params.get("name").and_then(Value::as_str) {
             // An unknown tool name is a malformed call, not a failed one: the
             // client asked for something this server never advertised.
             None => Response::failed(id, INVALID_PARAMS, "tools/call needs a tool name"),
-            Some(name) if !tools::exists(name) => {
+            Some(name) if !catalog::exists(name) => {
                 Response::failed(id, INVALID_PARAMS, format!("unknown tool {name}"))
             }
             Some(_) => Response::ok(id, invoke(store, actor, log_queries, &request.params)),

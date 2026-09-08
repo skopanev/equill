@@ -3,7 +3,7 @@ use super::super::super::super::embedder::Embedder;
 use super::super::super::super::model::{
     EmbeddingDescriptor, EmbeddingDocument, validate_vector, vector_error,
 };
-use super::super::super::QUERY_PREFIX;
+use super::super::super::instructed_query;
 use crate::kernel::error::Error;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -74,8 +74,12 @@ impl OllamaRuntime {
         })
     }
 
-    pub(in crate::vector::embedding) fn embed_query(&self, query: &str) -> Result<Vec<f32>, Error> {
-        let inputs = [format!("{QUERY_PREFIX}{query}")];
+    pub(in crate::vector::embedding) fn embed_query(
+        &self,
+        instruction: &str,
+        query: &str,
+    ) -> Result<Vec<f32>, Error> {
+        let inputs = [instructed_query(instruction, query)];
         self.request(&inputs)?
             .pop()
             .ok_or_else(|| vector_error("ollama returned no query embedding"))

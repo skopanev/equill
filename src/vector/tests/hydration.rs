@@ -97,6 +97,8 @@ fn candidate(record: &StoredRecord) -> ProviderHit {
 fn request() -> VectorSearchRequest {
     VectorSearchRequest {
         vector: vec![0.1, 0.2, 0.3],
+        query_instruction: crate::retrieval::DEFAULT_QUERY_INSTRUCTION.into(),
+        score_threshold: None,
         namespaces: vec!["agent.memory".into()],
         type_names: vec!["agent.lesson.v1".into()],
         limit: 10,

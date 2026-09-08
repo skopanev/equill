@@ -48,19 +48,21 @@ pub use config::{
 pub use drain::{after_commit, after_commit_inline, projection_after_write, resume};
 pub use embedder::{Embedder, embed_batch};
 pub use embedding::{
-    EMBED_MODEL_ID, EmbeddingRuntime, MAX_TOKENS, QUERY_PREFIX, VECTOR_DIMENSIONS,
+    EMBED_MODEL_ID, EmbeddingRuntime, MAX_TOKENS, VECTOR_DIMENSIONS, instructed_query,
 };
-pub use fusion::fuse;
+pub use fusion::{fuse, ordered};
 pub use model::{
     CollectionReport, DistanceMetric, EmbeddingDescriptor, EmbeddingDocument, INPUT_SCHEMA,
     VectorPoint, VectorSearchHit, VectorSearchRequest, VectorState,
 };
 pub(crate) use operator::corpus;
 pub use operator::finalize;
+pub(crate) use operator::search_with_policy;
 pub use operator::{
     QueryEmbedder, RejectedHit, SearchStrategy, StrategySearchReport, VectorConfigReport,
     VectorIndex, VectorRebuildReport, VectorSyncReport, VerifiedHits, canonical, configure,
-    disable, rebuild, rebuild_with_progress, retrieve, search, sync, sync_with_progress, verify,
+    disable, rebuild, rebuild_with_progress, retrieve, search, search_with, sync,
+    sync_with_progress, verify,
 };
 // Exposed for the lifecycle fixtures, which drive the two read-path helpers
 // directly: they are the whole subject of those tests.

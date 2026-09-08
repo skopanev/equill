@@ -8,8 +8,9 @@ use std::path::Path;
 
 pub use provider::candle::{EMBED_MODEL_ID, MAX_TOKENS, VECTOR_DIMENSIONS};
 
-pub const QUERY_PREFIX: &str =
-    "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:";
+pub fn instructed_query(instruction: &str, query: &str) -> String {
+    format!("Instruct: {instruction}\nQuery:{query}")
+}
 
 pub struct EmbeddingRuntime {
     inner: Runtime,
@@ -33,10 +34,10 @@ impl EmbeddingRuntime {
         Ok(Self { inner })
     }
 
-    pub fn embed_query(&self, query: &str) -> Result<Vec<f32>, Error> {
+    pub fn embed_query(&self, instruction: &str, query: &str) -> Result<Vec<f32>, Error> {
         match &self.inner {
-            Runtime::Candle(value) => value.embed_query(query),
-            Runtime::Ollama(value) => value.embed_query(query),
+            Runtime::Candle(value) => value.embed_query(instruction, query),
+            Runtime::Ollama(value) => value.embed_query(instruction, query),
         }
     }
 }

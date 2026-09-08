@@ -1,7 +1,7 @@
 //! The command list. Its argument vocabularies live beside it in `args`.
-use super::RecordFormatArg;
 use super::args::*;
 use super::authority::{GrantCommand, OwnerCommand, ReaderCommand};
+use super::{PresentationArgs, RecordFormatArg};
 use clap::Subcommand;
 use std::path::PathBuf;
 
@@ -170,8 +170,8 @@ pub enum Command {
         #[arg(long = "type")]
         type_name: Option<String>,
         /// Maximum number of records to return.
-        #[arg(long, default_value_t = 20, value_parser = clap::value_parser!(u16).range(1..=100))]
-        limit: u16,
+        #[arg(long, value_parser = clap::value_parser!(u16).range(1..=100))]
+        limit: Option<u16>,
         /// Every match instead of one page (fts only; bounded by the scan cap).
         #[arg(long)]
         all: bool,

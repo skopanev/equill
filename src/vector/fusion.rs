@@ -100,3 +100,31 @@ pub fn fuse(vector: Vec<SearchHit>, text: Vec<SearchHit>) -> Vec<SearchHit> {
     });
     fused.into_iter().map(|(_, hit)| hit).collect()
 }
+
+/// Apply an explicit source order without admitting a discarded semantic tail.
+pub fn ordered(
+    vector: Vec<SearchHit>,
+    text: Vec<SearchHit>,
+    policy: &crate::retrieval::Policy,
+    limit: usize,
+) -> Vec<SearchHit> {
+    let mut vector = Some(vector);
+    let mut text = Some(text);
+    let mut output = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for (position, source) in policy.hybrid_order.iter().enumerate() {
+        if position > 0 && !policy.hybrid_fill_remaining {
+            break;
+        }
+        let hits = match source {
+            crate::retrieval::Source::Vector => vector.take().unwrap_or_default(),
+            crate::retrieval::Source::Fts => text.take().unwrap_or_default(),
+        };
+        for hit in hits {
+            if (!policy.hybrid_deduplicate || seen.insert(hit.record.id)) && output.len() < limit {
+                output.push(hit);
+            }
+        }
+    }
+    output
+}

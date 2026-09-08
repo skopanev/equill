@@ -3,7 +3,8 @@
 //! dropped.
 use crate::projection::SearchHit;
 use crate::record::StoredRecord;
-use crate::vector::fuse;
+use crate::retrieval::{Policy, Source};
+use crate::vector::{fuse, ordered};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -73,4 +74,26 @@ fn either_list_may_be_empty_without_losing_the_other() {
     assert_eq!(ids(&fuse(vec![hit(1)], Vec::new())), vec![1]);
     assert_eq!(ids(&fuse(Vec::new(), vec![hit(2)])), vec![2]);
     assert!(fuse(Vec::new(), Vec::new()).is_empty());
+}
+
+#[test]
+fn ordered_hybrid_keeps_vector_order_then_fills_unique_fts() {
+    let policy = Policy {
+        default_budget_records: Some(30),
+        query_instruction: crate::retrieval::DEFAULT_QUERY_INSTRUCTION.into(),
+        vector_enabled: true,
+        vector_score_threshold: Some(0.48),
+        hybrid_order: [Source::Vector, Source::Fts],
+        hybrid_fill_remaining: true,
+        hybrid_deduplicate: true,
+    };
+
+    let hits = ordered(
+        vec![hit(1), hit(2)],
+        vec![hit(1), hit(3), hit(4)],
+        &policy,
+        4,
+    );
+
+    assert_eq!(ids(&hits), vec![1, 2, 3, 4]);
 }

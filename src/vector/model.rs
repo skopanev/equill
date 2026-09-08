@@ -63,6 +63,8 @@ pub(crate) struct VectorPointMetadata {
 #[derive(Clone, Debug)]
 pub struct VectorSearchRequest {
     pub vector: Vec<f32>,
+    pub query_instruction: String,
+    pub score_threshold: Option<f32>,
     pub namespaces: Vec<String>,
     pub type_names: Vec<String>,
     pub limit: u16,
@@ -107,6 +109,17 @@ pub(crate) fn validate_search(request: &VectorSearchRequest, dimensions: u64) ->
     // The same split the projection makes: a filter looks past the page.
     if !(1..=crate::projection::MAX_SCAN).contains(&request.limit) {
         return Err(vector_error("search limit is outside the scannable range"));
+    }
+    if request.query_instruction.trim().is_empty() {
+        return Err(vector_error("search requires a query instruction"));
+    }
+    if request
+        .score_threshold
+        .is_some_and(|value| !value.is_finite() || !(-1.0..=1.0).contains(&value))
+    {
+        return Err(vector_error(
+            "search score threshold must be between -1 and 1",
+        ));
     }
     validate_vector(&request.vector, dimensions)
 }

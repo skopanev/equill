@@ -2,68 +2,8 @@ use super::arguments::{flag, optional, strings, text, value};
 use super::environment;
 use crate::kernel::error::Error;
 use crate::{context, filter, projection, record, schema, telemetry, vector};
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::path::Path;
-
-/// The tool surface. Every entry maps onto an operation the CLI already calls,
-/// so MCP stays an adapter: there is no second way into the store, and in
-/// particular `record` goes through the same grant-checked immutable writer.
-pub fn catalog() -> Value {
-    json!({ "tools": [
-        tool("status", "Report store health and installed components.", json!({ "type": "object", "properties": {} })),
-        tool("schema_list", "List the record types this store has registered.", json!({ "type": "object", "properties": {} })),
-        tool("schema_show", "Describe one type: fields, which are required, and any constrained vocabulary.",
-            json!({ "type": "object", "required": ["type"], "properties": { "type": { "type": "string" } } })),
-        tool("search", "Search by text, by filter, or by both. Returns what is current.",
-            json!({ "type": "object", "properties": {
-                "query": { "type": "string" },
-                "namespace": { "type": "string" },
-                "type": { "type": "string" },
-                "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
-                "where": { "type": "array", "items": { "type": "string" } },
-                "strict": { "type": "boolean" }
-            }})),
-        tool("context", "Assemble bounded context from a profile: the one named here, or the one the store nominates.",
-            json!({ "type": "object", "properties": {
-                "profile": { "type": "string" },
-                "project": { "type": "string" },
-                "role": { "type": "string" },
-                "phase": { "type": "string" },
-                "harness": { "type": "string" },
-                "process": { "type": "string" },
-                "query": { "type": "string" },
-                "coordinates": { "type": "array", "items": { "type": "string" } },
-                "tags": { "type": "array", "items": { "type": "string" } },
-                "at": { "type": "string" },
-                "include_superseded": { "type": "boolean" },
-                "budget": { "type": "integer", "minimum": 1 },
-                "budget_records": { "type": "integer", "minimum": 1 },
-                "where": { "type": "array", "items": { "type": "string" } },
-                "strict": { "type": "boolean" }
-            }})),
-        tool("get", "Read one record by id.",
-            json!({ "type": "object", "required": ["id"], "properties": { "id": { "type": "string" } } })),
-        tool("revoke", "Withdraw a record by writing a tombstone that supersedes it. Nothing is deleted.",
-            json!({ "type": "object", "required": ["id"], "properties": {
-                "id": { "type": "string" },
-                "comment": { "type": "string" }
-            }})),
-        tool("record", "Append one schema-validated immutable record through the canonical writer.",
-            json!({ "type": "object", "required": ["draft"], "properties": { "draft": { "type": "object" } } })),
-    ]})
-}
-
-/// Whether the server advertises this tool. Asking for anything else is a
-/// malformed call rather than a failed one.
-pub fn exists(name: &str) -> bool {
-    catalog()["tools"]
-        .as_array()
-        .is_some_and(|tools| tools.iter().any(|tool| tool["name"] == name))
-}
-
-fn tool(name: &str, description: &str, schema: Value) -> Value {
-    json!({ "name": name, "description": description, "inputSchema": schema })
-}
 
 pub fn call(
     store: &Path,
@@ -111,10 +51,15 @@ pub fn call(
 }
 
 fn search(store: &Path, log_queries: bool, arguments: &Value) -> Result<Value, Error> {
+    let policy = crate::retrieval::resolve(store, super::retrieval::overrides(arguments)?)?;
     let filter = filter::Filter::parse(&strings(arguments, "where"), flag(arguments, "strict"))?;
     let type_name = optional(arguments, "type");
     filter::validate(&filter, &filter::in_scope(store, type_name.as_deref())?)?;
-    let limit = arguments.get("limit").and_then(Value::as_u64).unwrap_or(20) as u16;
+    let limit = arguments
+        .get("limit")
+        .and_then(Value::as_u64)
+        .or_else(|| policy.default_budget_records.map(|value| value as u64))
+        .unwrap_or(20) as u16;
     let query = optional(arguments, "query")
         .map(|text| text.trim().to_owned())
         .filter(|text| !text.is_empty());
@@ -157,7 +102,7 @@ fn search(store: &Path, log_queries: bool, arguments: &Value) -> Result<Value, E
     } else {
         vector::SearchStrategy::Hybrid
     };
-    let mut report = vector::search(store, &request, strategy)?;
+    let mut report = vector::search_with_policy(store, &request, strategy, &policy)?;
     report
         .hits
         .retain(|hit| filter::matches(&hit.record, &filter));
@@ -185,6 +130,7 @@ fn assemble(
     log_queries: bool,
     arguments: &Value,
 ) -> Result<Value, Error> {
+    let retrieval = super::retrieval::overrides(arguments)?;
     let filter = filter::Filter::parse(&strings(arguments, "where"), flag(arguments, "strict"))?;
     // Decided the same way as the CLI: the caller names a profile, or the
     // store does.
@@ -203,7 +149,7 @@ fn assemble(
     )?;
     let runtime_budget_tokens = positive_usize(arguments, "budget")?;
     let runtime_budget_records = positive_usize(arguments, "budget_records")?;
-    let bundle = context::assemble_with_limits(
+    let bundle = context::assemble_with_options(
         store,
         &profile,
         request,
@@ -213,6 +159,7 @@ fn assemble(
             tokens: runtime_budget_tokens,
             records: runtime_budget_records,
         },
+        retrieval,
     )?;
     telemetry::record_query(
         store,

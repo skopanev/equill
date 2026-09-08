@@ -24,6 +24,46 @@ pub fn search(
     fields: Vec<String>,
     all: bool,
 ) -> Result<String, Error> {
+    search_with_options(
+        json,
+        store,
+        query,
+        namespace,
+        type_name,
+        Some(limit),
+        strategy,
+        Default::default(),
+        filters,
+        strict,
+        format,
+        fields,
+        all,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn search_with_options(
+    json: bool,
+    store: PathBuf,
+    query: Option<String>,
+    namespace: Option<String>,
+    type_name: Option<String>,
+    limit: Option<u16>,
+    strategy: Option<command::cli::StrategyArg>,
+    retrieval: crate::retrieval::Overrides,
+    filters: Vec<String>,
+    strict: bool,
+    format: command::cli::FormatArg,
+    fields: Vec<String>,
+    all: bool,
+) -> Result<String, Error> {
+    let policy = crate::retrieval::resolve(&store, retrieval)?;
+    let limit = limit.unwrap_or_else(|| {
+        policy
+            .default_budget_records
+            .and_then(|value| u16::try_from(value).ok())
+            .unwrap_or(20)
+    });
     let filter = filter::Filter::parse(&filters, strict)?;
     filter::validate(&filter, &filter::in_scope(&store, type_name.as_deref())?)?;
     // A filter can fully determine a result set, so text is optional when one
@@ -81,7 +121,7 @@ pub fn search(
         command::cli::StrategyArg::Vector => vector::SearchStrategy::Vector,
         command::cli::StrategyArg::Hybrid => vector::SearchStrategy::Hybrid,
     };
-    let mut report = vector::search(&store, &request, strategy)?;
+    let mut report = vector::search_with_policy(&store, &request, strategy, &policy)?;
     report
         .hits
         .retain(|hit| filter::matches(&hit.record, &filter));

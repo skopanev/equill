@@ -1,7 +1,7 @@
 use super::super::super::super::config::{LocalEmbeddingConfig, VectorConfig};
 use super::super::super::super::embedder::Embedder;
 use super::super::super::super::model::{EmbeddingDescriptor, EmbeddingDocument, vector_error};
-use super::super::super::QUERY_PREFIX;
+use super::super::super::instructed_query;
 use crate::kernel::error::Error;
 use candle_core::{DType, Device, IndexOp, Tensor};
 use candle_nn::VarBuilder;
@@ -66,8 +66,12 @@ impl CandleRuntime {
         })
     }
 
-    pub(in crate::vector::embedding) fn embed_query(&self, query: &str) -> Result<Vec<f32>, Error> {
-        self.forward(&format!("{QUERY_PREFIX}{query}"))
+    pub(in crate::vector::embedding) fn embed_query(
+        &self,
+        instruction: &str,
+        query: &str,
+    ) -> Result<Vec<f32>, Error> {
+        self.forward(&instructed_query(instruction, query))
     }
 
     fn forward(&self, text: &str) -> Result<Vec<f32>, Error> {
