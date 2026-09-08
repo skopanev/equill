@@ -57,6 +57,7 @@ pub fn search_with_options(
     fields: Vec<String>,
     all: bool,
 ) -> Result<String, Error> {
+    let started = std::time::Instant::now();
     let policy = crate::retrieval::resolve(&store, retrieval)?;
     let limit = limit.unwrap_or_else(|| {
         policy
@@ -164,9 +165,14 @@ pub fn search_with_options(
         &store,
         "search",
         &report_query,
-        Vec::new(),
-        report.hits.len(),
-        telemetry::enabled(),
+        telemetry::QueryOutcome {
+            coordinates: Vec::new(),
+            results: report.hits.len(),
+            elapsed_ms: telemetry::elapsed_ms(started),
+            request_digest: None,
+            receipt_path: None,
+        },
+        telemetry::enabled(&store),
     );
     command::output::render(json, &report, text)
 }

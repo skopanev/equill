@@ -20,7 +20,8 @@ fn configured() -> serde_json::Value {
                 "fill_remaining": true,
                 "deduplicate": true
             }
-        }
+        },
+        "telemetry": { "query_log": true }
     })
 }
 
@@ -39,6 +40,7 @@ fn complete_settings_resolve_the_approved_policy() {
     assert_eq!(policy.hybrid_order, [Source::Vector, Source::Fts]);
     assert!(policy.vector_enabled && policy.hybrid_fill_remaining);
     assert!(policy.hybrid_deduplicate);
+    assert!(query_log(&root).expect("query log setting"));
     fs::remove_dir_all(root).expect("cleanup");
 }
 
@@ -50,6 +52,7 @@ fn absent_settings_use_the_approved_defaults() {
     assert_eq!(policy.default_budget_records, Some(30));
     assert_eq!(policy.vector_score_threshold, Some(0.48));
     assert_eq!(policy.query_instruction, DEFAULT_QUERY_INSTRUCTION);
+    assert!(!query_log(&root).expect("query log default"));
     fs::remove_dir_all(root).expect("cleanup");
 }
 
@@ -110,5 +113,24 @@ fn malformed_or_partial_settings_are_refused() {
         .expect("settings");
         assert!(resolve(&root, Overrides::default()).is_err(), "{bad}");
     }
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+#[test]
+fn telemetry_can_be_enabled_without_repeating_retrieval_defaults() {
+    let root = store();
+    fs::write(
+        root.join("settings.json"),
+        br#"{"telemetry":{"query_log":true}}"#,
+    )
+    .expect("settings");
+
+    assert!(query_log(&root).expect("query log setting"));
+    assert_eq!(
+        resolve(&root, Overrides::default())
+            .expect("default retrieval")
+            .default_budget_records,
+        Some(30)
+    );
     fs::remove_dir_all(root).expect("cleanup");
 }

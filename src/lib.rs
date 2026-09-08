@@ -209,7 +209,7 @@ pub(crate) fn dispatch(
             let actor = kernel::identity::actor_from_env()?;
             let input = std::io::stdin().lock();
             let out = std::io::stdout().lock();
-            mcp::serve(&store, &actor, telemetry::enabled(), input, out)?;
+            mcp::serve(&store, &actor, telemetry::enabled(&store), input, out)?;
             Ok(String::new())
         }
         command::cli::Command::Owner { command } => command::authority::owner(json, command),

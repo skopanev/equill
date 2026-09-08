@@ -18,7 +18,17 @@ pub enum Source {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct StoreSettings {
-    retrieval: RetrievalSettings,
+    #[serde(default)]
+    retrieval: Option<RetrievalSettings>,
+    #[serde(default)]
+    telemetry: TelemetrySettings,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct TelemetrySettings {
+    #[serde(default)]
+    query_log: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -93,14 +103,12 @@ impl Policy {
 }
 
 pub fn resolve(store: &Path, overrides: Overrides) -> Result<Policy, Error> {
-    let path = store.join(SETTINGS);
-    let mut policy = if path.is_file() {
-        let settings: StoreSettings =
-            serde_json::from_slice(&fs::read(path)?).map_err(|error| invalid(error.to_string()))?;
-        validate(&settings.retrieval)?;
-        Policy::configured(settings.retrieval)
-    } else {
-        Policy::defaults()
+    let mut policy = match read(store)?.and_then(|settings| settings.retrieval) {
+        Some(settings) => {
+            validate(&settings)?;
+            Policy::configured(settings)
+        }
+        None => Policy::defaults(),
     };
     if let Some(value) = overrides.query_instruction {
         policy.query_instruction = value;
@@ -122,6 +130,22 @@ pub fn resolve(store: &Path, overrides: Overrides) -> Result<Policy, Error> {
     }
     validate_policy(&policy)?;
     Ok(policy)
+}
+
+pub fn query_log(store: &Path) -> Result<bool, Error> {
+    Ok(read(store)?.is_some_and(|settings| settings.telemetry.query_log))
+}
+
+fn read(store: &Path) -> Result<Option<StoreSettings>, Error> {
+    let path = store.join(SETTINGS);
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    serde_json::from_slice(&bytes)
+        .map(Some)
+        .map_err(|error| invalid(error.to_string()))
 }
 
 fn validate(settings: &RetrievalSettings) -> Result<(), Error> {

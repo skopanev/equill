@@ -295,7 +295,8 @@ Store-level retrieval policy lives in `<store>/settings.json`:
       "fill_remaining": true,
       "deduplicate": true
     }
-  }
+  },
+  "telemetry": { "query_log": true }
 }
 ```
 
@@ -313,6 +314,13 @@ hits fill the unused capacity. A discarded vector tail is never restored. Settin
 the same record from both sources. `registry/vector/qdrant.json` remains limited to the
 physical backend, model, collection, and index lifecycle. Moving query-time policy into
 `settings.json` needs no vector rebuild because stored record embeddings do not change.
+
+`telemetry.query_log` defaults to `false`; setting it to `true` appends best-effort
+rows to `diagnostics/queries.jsonl` after retrieval. `EQUILL_QUERY_LOG=1|true` forces it
+on and any other explicit value forces it off for compatibility. Each row keeps the raw
+query, surface, result count, miss flag, and `elapsed_ms`; context rows also include the
+request digest and receipt path. Result payloads are never logged, and a logging failure
+never changes the answer.
 
 `--budget` is a runtime token ceiling: it may lower but never raise the profile's
 `total_tokens`. Equill counts the exact final context string, including Markdown

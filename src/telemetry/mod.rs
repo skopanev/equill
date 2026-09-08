@@ -26,6 +26,23 @@ struct QueryEntry<'a> {
     coordinates: Vec<&'a str>,
     results: usize,
     miss: bool,
+    elapsed_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_digest: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    receipt_path: Option<&'a str>,
+}
+
+pub struct QueryOutcome<'a> {
+    pub coordinates: Vec<&'a str>,
+    pub results: usize,
+    pub elapsed_ms: u64,
+    pub request_digest: Option<&'a str>,
+    pub receipt_path: Option<&'a str>,
+}
+
+pub fn elapsed_ms(started: std::time::Instant) -> u64 {
+    u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 
 /// Appending must never be able to fail a query that already succeeded, so the
@@ -34,14 +51,13 @@ pub fn record_query(
     store_root: &Path,
     surface: &str,
     query: &str,
-    coordinates: Vec<&str>,
-    results: usize,
+    outcome: QueryOutcome<'_>,
     enabled: bool,
 ) {
     if !enabled {
         return;
     }
-    let _ = write(store_root, surface, query, coordinates, results);
+    let _ = write(store_root, surface, query, outcome);
 }
 
 /// Off unless the store's operator turns it on. Nothing here leaves the machine
@@ -51,24 +67,29 @@ pub fn record_query(
 ///
 /// Read once at the edge and passed down, so the decision is visible at the
 /// call site instead of hidden in a function that reads the environment.
-pub fn enabled() -> bool {
-    std::env::var(ENABLE_ENV).is_ok_and(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+pub fn enabled(store_root: &Path) -> bool {
+    match std::env::var(ENABLE_ENV) {
+        Ok(value) => value == "1" || value.eq_ignore_ascii_case("true"),
+        Err(_) => crate::retrieval::query_log(store_root).unwrap_or(false),
+    }
 }
 
 fn write(
     store_root: &Path,
     surface: &str,
     query: &str,
-    coordinates: Vec<&str>,
-    results: usize,
+    outcome: QueryOutcome<'_>,
 ) -> Result<(), Error> {
     let entry = QueryEntry {
         at: jiff::Timestamp::now().to_string(),
         surface,
         query,
-        coordinates,
-        results,
-        miss: results == 0,
+        coordinates: outcome.coordinates,
+        results: outcome.results,
+        miss: outcome.results == 0,
+        elapsed_ms: outcome.elapsed_ms,
+        request_digest: outcome.request_digest,
+        receipt_path: outcome.receipt_path,
     };
     let path = store_root.join(LOG);
     if let Some(directory) = path.parent() {

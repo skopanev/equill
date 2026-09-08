@@ -29,6 +29,16 @@ pub fn context(
     format: command::cli::FormatArg,
     fields: Vec<String>,
 ) -> Result<String, Error> {
+    let started = std::time::Instant::now();
+    let log_queries = telemetry::enabled(&store);
+    let raw_query = if log_queries {
+        query
+            .clone()
+            .or_else(|| request.as_ref().and_then(query_from_file))
+    } else {
+        None
+    }
+    .unwrap_or_default();
     let actor = kernel::identity::actor_from_env()?;
     let filter = filter::Filter::parse(&filters, strict)?;
     // Which profile answers is the store's decision, not the caller's memory
@@ -108,15 +118,20 @@ pub fn context(
     telemetry::record_query(
         &store,
         "context",
-        &bundle.receipt.request_digest,
-        bundle
-            .receipt
-            .unmatched_coordinates
-            .iter()
-            .map(|item| item.key.as_str())
-            .collect(),
-        bundle.selected_record_ids.len(),
-        telemetry::enabled(),
+        &raw_query,
+        telemetry::QueryOutcome {
+            coordinates: bundle
+                .receipt
+                .unmatched_coordinates
+                .iter()
+                .map(|item| item.key.as_str())
+                .collect(),
+            results: bundle.selected_record_ids.len(),
+            elapsed_ms: telemetry::elapsed_ms(started),
+            request_digest: Some(&bundle.receipt.request_digest),
+            receipt_path: bundle.receipt_path.as_deref(),
+        },
+        log_queries,
     );
     if json {
         // The receipt gains the records it already named, as objects rather
@@ -127,6 +142,12 @@ pub fn context(
         return command::output::render(json, &with_records(&bundle, &selected)?, text);
     }
     command::output::render(json, &bundle, text)
+}
+
+fn query_from_file(path: &PathBuf) -> Option<String> {
+    serde_json::from_slice::<context::ContextRequest>(&std::fs::read(path).ok()?)
+        .ok()
+        .map(|request| request.query)
 }
 
 /// The receipt as it was, plus `records`: the selected records themselves, in

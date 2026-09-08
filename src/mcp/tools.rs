@@ -51,6 +51,7 @@ pub fn call(
 }
 
 fn search(store: &Path, log_queries: bool, arguments: &Value) -> Result<Value, Error> {
+    let started = std::time::Instant::now();
     let policy = crate::retrieval::resolve(store, super::retrieval::overrides(arguments)?)?;
     let filter = filter::Filter::parse(&strings(arguments, "where"), flag(arguments, "strict"))?;
     let type_name = optional(arguments, "type");
@@ -117,8 +118,13 @@ fn search(store: &Path, log_queries: bool, arguments: &Value) -> Result<Value, E
         store,
         "mcp.search",
         request.query.as_deref().unwrap_or_default(),
-        Vec::new(),
-        report.hits.len(),
+        telemetry::QueryOutcome {
+            coordinates: Vec::new(),
+            results: report.hits.len(),
+            elapsed_ms: telemetry::elapsed_ms(started),
+            request_digest: None,
+            receipt_path: None,
+        },
         log_queries,
     );
     value(&report)
@@ -130,6 +136,7 @@ fn assemble(
     log_queries: bool,
     arguments: &Value,
 ) -> Result<Value, Error> {
+    let started = std::time::Instant::now();
     let retrieval = super::retrieval::overrides(arguments)?;
     let filter = filter::Filter::parse(&strings(arguments, "where"), flag(arguments, "strict"))?;
     // Decided the same way as the CLI: the caller names a profile, or the
@@ -147,6 +154,7 @@ fn assemble(
         optional(arguments, "at"),
         flag(arguments, "include_superseded"),
     )?;
+    let raw_query = request.query.clone();
     let runtime_budget_tokens = positive_usize(arguments, "budget")?;
     let runtime_budget_records = positive_usize(arguments, "budget_records")?;
     let bundle = context::assemble_with_options(
@@ -164,14 +172,19 @@ fn assemble(
     telemetry::record_query(
         store,
         "mcp.context",
-        &bundle.receipt.request_digest,
-        bundle
-            .receipt
-            .unmatched_coordinates
-            .iter()
-            .map(|item| item.key.as_str())
-            .collect(),
-        bundle.selected_record_ids.len(),
+        &raw_query,
+        telemetry::QueryOutcome {
+            coordinates: bundle
+                .receipt
+                .unmatched_coordinates
+                .iter()
+                .map(|item| item.key.as_str())
+                .collect(),
+            results: bundle.selected_record_ids.len(),
+            elapsed_ms: telemetry::elapsed_ms(started),
+            request_digest: Some(&bundle.receipt.request_digest),
+            receipt_path: bundle.receipt_path.as_deref(),
+        },
         log_queries,
     );
     value(&bundle)

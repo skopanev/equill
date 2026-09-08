@@ -166,5 +166,7 @@ fn queries_through_the_adapter_reach_the_same_opt_in_log() {
     assert_eq!(replies[0]["result"]["isError"], false);
     let log = fs::read_to_string(root.join("diagnostics/queries.jsonl")).expect("log file");
     assert!(log.contains("mcp.search"), "{log}");
+    assert!(log.contains("nothing-matches-this"), "{log}");
+    assert!(log.contains("\"elapsed_ms\":"), "{log}");
     fs::remove_dir_all(root).expect("cleanup");
 }

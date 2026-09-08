@@ -1,4 +1,4 @@
-use super::{misses, record_query};
+use super::{QueryOutcome, misses, record_query};
 use std::fs;
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -14,12 +14,24 @@ fn root() -> PathBuf {
 fn empty_results_are_the_rows_worth_counting() {
     let root = root();
     // Off until the operator turns it on: nothing is written by default.
-    record_query(&root, "search", "unlogged", Vec::new(), 0, false);
+    record_query(&root, "search", "unlogged", outcome(0), false);
     assert!(!root.join("diagnostics/queries.jsonl").exists());
 
-    record_query(&root, "search", "worktree", Vec::new(), 2, true);
-    record_query(&root, "search", "worktrees", Vec::new(), 0, true);
-    record_query(&root, "context", "sweep", vec!["scope"], 0, true);
+    record_query(&root, "search", "worktree", outcome(2), true);
+    record_query(&root, "search", "worktrees", outcome(0), true);
+    record_query(
+        &root,
+        "context",
+        "sweep",
+        QueryOutcome {
+            coordinates: vec!["scope"],
+            results: 0,
+            elapsed_ms: 7,
+            request_digest: Some("aabb"),
+            receipt_path: Some("receipts/synthetic.json"),
+        },
+        true,
+    );
 
     let (total, missed) = misses(&root).expect("read log");
     assert_eq!(total, 3);
@@ -28,6 +40,8 @@ fn empty_results_are_the_rows_worth_counting() {
     assert_eq!(log.lines().count(), 3);
     // Coordinates are recorded by name; their values are the caller's business.
     assert!(log.contains("\"coordinates\":[\"scope\"]"));
+    assert!(log.contains("\"elapsed_ms\":7"));
+    assert!(log.contains("\"request_digest\":\"aabb\""));
     fs::remove_dir_all(root).expect("cleanup");
 }
 
@@ -37,13 +51,16 @@ fn empty_results_are_the_rows_worth_counting() {
 fn an_absent_log_is_not_an_error() {
     let root = root();
     assert_eq!(misses(&root).expect("absent log"), (0, 0));
-    record_query(
-        &root.join("missing-store"),
-        "search",
-        "x",
-        Vec::new(),
-        1,
-        true,
-    );
+    record_query(&root.join("missing-store"), "search", "x", outcome(1), true);
     fs::remove_dir_all(root).expect("cleanup");
+}
+
+fn outcome(results: usize) -> QueryOutcome<'static> {
+    QueryOutcome {
+        coordinates: Vec::new(),
+        results,
+        elapsed_ms: 1,
+        request_digest: None,
+        receipt_path: None,
+    }
 }
