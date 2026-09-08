@@ -9,13 +9,28 @@ use std::collections::{HashMap, HashSet};
 
 const SCAN_BATCH: usize = 256;
 
+/// What has to be embedded, and what only has to be re-labelled.
+///
+/// A record whose envelope changed but whose meaning did not — compaction cuts
+/// a `supersedes` link, and `record_sha256` moves with it — has the same
+/// embedding input as before, because the input carries no provenance. Sending
+/// it back to the model would spend the whole corpus to relabel a field the
+/// model never saw. The point keeps its vector and takes the new hash.
+pub(super) struct Work {
+    pub embed: Vec<EmbeddingDocument>,
+    pub relabel: Vec<EmbeddingDocument>,
+}
+
 pub(super) fn pending<I: SyncIndex>(
     config: &VectorConfig,
     index: &I,
     physical: &str,
     records: &[(StoredRecord, String)],
-) -> Result<Vec<EmbeddingDocument>, Error> {
-    let mut pending = Vec::new();
+) -> Result<Work, Error> {
+    let mut pending = Work {
+        embed: Vec::new(),
+        relabel: Vec::new(),
+    };
     for chunk in records.chunks(SCAN_BATCH) {
         let ids = chunk
             .iter()
@@ -32,13 +47,17 @@ pub(super) fn pending<I: SyncIndex>(
         }
         for (record, record_sha256) in chunk {
             let document = canonical(record, record_sha256)?;
-            let compatible = current.get(&record.id).is_some_and(|item| {
-                item.record_sha256 == document.record_sha256
-                    && item.input_sha256 == document.input_sha256
+            let known = current.get(&record.id);
+            let same_meaning = known.is_some_and(|item| {
+                item.input_sha256 == document.input_sha256
                     && item.model_sha256 == config.embedding.model_sha256()
             });
-            if !compatible {
-                pending.push(document);
+            let same_record =
+                known.is_some_and(|item| item.record_sha256 == document.record_sha256);
+            match (same_meaning, same_record) {
+                (true, true) => {}
+                (true, false) => pending.relabel.push(document),
+                _ => pending.embed.push(document),
             }
         }
     }

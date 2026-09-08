@@ -23,6 +23,35 @@ pub fn render<T: Serialize>(json: bool, value: &T, human: String) -> Result<Stri
     }
 }
 
+/// What a native compaction did, or would do. The counts lead, because the
+/// question a reader is asking is how much is going away — and the rewritten
+/// envelopes are named separately, since those records survive with a
+/// different hash than they had.
+pub fn native_compact(report: &crate::compact::NativeReport) -> String {
+    let verb = if report.applied {
+        "Removed"
+    } else {
+        "Would remove"
+    };
+    let mut text = format!(
+        "{verb} {} of {} records, keeping {}",
+        report.removed,
+        report.removed + report.retained,
+        report.retained
+    );
+    if report.severed > 0 {
+        let _ = write!(
+            text,
+            "\n{} retained records lose a link into the removed past and change hash",
+            report.severed
+        );
+    }
+    if !report.applied {
+        text.push_str("\nNothing was changed. Re-run with --apply.");
+    }
+    text
+}
+
 pub fn init(path: &Path, report: &InitReport) -> String {
     if report.created {
         format!(

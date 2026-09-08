@@ -9,8 +9,8 @@ use crate::vector::model::{
 };
 
 pub(crate) struct Collection<T> {
-    config: VectorConfig,
-    transport: T,
+    pub(super) config: VectorConfig,
+    pub(super) transport: T,
 }
 
 pub(crate) struct AliasChange {

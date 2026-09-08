@@ -2,6 +2,7 @@ mod anchor;
 mod apply;
 mod lifecycle;
 mod model;
+pub mod native;
 mod planner;
 mod receipt;
 mod rewrite;
@@ -12,6 +13,7 @@ use crate::kernel::governance::RootGuard;
 use std::path::Path;
 
 pub use model::CompactReport;
+pub use native::NativeReport;
 
 pub fn run(
     store_root: &Path,

@@ -49,6 +49,7 @@ pub(crate) trait Transport {
     fn collection_schema(&self, name: &str) -> Result<Option<CollectionSchema>, Error>;
     fn create_collection(&self, name: &str, schema: CollectionSchema) -> Result<(), Error>;
     fn upsert(&self, collection: &str, points: &[ProviderPoint]) -> Result<(), Error>;
+    fn set_payload(&self, collection: &str, points: &[ProviderPoint]) -> Result<(), Error>;
     fn delete(&self, collection: &str, point_ids: &[Uuid]) -> Result<(), Error>;
     fn metadata(
         &self,
@@ -84,7 +85,7 @@ impl QdrantTransport {
         })
     }
 
-    fn run<T, E, F, Fut>(&self, action: &'static str, task: F) -> Result<T, Error>
+    pub(super) fn run<T, E, F, Fut>(&self, action: &'static str, task: F) -> Result<T, Error>
     where
         T: Send + 'static,
         E: Send + 'static,
@@ -130,6 +131,12 @@ impl Transport for QdrantTransport {
             client.upsert_points(request).await
         })?;
         Ok(())
+    }
+
+    /// Bookkeeping only: upserting instead would need the vector, and that
+    /// would need the model.
+    fn set_payload(&self, collection: &str, points: &[ProviderPoint]) -> Result<(), Error> {
+        super::point::write_payload(self, collection, points)
     }
 
     fn delete(&self, collection: &str, point_ids: &[Uuid]) -> Result<(), Error> {

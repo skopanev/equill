@@ -61,9 +61,11 @@ pub enum Command {
         /// Initialized store directory to rebuild after apply.
         #[arg(long)]
         store: PathBuf,
-        /// Complete JSONL input manifest.
+        /// Complete JSONL input manifest. Omitted for a store written record
+        /// by record, which has no inputs to rebuild from: the ledger is the
+        /// source, and compaction rewrites it in place.
         #[arg(long)]
-        manifest: PathBuf,
+        manifest: Option<PathBuf>,
         /// Report removals without changing inputs or the store.
         #[arg(long, required_unless_present = "apply", conflicts_with = "apply")]
         dry_run: bool,

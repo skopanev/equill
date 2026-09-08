@@ -73,8 +73,21 @@ pub(crate) fn dispatch(
             apply,
         } => {
             let actor = kernel::identity::actor_from_env()?;
-            let report = compact::run(&store, &manifest, apply && !dry_run, &actor)?;
-            command::output::render(json, &report, command::output::compact(&report))
+            // Same command, two kinds of store. With a manifest the inputs are
+            // the source and the store is rebuilt from them; without one the
+            // ledger is the source and is rewritten in place. Asking the user
+            // to know which they have would be asking them to know how their
+            // store was written.
+            match manifest {
+                Some(manifest) => {
+                    let report = compact::run(&store, &manifest, apply && !dry_run, &actor)?;
+                    command::output::render(json, &report, command::output::compact(&report))
+                }
+                None => {
+                    let report = compact::native::run(&store, apply && !dry_run, &actor)?;
+                    command::output::render(json, &report, command::output::native_compact(&report))
+                }
+            }
         }
         command::cli::Command::Doctor { store, full, deep } => {
             let report = command::doctor::report(store.as_deref(), full, deep)?;

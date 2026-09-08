@@ -60,8 +60,8 @@ fn stage_one(input: &super::model::PlannedInput, transaction: &str) -> Result<So
 }
 
 pub struct Swap {
-    current: PathBuf,
-    backup: PathBuf,
+    pub(super) current: PathBuf,
+    pub(super) backup: PathBuf,
 }
 
 pub fn commit(
@@ -153,7 +153,7 @@ pub fn finish(
     Ok(())
 }
 
-fn swap(current: &Path, incoming: &Path, backup: &Path) -> Result<(), Error> {
+pub(super) fn swap(current: &Path, incoming: &Path, backup: &Path) -> Result<(), Error> {
     fs::rename(current, backup)?;
     if let Err(error) = fs::rename(incoming, current) {
         let _ = fs::rename(backup, current);
@@ -162,7 +162,7 @@ fn swap(current: &Path, incoming: &Path, backup: &Path) -> Result<(), Error> {
     Ok(())
 }
 
-fn rollback_swaps(swaps: &[Swap]) {
+pub(super) fn rollback_swaps(swaps: &[Swap]) {
     for swap in swaps.iter().rev() {
         cleanup_tree(&swap.current);
         let _ = fs::rename(&swap.backup, &swap.current);

@@ -125,8 +125,15 @@ where
     let records = snapshot.records;
     let digest = snapshot.digest;
     index.delete(&physical, &snapshot.history)?;
-    let documents = pending(config, index, &physical, &records)?;
+    let work = pending(config, index, &physical, &records)?;
+    let documents = work.embed;
     let embeddings = documents.len();
+    // Points whose meaning is unchanged and whose envelope is not: they keep
+    // the vector they already have and take the new record hash. No model is
+    // loaded for these, which is the whole point of telling them apart.
+    if !work.relabel.is_empty() {
+        index.relabel(&physical, &work.relabel)?;
+    }
     let mut upsert_batches = 0;
     emit(
         &mut progress,
@@ -172,7 +179,8 @@ where
                 },
             );
         }
-        if !pending(config, index, &physical, &records)?.is_empty() {
+        let remaining = pending(config, index, &physical, &records)?;
+        if !remaining.embed.is_empty() || !remaining.relabel.is_empty() {
             return Err(vector_error("incremental sync verification failed"));
         }
     }

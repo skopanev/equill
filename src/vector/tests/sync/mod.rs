@@ -3,6 +3,7 @@ mod concurrency;
 mod endpoint_consistency;
 mod freshness;
 mod lifecycle;
+mod relabel;
 
 use crate::command::init;
 use crate::kernel::error::Error;
@@ -36,6 +37,10 @@ pub(super) struct FakeState {
     pub(super) ready_marks: usize,
     pub(super) checkpoint: Option<(usize, String)>,
     pub(super) fail_upsert: bool,
+    /// Counted separately from upserts, because the whole point of relabelling
+    /// is that it happens without the model: a test that cannot tell the two
+    /// apart cannot prove the model stayed idle.
+    pub(super) points_relabelled: usize,
 }
 
 impl SyncIndex for FakeIndex {
@@ -49,6 +54,21 @@ impl SyncIndex for FakeIndex {
             .iter()
             .filter_map(|id| state.points.get(id).cloned())
             .collect())
+    }
+
+    fn relabel(
+        &self,
+        _physical: &str,
+        documents: &[crate::vector::model::EmbeddingDocument],
+    ) -> Result<(), Error> {
+        let mut state = self.inner.lock().unwrap();
+        for document in documents {
+            state.points_relabelled += 1;
+            if let Some(point) = state.points.get_mut(&document.record_id) {
+                point.record_sha256 = document.record_sha256.clone();
+            }
+        }
+        Ok(())
     }
 
     fn upsert(&self, _physical: &str, points: &[VectorPoint]) -> Result<(), Error> {

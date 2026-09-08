@@ -100,6 +100,15 @@ impl VectorProjection {
         self.collection.upsert(physical, points)
     }
 
+    /// Write a point's bookkeeping without recomputing what it means.
+    pub fn relabel(
+        &self,
+        physical: &str,
+        documents: &[crate::vector::model::EmbeddingDocument],
+    ) -> Result<(), Error> {
+        self.collection.relabel(physical, documents)
+    }
+
     pub(crate) fn delete(&self, physical: &str, record_ids: &[uuid::Uuid]) -> Result<(), Error> {
         self.collection.delete(physical, record_ids)
     }
