@@ -41,6 +41,20 @@ fn line(rule: &str) -> String {
         + "\n"
 }
 
+fn legacy_line(index: usize, rule: serde_json::Value) -> String {
+    json!({
+        "id": format!("legacy-{index}"),
+        "ts": "2026-01-01T00:00:00Z",
+        "namespace": "agent.memory",
+        "type": "agent.lesson.v1",
+        "actor": "legacy-owner",
+        "observed_at": "2026-01-01T00:00:00Z",
+        "payload": { "rule": rule }
+    })
+    .to_string()
+        + "\n"
+}
+
 /// Partial success is the useful answer: one malformed line should not cost the
 /// other thirty-nine, and the caller needs to know which line to fix.
 #[test]
@@ -96,5 +110,22 @@ fn a_malformed_first_jsonl_row_does_not_hide_later_records() {
     assert_eq!(report.rejected, 1);
     assert_eq!(report.records[0].line, 1);
     assert!(report.records[0].error.is_some());
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+#[test]
+fn legacy_jsonl_batch_is_atomic_through_the_canonical_import_writer() {
+    let root = store();
+    let source = root.join("legacy.jsonl");
+    let contents = (0..3)
+        .map(|index| legacy_line(index, json!(format!("valid {index}"))))
+        .collect::<String>()
+        + &legacy_line(3, json!(42));
+    fs::write(&source, contents).expect("input");
+
+    let error = append_batch(&root, &source, "owner").expect_err("invalid batch must abort");
+    assert!(error.to_string().contains("line 4:"), "{error}");
+    assert!(crate::record::read_all(&root).unwrap().is_empty());
+    assert!(!root.join("receipts/writes").exists());
     fs::remove_dir_all(root).expect("cleanup");
 }

@@ -28,6 +28,22 @@ pub struct BatchItem {
 /// went through the same immutable writer as a single `record` call.
 pub fn append_batch(store_root: &Path, source: &Path, actor: &str) -> Result<BatchReport, Error> {
     let contents = fs::read_to_string(source)?;
+    if is_legacy_import(&contents) {
+        return crate::ingest::import_jsonl(store_root, source, actor).map(|report| BatchReport {
+            ok: report.ok,
+            stored: report.imported,
+            rejected: 0,
+            records: report
+                .records
+                .into_iter()
+                .map(|item| BatchItem {
+                    line: item.line,
+                    id: Some(item.record_id),
+                    error: None,
+                })
+                .collect(),
+        });
+    }
     let mut records = Vec::new();
     let mut stored = 0;
     let mut rejected = 0;
@@ -72,6 +88,16 @@ pub fn append_batch(store_root: &Path, source: &Path, actor: &str) -> Result<Bat
         rejected,
         records,
     })
+}
+
+fn is_legacy_import(contents: &str) -> bool {
+    contents
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .and_then(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .is_some_and(|value| {
+            value.get("id").is_some() && value.get("ts").is_some() && value.get("actor").is_some()
+        })
 }
 
 /// The number of records in the file decides the shape of the answer, so a
