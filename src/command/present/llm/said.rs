@@ -47,22 +47,38 @@ fn annotate(said: &mut [Said], key: &[String]) {
         return;
     }
     let names = distinguishing(said, &members);
-    for index in members {
-        let mut lines = said[index].key.clone();
-        if names.is_empty() {
-            // Nothing in the payload separates them, so what separates them is
-            // what they are. The smallest true label, and only here.
-            lines.push(format!(
-                "type: {}/{}",
-                said[index].namespace, said[index].type_name
-            ));
-        }
+    for index in &members {
+        let mut lines = said[*index].key.clone();
         for name in &names {
-            if let Some(value) = said[index].payload.get(name) {
+            if let Some(value) = said[*index].payload.get(name) {
                 lines.push(format!("{name}: {}", fallback::literal(value)));
             }
         }
-        said[index].lines = lines;
+        said[*index].lines = lines;
+    }
+    label_remaining_duplicates(said, &members);
+}
+
+/// Gives a namespace and type to the blocks that still read alike.
+///
+/// The payload fields settle most of a group, but not the members that differ
+/// only in what they are — and in a mixed group they are the minority. Adding
+/// the label to everyone would bury the compact answer under provenance the
+/// reader did not ask for, so it goes only to the blocks that would otherwise
+/// be indistinguishable from another record's.
+fn label_remaining_duplicates(said: &mut [Said], members: &[usize]) {
+    let mut collisions = Vec::new();
+    for (position, index) in members.iter().enumerate() {
+        let clashes = members.iter().enumerate().any(|(other_position, other)| {
+            other_position != position && said[*other].lines == said[*index].lines
+        });
+        if clashes {
+            collisions.push(*index);
+        }
+    }
+    for index in collisions {
+        let label = format!("type: {}/{}", said[index].namespace, said[index].type_name);
+        said[index].lines.push(label);
     }
 }
 

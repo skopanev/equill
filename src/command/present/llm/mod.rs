@@ -225,4 +225,4 @@ mod category_tests;
 #[cfg(test)]
 mod coverage_tests;
 #[cfg(test)]
-mod tests;
+mod label_tests;
