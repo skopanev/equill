@@ -124,6 +124,15 @@ pub struct ContextReceipt {
     /// Absent unless a hybrid selector ran; see `SemanticAnswer`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub semantic: Option<SemanticAnswer>,
+    /// The configured `retrieval.skip_query_patterns` rule that suppressed the
+    /// query path, written exactly as it stands in the settings file so an
+    /// operator can find it by searching their own configuration.
+    ///
+    /// The query text is never recorded here. Absent — not defaulted — when no
+    /// rule applied, which keeps every receipt a store without the setting
+    /// produces byte-identical to the ones it produced before, digest included.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query_skipped_by: Option<String>,
 }
 
 /// What the semantic half of a hybrid selector actually did.

@@ -134,3 +134,77 @@ fn telemetry_can_be_enabled_without_repeating_retrieval_defaults() {
     );
     fs::remove_dir_all(root).expect("cleanup");
 }
+
+/// A pattern that will not compile is a load failure, not a warning.
+///
+/// The alternative is a filter that never fires: the cost an operator meant to
+/// remove stays exactly where it was, and they have every reason to believe it
+/// is gone. Refusing the store is the only outcome they can act on.
+#[test]
+fn a_pattern_that_will_not_compile_fails_the_load() {
+    let root = store();
+    let mut settings = configured();
+    settings["retrieval"]["skip_query_patterns"] = json!(["^\\[BUS\\]", "("]);
+    fs::write(
+        root.join("settings.json"),
+        serde_json::to_vec(&settings).expect("json"),
+    )
+    .expect("settings");
+
+    let error =
+        resolve(&root, Overrides::default()).expect_err("an unclosed group must be a load failure");
+    let message = error.to_string();
+    assert!(
+        message.contains("skip_query_patterns"),
+        "the error does not say which setting is wrong: {message}"
+    );
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+/// Settings written before the key existed keep loading, and keep behaving the
+/// way they did.
+#[test]
+fn settings_without_the_key_configure_no_skipping() {
+    let root = store();
+    fs::write(
+        root.join("settings.json"),
+        serde_json::to_vec(&configured()).expect("json"),
+    )
+    .expect("settings");
+
+    let policy = resolve(&root, Overrides::default()).expect("policy");
+    assert!(policy.skip_query_patterns.is_empty());
+    assert_eq!(policy.skip_query_patterns.matched("[BUS] unread: 3"), None);
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+/// The rule handed back is the line the operator wrote, not the compiled
+/// regex's own rendering of it: they have to be able to find it by searching
+/// their settings file.
+#[test]
+fn the_matched_rule_is_returned_as_written() {
+    let root = store();
+    let mut settings = configured();
+    settings["retrieval"]["skip_query_patterns"] =
+        json!(["^\\[BUS\\] unread:", "^\\[BUS\\] reply required"]);
+    fs::write(
+        root.join("settings.json"),
+        serde_json::to_vec(&settings).expect("json"),
+    )
+    .expect("settings");
+
+    let policy = resolve(&root, Overrides::default()).expect("policy");
+    assert_eq!(
+        policy
+            .skip_query_patterns
+            .matched("[BUS] unread: 3. To read: agentbus drain"),
+        Some("^\\[BUS\\] unread:")
+    );
+    assert_eq!(
+        policy
+            .skip_query_patterns
+            .matched("what did we decide about compaction?"),
+        None
+    );
+    fs::remove_dir_all(root).expect("cleanup");
+}

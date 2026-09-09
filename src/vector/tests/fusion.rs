@@ -86,6 +86,7 @@ fn ordered_hybrid_keeps_vector_order_then_fills_unique_fts() {
         hybrid_order: [Source::Vector, Source::Fts],
         hybrid_fill_remaining: true,
         hybrid_deduplicate: true,
+        skip_query_patterns: Default::default(),
     };
 
     let hits = ordered(

@@ -61,15 +61,11 @@ pub fn rebuild_with_progress(
     emit(&mut progress, VectorProgress::LoadingModel);
     let embedder = EmbeddingRuntime::load(store_root, &vector_config)?;
 
-    // The snapshot is captured under the writer lock so an append cannot land
-    // between reading the ledger and digesting it. The lock is released before
-    // embedding: holding it for the length of a model run would stop writes,
-    // which is the very thing this contract exists to avoid.
-    let (records, digest) = {
-        let _lock = StoreLock::exclusive(store_root)?;
-        let snapshot = corpus_snapshot(store_root)?;
-        (snapshot.records, snapshot.digest)
-    };
+    let Captured {
+        records,
+        digest,
+        revision,
+    } = capture(store_root)?;
     let physical = physical_name(&vector_config);
     emit(
         &mut progress,
@@ -107,13 +103,12 @@ pub fn rebuild_with_progress(
     }
 
     let _lock = StoreLock::exclusive(store_root)?;
-    // The snapshot captured at the start is what this rebuild indexed. A store
-    // that is written to continuously would never satisfy "the ledger has not
-    // moved", so it is not asked to: whatever arrived meanwhile is the tail the
-    // next sync takes, and the checkpoint records exactly this boundary.
-    // A rebuild covers whatever the target says right now; anything written
-    // after this point is the next pass's tail.
-    let revision = crate::vector::desired::read(store_root)?.map_or(0, |target| target.revision);
+    // The snapshot captured at the start is what this rebuild indexed, and the
+    // revision activated is the one captured with it. Reading the target here
+    // instead claimed everything written during the pass as covered: those
+    // records were never embedded, the checkpoint drew level with the target,
+    // and the gate — which compares exactly those two numbers — saw nothing
+    // outstanding. The tail was then lost until somebody ran a sync by hand.
     projection.activate(&physical, Some((records.len(), &digest, revision)))?;
     drop(_lock);
     emit(
@@ -129,6 +124,36 @@ pub fn rebuild_with_progress(
         collection: physical,
         records: records.len(),
         corpus_sha256: digest,
+    })
+}
+
+/// What a rebuild indexes, and the target that snapshot covers.
+pub(crate) struct Captured {
+    pub(crate) records: Vec<(StoredRecord, String)>,
+    pub(crate) digest: String,
+    pub(crate) revision: u64,
+}
+
+/// Both halves of the boundary, taken together.
+///
+/// Under one writer lock so an append cannot land between them: a corpus from
+/// before a write and a target from after it describe a pass that covered
+/// something it never saw. The lock is released before embedding, because
+/// holding it for the length of a model run would stop writes — the very thing
+/// this contract exists to avoid — so whatever arrives afterwards is the next
+/// pass's tail, and the checkpoint says so by staying behind the target.
+///
+/// Target first, then the corpus, matching the incremental sync. Under a shared
+/// lock the order cannot matter; keeping the two passes identical is cheaper
+/// than explaining why they differ.
+pub(crate) fn capture(store_root: &Path) -> Result<Captured, Error> {
+    let _lock = StoreLock::exclusive(store_root)?;
+    let revision = crate::vector::desired::read(store_root)?.map_or(0, |target| target.revision);
+    let snapshot = corpus_snapshot(store_root)?;
+    Ok(Captured {
+        records: snapshot.records,
+        digest: snapshot.digest,
+        revision,
     })
 }
 

@@ -8,6 +8,8 @@ use crate::kernel::error::Error;
 use crate::projection::{self, ProjectionState};
 use crate::record::StoredRecord;
 use std::collections::{BTreeSet, HashMap, HashSet};
+#[cfg(test)]
+pub(crate) mod probe;
 mod search;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -34,6 +36,10 @@ pub struct Retrieval {
     pub degraded_strategies: Vec<Strategy>,
     pub semantic: Option<super::model::SemanticAnswer>,
     pub projection: ProjectionState,
+    /// The configured rule that suppressed the query path, if one did. The
+    /// query itself is never carried: the receipt names the rule an operator
+    /// wrote, not the line a caller sent.
+    pub query_skipped_by: Option<String>,
 }
 
 /// Whether a selector's `expect` has anything to apply to.
@@ -186,6 +192,7 @@ pub fn retrieve(
         degraded_strategies,
         semantic: search.answer,
         projection,
+        query_skipped_by: search.skipped_by,
     })
 }
 

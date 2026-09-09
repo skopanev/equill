@@ -380,6 +380,70 @@ strategy-pluggable and always composable:
 A single-strategy store is honest and complete; multi-strategy is a scale
 concern, and the record log remains the truth all strategies serve.
 
+### Queries that are not questions
+
+Some prompts carry no question. A harness that forwards notifications into an
+agent's prompt sends lines like `[BUS] unread: 3. To read: agentbus drain`, and
+each one used to fire a full hybrid retrieval that returned memory unrelated to
+the work in hand.
+
+`retrieval.skip_query_patterns` in `settings.json` is a list of regular
+expressions. When one matches, the query-driven half of retrieval does not run:
+zero calls to the projection, zero to the embedder, zero to the vector index.
+
+```json
+{
+  "retrieval": {
+    "default_budget_records": 30,
+    "query_instruction": "Retrieve durable memory directly applicable to the current request.",
+    "vector": { "enabled": true, "score_threshold": 0.48 },
+    "hybrid": { "order": ["vector", "fts"], "fill_remaining": true, "deduplicate": true },
+    "skip_query_patterns": [
+      "^\\[BUS\\] unread:",
+      "^\\[BUS\\] reply required"
+    ]
+  }
+}
+```
+
+Backslashes are doubled because JSON strings consume one level of escaping. The
+pattern above reaches the engine as `^\[BUS\] unread:`, which matches a literal
+`[BUS] unread:` at the start of the line. Writing `"^\[BUS\]"` with single
+backslashes is not valid JSON, and writing `"^[BUS] unread:"` compiles to a
+character class matching a single `B`, `U` or `S` — it will not match the line
+it was meant for.
+
+The dialect is the Rust `regex` crate: Perl-like syntax without backtracking, so
+no backreferences and no lookaround. It is unanchored by default, which is why
+the examples begin with `^`. Matching is against the raw query, before any
+normalisation, so what an operator writes is what they can predict from the line
+they see: `^\[BUS\]` does not match `  [BUS] ...` or `[bus] ...`.
+
+What a match does **not** do:
+
+- it never skips context assembly. Coordinate and recency selectors do not look
+  at the query and are not reachable from a pattern at all, so the required
+  role, process and steps are assembled exactly as they would have been. A
+  pattern of `.*` still leaves an agent with its full contract;
+- it is not a bypass of grants, schema or profile validation;
+- `SessionStart` carries no query and is untouched. A blank or
+  whitespace-only query is never matched against at all — both halves of
+  the query path already treat it as no search, so there is nothing for a
+  pattern to suppress, and `.*` would otherwise stamp a rule into the
+  receipt of every session start and change a digest that must not move.
+
+An empty bundle after a match is legitimate only when there was nothing to
+assemble outside the skipped query path.
+
+A pattern that does not compile fails the load, and `equill doctor` fails the
+same way. A filter that silently never matches is worse than no filter: the cost
+stays and the operator believes it is gone.
+
+The context receipt records `query_skipped_by` — the matching rule exactly as it
+stands in the settings file, so it can be found by searching that file. The
+query text is never recorded there. A store that configures no patterns produces
+a receipt without the field, byte-identical to the receipts it produced before.
+
 ## First-run experience
 
 `equill init` brings up a complete working store with zero configuration:

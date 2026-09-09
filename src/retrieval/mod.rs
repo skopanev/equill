@@ -1,6 +1,9 @@
 //! Store-level retrieval policy, separate from physical projection identity.
+pub mod skip;
+
 use crate::kernel::error::Error;
 use serde::{Deserialize, Serialize};
+use skip::SkipRules;
 use std::fs;
 use std::path::Path;
 
@@ -45,6 +48,11 @@ struct RetrievalSettings {
     query_instruction: String,
     vector: VectorSettings,
     hybrid: HybridSettings,
+    /// Lines an operator has declared are not questions. Defaulted, so every
+    /// settings file written before today keeps loading and keeps behaving
+    /// exactly as it did.
+    #[serde(default)]
+    skip_query_patterns: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -81,6 +89,9 @@ pub struct Policy {
     pub hybrid_order: [Source; 2],
     pub hybrid_fill_remaining: bool,
     pub hybrid_deduplicate: bool,
+    /// Compiled once here rather than at each query, so a bad pattern is a
+    /// store that will not open instead of a filter that quietly never fires.
+    pub skip_query_patterns: SkipRules,
 }
 
 impl Policy {
@@ -93,10 +104,11 @@ impl Policy {
             hybrid_order: [Source::Vector, Source::Fts],
             hybrid_fill_remaining: true,
             hybrid_deduplicate: true,
+            skip_query_patterns: SkipRules::default(),
         }
     }
 
-    fn configured(settings: RetrievalSettings) -> Self {
+    fn configured(settings: RetrievalSettings, skip_query_patterns: SkipRules) -> Self {
         Self {
             default_budget_records: Some(settings.default_budget_records),
             query_instruction: settings.query_instruction,
@@ -105,6 +117,7 @@ impl Policy {
             hybrid_order: settings.hybrid.order,
             hybrid_fill_remaining: settings.hybrid.fill_remaining,
             hybrid_deduplicate: settings.hybrid.deduplicate,
+            skip_query_patterns,
         }
     }
 }
@@ -113,7 +126,8 @@ pub fn resolve(store: &Path, overrides: Overrides) -> Result<Policy, Error> {
     let mut policy = match read(store)?.and_then(|settings| settings.retrieval) {
         Some(settings) => {
             validate(&settings)?;
-            Policy::configured(settings)
+            let skip = SkipRules::compile(&settings.skip_query_patterns)?;
+            Policy::configured(settings, skip)
         }
         None => Policy::defaults(),
     };

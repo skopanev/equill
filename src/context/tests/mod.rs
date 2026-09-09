@@ -6,5 +6,6 @@ mod fixtures;
 mod inline;
 mod lifecycle;
 mod ranking;
+mod skip;
 mod visibility;
 mod vocabulary;

@@ -83,6 +83,7 @@ pub fn bundle(
         empty,
         semantic,
         unmatched_coordinates: retrieved.unmatched_coordinates,
+        query_skipped_by: retrieved.query_skipped_by,
     };
     // One failure is tolerated and no others: the store would not take the
     // file. That is what a read-only store looks like, and reading is not a

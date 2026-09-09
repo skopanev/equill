@@ -3,6 +3,7 @@ mod concurrency;
 mod endpoint_consistency;
 mod freshness;
 mod lifecycle;
+mod rebuild_boundary;
 mod relabel;
 
 use crate::command::init;

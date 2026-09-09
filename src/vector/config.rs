@@ -3,16 +3,18 @@ use super::model::{
 };
 use crate::kernel::error::Error;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use std::fmt::Write as _;
-use std::fs::{self, File};
-use std::io::Read;
+use std::fs;
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 const CONFIG: &str = "registry/vector/qdrant.json";
 const SCHEMA: &str = "equill.qdrant-config.v1";
+
+mod voyage;
+pub use voyage::{VoyageEmbeddingConfig, VoyageProvider};
+mod artifact;
+use artifact::verify_artifact;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -34,6 +36,7 @@ pub struct VectorConfig {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum EmbeddingConfig {
+    Voyage(VoyageEmbeddingConfig),
     Ollama(OllamaEmbeddingConfig),
     Local(LocalEmbeddingConfig),
 }
@@ -121,6 +124,7 @@ fn validate_shape(config: &VectorConfig) -> Result<(), Error> {
         return Err(vector_error("invalid embedding descriptor"));
     }
     match &config.embedding {
+        EmbeddingConfig::Voyage(embedding) => embedding.validate(config)?,
         EmbeddingConfig::Local(embedding) => {
             for artifact in [
                 &embedding.model,
@@ -157,27 +161,31 @@ fn validate_shape(config: &VectorConfig) -> Result<(), Error> {
 impl EmbeddingConfig {
     pub(crate) fn model_id(&self) -> &str {
         match self {
+            Self::Voyage(value) => &value.model_id,
             Self::Local(value) => &value.model_id,
             Self::Ollama(value) => &value.model_id,
         }
     }
 
-    pub(crate) fn model_sha256(&self) -> &str {
+    pub(crate) fn model_sha256(&self) -> String {
         match self {
-            Self::Local(value) => &value.model.sha256,
-            Self::Ollama(value) => &value.model_sha256,
+            Self::Voyage(value) => value.fingerprint(),
+            Self::Local(value) => value.model.sha256.clone(),
+            Self::Ollama(value) => value.model_sha256.clone(),
         }
     }
 
-    pub(crate) fn tokenizer_sha256(&self) -> &str {
+    pub(crate) fn tokenizer_sha256(&self) -> String {
         match self {
-            Self::Local(value) => &value.tokenizer.sha256,
-            Self::Ollama(value) => &value.model_sha256,
+            Self::Voyage(value) => value.fingerprint(),
+            Self::Local(value) => value.tokenizer.sha256.clone(),
+            Self::Ollama(value) => value.model_sha256.clone(),
         }
     }
 
     pub(crate) fn input_schema(&self) -> &str {
         match self {
+            Self::Voyage(value) => &value.input_schema,
             Self::Local(value) => &value.input_schema,
             Self::Ollama(value) => &value.input_schema,
         }
@@ -218,33 +226,4 @@ fn split_authority(authority: &str) -> Result<(&str, &str), Error> {
         .rsplit_once(':')
         .filter(|(host, port)| !host.is_empty() && !port.is_empty())
         .ok_or_else(|| vector_error("endpoint requires host and port"))
-}
-
-fn verify_artifact(store: &Path, artifact: &ModelArtifact, role: &str) -> Result<(), Error> {
-    let path = if artifact.path.is_absolute() {
-        artifact.path.clone()
-    } else {
-        store.join(&artifact.path)
-    };
-    let mut file =
-        File::open(path).map_err(|_| vector_error(&format!("{role} artifact missing")))?;
-    let mut hasher = Sha256::new();
-    let mut buffer = [0_u8; 64 * 1024];
-    loop {
-        let read = file
-            .read(&mut buffer)
-            .map_err(|_| vector_error(&format!("{role} artifact unreadable")))?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..read]);
-    }
-    let mut actual = String::with_capacity(64);
-    for byte in hasher.finalize() {
-        write!(&mut actual, "{byte:02x}").expect("writing to String cannot fail");
-    }
-    if actual != artifact.sha256 {
-        return Err(vector_error(&format!("{role} artifact hash mismatch")));
-    }
-    Ok(())
 }

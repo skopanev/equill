@@ -56,6 +56,8 @@ pub fn hits(
     if request.query.trim().is_empty() || wanted.is_empty() {
         return Ok(SemanticHits::empty());
     }
+    #[cfg(test)]
+    super::retrieval::probe::entered_semantic();
     match record_limit {
         Some(limit) => limited(store, wanted, request, limit, policy),
         None => merged(store, wanted, request, policy),

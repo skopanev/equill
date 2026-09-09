@@ -763,7 +763,7 @@ dependencies = [
 
 [[package]]
 name = "equill"
-version = "0.2.30"
+version = "0.2.31"
 dependencies = [
  "candle-core",
  "candle-nn",
@@ -773,6 +773,7 @@ dependencies = [
  "jiff",
  "jsonschema",
  "qdrant-client",
+ "regex",
  "rusqlite",
  "secrets_scanner",
  "serde",
@@ -3194,10 +3195,13 @@ dependencies = [
  "cookie_store",
  "log",
  "percent-encoding",
+ "rustls",
+ "rustls-pki-types",
  "serde",
  "serde_json",
  "ureq-proto",
  "utf-8",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -3360,6 +3364,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ef64dbcc55df09c7e5a46182d181c2cfa3e925f3da937ea764728b4bbb9dcbf"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "webpki-roots"
+version = "1.0.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a"
+dependencies = [
+ "rustls-pki-types",
 ]
 
 [[package]]

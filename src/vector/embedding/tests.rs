@@ -6,6 +6,18 @@ use crate::kernel::digest::sha256_hex;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
+#[test]
+fn query_limit_preserves_short_inputs_and_unicode_boundaries() {
+    for text in ["", "short query", "вопрос", "🦀"] {
+        assert_eq!(super::bounded_query(text), text);
+    }
+    for character in ['a', 'я', '🦀'] {
+        let exact = character.to_string().repeat(2_000);
+        assert_eq!(super::bounded_query(&exact), exact);
+        assert_eq!(super::bounded_query(&format!("{exact}tail")), exact);
+    }
+}
+
 /// The contract is pinned deliberately: a silent change to pooling, dimensions,
 /// sequence length, or the retrieval instruction would keep every test green
 /// while making every stored vector mean something else.

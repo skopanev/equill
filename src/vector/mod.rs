@@ -43,7 +43,7 @@ use std::path::{Path, PathBuf};
 
 pub use config::{
     EmbeddingConfig, LocalEmbeddingConfig, ModelArtifact, OllamaEmbeddingConfig, OllamaProvider,
-    VectorConfig,
+    VectorConfig, VoyageEmbeddingConfig, VoyageProvider,
 };
 pub use drain::{after_commit, after_commit_inline, projection_after_write, resume};
 pub use embedder::{Embedder, embed_batch};
