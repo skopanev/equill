@@ -80,10 +80,14 @@ pub(super) fn collect(
     } else {
         (&text.ids, &vector)
     };
+    // Both sources are offered to the classifier even when the second is only
+    // a fallback. Deciding here would decide too early: these ids have not yet
+    // met the coordinates, the grants, the filter or the lifecycle, so a
+    // vector half that looks non-empty now can be empty by the time anything
+    // is selected — and that is exactly when the text half is needed. The
+    // choice is made in `retrieve`, once survival is known.
     let mut hybrid = primary.clone();
-    if policy.hybrid_fill_remaining {
-        hybrid.extend(secondary.iter().copied());
-    }
+    hybrid.extend(secondary.iter().copied());
     let mut ranks = HashMap::new();
     for source in policy.hybrid_order {
         let ordered = if source == crate::retrieval::Source::Vector {

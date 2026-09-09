@@ -8,6 +8,7 @@ use crate::kernel::error::Error;
 use crate::projection::{self, ProjectionState};
 use crate::record::StoredRecord;
 use std::collections::{BTreeSet, HashMap, HashSet};
+mod fallback;
 #[cfg(test)]
 pub(crate) mod probe;
 mod search;
@@ -163,6 +164,13 @@ pub fn retrieve(
                 super::model::ExclusionReason::SelectorMismatch,
             )),
         }
+    }
+    if !policy.hybrid_fill_remaining {
+        fallback::text_answers_only_when_vectors_did_not(
+            &mut candidates,
+            &search.vector,
+            &mut excluded,
+        );
     }
     candidates.sort_by(|left, right| {
         left.tier

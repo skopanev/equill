@@ -98,3 +98,47 @@ fn ordered_hybrid_keeps_vector_order_then_fills_unique_fts() {
 
     assert_eq!(ids(&hits), vec![1, 2, 3, 4]);
 }
+
+/// `fill_remaining: false` makes the second source a fallback, not a top-up.
+/// The vector half answered, so the text half adds nothing — including hits it
+/// alone would have found.
+#[test]
+fn a_vector_answer_is_not_topped_up_when_filling_is_off() {
+    let hits = ordered(vec![hit(1), hit(2)], vec![hit(3), hit(4)], &fallback(), 4);
+
+    assert_eq!(ids(&hits), vec![1, 2]);
+}
+
+/// And the half that broke: an empty or unavailable index reaches this as an
+/// empty list, and stopping there would answer nothing where text could answer.
+#[test]
+fn an_empty_first_source_falls_through_to_the_second() {
+    let hits = ordered(Vec::new(), vec![hit(3), hit(4)], &fallback(), 4);
+
+    assert_eq!(ids(&hits), vec![3, 4]);
+    assert!(
+        ordered(Vec::new(), Vec::new(), &fallback(), 4).is_empty(),
+        "two empty sources are still an empty answer"
+    );
+}
+
+/// The cap is the caller's, and a fallback answer is bound by it too.
+#[test]
+fn a_fallback_answer_is_bounded_by_the_limit() {
+    let hits = ordered(Vec::new(), vec![hit(3), hit(4), hit(5)], &fallback(), 2);
+
+    assert_eq!(ids(&hits), vec![3, 4]);
+}
+
+fn fallback() -> Policy {
+    Policy {
+        default_budget_records: Some(30),
+        query_instruction: crate::retrieval::DEFAULT_QUERY_INSTRUCTION.into(),
+        vector_enabled: true,
+        vector_score_threshold: Some(0.48),
+        hybrid_order: [Source::Vector, Source::Fts],
+        hybrid_fill_remaining: false,
+        hybrid_deduplicate: true,
+        skip_query_patterns: Default::default(),
+    }
+}

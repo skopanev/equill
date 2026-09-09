@@ -102,6 +102,13 @@ pub fn fuse(vector: Vec<SearchHit>, text: Vec<SearchHit>) -> Vec<SearchHit> {
 }
 
 /// Apply an explicit source order without admitting a discarded semantic tail.
+///
+/// `fill_remaining` decides what the second source is for. With it, the sources
+/// are concatenated. Without it, the second source is a fallback rather than a
+/// top-up: it answers only when the first returned nothing at all. Stopping
+/// unconditionally after the first source — which is what "no top-up" was read
+/// as — turned an unavailable or empty index into an empty answer, when the
+/// text half could have answered it.
 pub fn ordered(
     vector: Vec<SearchHit>,
     text: Vec<SearchHit>,
@@ -113,7 +120,9 @@ pub fn ordered(
     let mut output = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for (position, source) in policy.hybrid_order.iter().enumerate() {
-        if position > 0 && !policy.hybrid_fill_remaining {
+        // First NON-EMPTY source, not first source: an empty answer from the
+        // preferred one is not an answer.
+        if position > 0 && !policy.hybrid_fill_remaining && !output.is_empty() {
             break;
         }
         let hits = match source {
