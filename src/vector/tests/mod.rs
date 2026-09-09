@@ -8,5 +8,6 @@ mod fusion;
 mod hydration;
 mod lifecycle;
 mod search;
+mod search_filtered;
 pub(crate) mod support;
 pub(crate) mod sync;

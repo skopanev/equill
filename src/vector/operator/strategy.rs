@@ -121,14 +121,23 @@ pub fn search_with(
     overrides: crate::retrieval::Overrides,
 ) -> Result<StrategySearchReport, Error> {
     let policy = crate::retrieval::resolve(store_root, overrides)?;
-    search_with_policy(store_root, request, strategy, &policy)
+    search_with_policy(store_root, request, strategy, &policy, &|_| true)
 }
 
+/// `eligible` decides what may be returned, and it is asked BEFORE the two
+/// halves are merged.
+///
+/// The surfaces apply their `--where` to the finished report, which is too
+/// late when the merge is a fallback rather than a top-up: a vector half that
+/// looks non-empty here, and is then emptied by the filter, would have
+/// suppressed a text half that could have answered. Passed as a predicate so
+/// this layer keeps knowing nothing about how a filter is written.
 pub(crate) fn search_with_policy(
     store_root: &Path,
     request: &SearchRequest,
     strategy: SearchStrategy,
     policy: &crate::retrieval::Policy,
+    eligible: &dyn Fn(&crate::record::StoredRecord) -> bool,
 ) -> Result<StrategySearchReport, Error> {
     let state = super::super::state(store_root)?;
     if strategy == SearchStrategy::Fts {
@@ -154,7 +163,11 @@ pub(crate) fn search_with_policy(
             // separate names, and until now they behaved identically whenever
             // semantics answered at all.
             let answered_by = if strategy == SearchStrategy::Hybrid {
-                let text = projection::search(store_root, request)?.hits;
+                let mut text = projection::search(store_root, request)?.hits;
+                // Both halves are narrowed before either can claim to have
+                // answered.
+                hits.retain(|hit| eligible(&hit.record));
+                text.retain(|hit| eligible(&hit.record));
                 hits = crate::vector::ordered(hits, text, policy, request.limit as usize);
                 "hybrid"
             } else {

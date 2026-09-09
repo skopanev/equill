@@ -122,7 +122,9 @@ pub fn search_with_options(
         command::cli::StrategyArg::Vector => vector::SearchStrategy::Vector,
         command::cli::StrategyArg::Hybrid => vector::SearchStrategy::Hybrid,
     };
-    let mut report = vector::search_with_policy(&store, &request, strategy, &policy)?;
+    let mut report = vector::search_with_policy(&store, &request, strategy, &policy, &|record| {
+        filter::matches(record, &filter)
+    })?;
     report
         .hits
         .retain(|hit| filter::matches(&hit.record, &filter));

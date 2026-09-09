@@ -153,7 +153,7 @@ fn hit(record: StoredRecord, input_sha256: &str) -> VectorSearchHit {
     }
 }
 
-fn store(name: &str) -> PathBuf {
+pub(super) fn store(name: &str) -> PathBuf {
     let root = super::support::root(name);
     init::create(&root, "owner", "agent.memory").expect("initialize");
     schema::register(
@@ -177,7 +177,7 @@ fn store(name: &str) -> PathBuf {
     root
 }
 
-fn add(root: &Path, rule: &str) -> Uuid {
+pub(super) fn add(root: &Path, rule: &str) -> Uuid {
     append_indexed(
         root,
         RecordDraft {

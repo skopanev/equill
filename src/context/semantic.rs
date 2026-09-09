@@ -82,6 +82,9 @@ fn merged(
             },
             SearchStrategy::Hybrid,
             policy,
+            // Context narrows later, in `retrieve`, where the coordinates and
+            // the grants are also applied.
+            &|_| true,
         )?;
         // The weakest answer wins the label. One selector served by text alone
         // makes the bundle partly text-answered, and saying `hybrid` because
@@ -128,6 +131,7 @@ fn limited(
             },
             SearchStrategy::Vector,
             policy,
+            &|_| true,
         ) {
             Ok(report) => report,
             Err(error) => return fallback(store, error.to_string()),

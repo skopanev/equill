@@ -166,11 +166,8 @@ pub fn retrieve(
         }
     }
     if !policy.hybrid_fill_remaining {
-        fallback::text_answers_only_when_vectors_did_not(
-            &mut candidates,
-            &search.vector,
-            &mut excluded,
-        );
+        let found = fallback::Found::new(&search.vector, &search.fts, policy);
+        fallback::keep_the_first_source_that_answered(&mut candidates, &found, &mut excluded);
     }
     candidates.sort_by(|left, right| {
         left.tier

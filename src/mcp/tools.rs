@@ -119,7 +119,9 @@ fn search(store: &Path, log_queries: bool, arguments: &Value) -> Result<Value, E
     } else {
         vector::SearchStrategy::Hybrid
     };
-    let mut report = vector::search_with_policy(store, &request, strategy, &policy)?;
+    let mut report = vector::search_with_policy(store, &request, strategy, &policy, &|record| {
+        filter::matches(record, &filter)
+    })?;
     report
         .hits
         .retain(|hit| filter::matches(&hit.record, &filter));
