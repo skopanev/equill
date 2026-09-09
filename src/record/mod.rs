@@ -6,6 +6,9 @@ mod revoke;
 mod similar;
 mod validation;
 mod verify;
+pub mod word_limit;
+#[cfg(test)]
+mod word_limit_tests;
 mod writer;
 
 #[cfg(test)]

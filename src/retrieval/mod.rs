@@ -22,6 +22,13 @@ struct StoreSettings {
     retrieval: Option<RetrievalSettings>,
     #[serde(default)]
     telemetry: TelemetrySettings,
+    /// Write policy, not retrieval policy. It lives in the same file because
+    /// that is where a store's settings live; `deny_unknown_fields` means a
+    /// section unknown here is a hard read failure, so the field is declared
+    /// with a default and every settings file written before today keeps
+    /// loading unchanged.
+    #[serde(default)]
+    records: crate::record::word_limit::Limits,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -130,6 +137,15 @@ pub fn resolve(store: &Path, overrides: Overrides) -> Result<Policy, Error> {
     }
     validate_policy(&policy)?;
     Ok(policy)
+}
+
+/// The write-time word limits this store declares, if any.
+pub fn word_limits(store: &Path) -> Result<crate::record::word_limit::Limits, Error> {
+    let limits = read(store)?
+        .map(|settings| settings.records)
+        .unwrap_or_default();
+    crate::record::word_limit::validate(&limits)?;
+    Ok(limits)
 }
 
 pub fn query_log(store: &Path) -> Result<bool, Error> {

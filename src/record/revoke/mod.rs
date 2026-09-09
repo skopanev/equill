@@ -1,4 +1,4 @@
-use super::{EvidenceRef, RecordDraft, StoredRecord, append, read_all};
+use super::{EvidenceRef, RecordDraft, StoredRecord, read_all};
 use crate::kernel::error::Error;
 use serde::Serialize;
 use std::path::Path;
@@ -43,7 +43,11 @@ pub fn revoke(
             later.id
         )));
     }
-    let report = append(store_root, tombstone(target, comment), actor)?;
+    // The trusted path: same writer, same grants, same schema and lifecycle
+    // rules, and the exemption only because the payload comes from the stored
+    // record rather than from a caller.
+    let report =
+        super::writer::append_revocation(store_root, tombstone(target, comment), actor, target)?;
     Ok(RevokeReport {
         ok: true,
         revoked: id,
@@ -82,6 +86,8 @@ fn tombstone(target: &StoredRecord, comment: Option<&str>) -> RecordDraft {
     }
 }
 
+#[cfg(test)]
+mod exemption_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
