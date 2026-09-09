@@ -1,6 +1,7 @@
 mod basic;
 mod concurrency;
 mod embed_reports;
+mod embed_retry;
 mod embed_types;
 mod endpoint_consistency;
 mod freshness;

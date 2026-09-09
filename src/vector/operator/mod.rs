@@ -11,6 +11,8 @@ mod strategy;
 mod sync;
 
 pub use configure::{VectorConfigReport, configure, disable};
+#[cfg(test)]
+pub(crate) use configure::{announce_outstanding_work, store_descriptor, undo};
 pub use document::canonical;
 #[cfg(test)]
 pub(crate) use index::SyncIndex;

@@ -146,7 +146,7 @@ fn a_filter_naming_an_unregistered_type_is_refused() {
     fs::remove_dir_all(root).expect("remove store");
 }
 
-fn stored(root: &Path) -> serde_json::Value {
+pub(super) fn stored(root: &Path) -> serde_json::Value {
     serde_json::from_slice(&fs::read(root.join("registry/vector/qdrant.json")).expect("descriptor"))
         .expect("descriptor json")
 }

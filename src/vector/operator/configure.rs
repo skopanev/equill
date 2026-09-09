@@ -28,11 +28,50 @@ pub fn configure(store_root: &Path, file: &Path, actor: &str) -> Result<VectorCo
     embed_types_are_registered(store_root, &candidate)?;
     let before = previous(store_root)?;
     let filter_changed = embed_types_of(before.as_ref()) != embed_types_of(Some(&candidate));
-    let report = write(store_root, &candidate, before)?;
-    if filter_changed {
-        announce_outstanding_work(store_root)?;
+    let report = store_descriptor(store_root, &candidate, before.clone())?;
+    // The descriptor first, then the target — and if the target will not go up,
+    // the descriptor comes back down.
+    //
+    // Publishing first is the tempting order and it is wrong: an automatic sync
+    // reads the target before the corpus and holds no lock while it does, by
+    // design. It could read the new target against the old descriptor, index
+    // the corpus the filter had not yet narrowed, and record that target as
+    // covered — after which the configure stores the new filter and the index
+    // reads as current over a corpus that has changed. This way round, a sync
+    // that slips between the two either covers an older target and stays owed,
+    // or covers the new corpus and is asked once more for nothing.
+    //
+    // Leaving the descriptor stored with no target is the state a retry cannot
+    // escape: the same file compared against itself shows no change, skips the
+    // target and returns success.
+    if filter_changed && let Err(publication) = announce_outstanding_work(store_root) {
+        undo(store_root, before)?;
+        return Err(publication);
     }
     Ok(report)
+}
+
+/// Puts the previous descriptor back after a target that would not publish.
+///
+/// Fallible on purpose. The swallowed version of this reports the publication
+/// error and leaves a store whose filter is new and whose target is old — the
+/// one state no retry corrects — while the operator reads an error about I/O
+/// and fixes the disk. A failure to undo has to say what the store is now.
+pub(crate) fn undo(store_root: &Path, restore: Option<Value>) -> Result<(), Error> {
+    let path = store_root.join(CONFIG);
+    let outcome = match restore {
+        Some(value) => serde_json::to_vec_pretty(&value)
+            .map_err(Error::from)
+            .and_then(|bytes| fs::write(&path, bytes).map_err(Error::from)),
+        None => fs::remove_file(&path).map_err(Error::from),
+    };
+    outcome.map_err(|_| {
+        vector_error(
+            "the filter was stored, its target could not be published, and the previous \
+             descriptor could not be restored: the index will read as current over a corpus \
+             that has changed until a rebuild or an explicit sync runs",
+        )
+    })
 }
 
 /// Changing the filter changes the corpus, and nothing else says so.
@@ -47,7 +86,10 @@ pub fn configure(store_root: &Path, file: &Path, actor: &str) -> Result<VectorCo
 /// The same contract an ordinary append uses, and the same lock, so a write
 /// landing at the same moment cannot read and republish the target underneath
 /// this one.
-fn announce_outstanding_work(store_root: &Path) -> Result<(), Error> {
+///
+/// A failure here stops the configure before anything is stored, so the store
+/// keeps the descriptor it had and the operator retries the same file.
+pub(crate) fn announce_outstanding_work(store_root: &Path) -> Result<(), Error> {
     let _writers = StoreLock::exclusive(store_root)?;
     super::super::desired::advance(store_root, 1)?;
     Ok(())
@@ -104,10 +146,13 @@ pub fn disable(store_root: &Path, actor: &str) -> Result<VectorConfigReport, Err
         .ok_or_else(|| vector_error("stored config is not an object"))?
         .insert("enabled".into(), Value::Bool(false));
     let restore = previous(store_root)?;
-    write(store_root, &current, restore)
+    store_descriptor(store_root, &current, restore)
 }
 
-fn write(
+/// The first half of a configure, named so a test can put a concurrent sync
+/// between the two and see what the ordering leaves behind. `configure` calls
+/// this and then `announce_outstanding_work`, in that order and nowhere else.
+pub(crate) fn store_descriptor(
     store_root: &Path,
     candidate: &Value,
     restore: Option<Value>,
