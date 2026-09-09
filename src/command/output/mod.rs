@@ -183,13 +183,16 @@ pub fn status(report: &StatusReport) -> String {
             .expect("writing to String cannot fail");
         // `ready` on the left already says the component works. What a reader
         // still needs is whether it has caught up, and only when it has not.
+        // Not "processing": nothing here watches a running pass, and the number
+        // is the backlog the last checkpoint left behind.
         if let Some(pending) = component
             .vector
             .as_ref()
             .and_then(|health| health.vector_pending_records)
             .filter(|pending| *pending > 0)
         {
-            write!(&mut output, " — {pending} processing").expect("writing to String cannot fail");
+            write!(&mut output, " — {pending} outside the checkpoint")
+                .expect("writing to String cannot fail");
         }
     }
     output

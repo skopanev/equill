@@ -2,6 +2,7 @@ use super::{queries, sqlite};
 use crate::kernel::digest::sha256_hex;
 use crate::kernel::error::Error;
 use crate::record::StoredRecord;
+use crate::record::withdrawn;
 use rusqlite::{Connection, params};
 use std::fs;
 use std::path::Path;
@@ -118,15 +119,6 @@ fn mark_lifecycle(
         .execute(queries::MARK_IF_ALREADY_REPLACED, [record.id.to_string()])
         .map_err(|error| sqlite::projection_error("mark replaced record", error))?;
     Ok(())
-}
-
-/// The tags a tombstone leaves. The legacy spelling is still honoured: a store
-/// written before the namespaced tag must not come back to life on a rebuild.
-fn withdrawn(record: &StoredRecord) -> bool {
-    record
-        .tags
-        .iter()
-        .any(|tag| tag == crate::record::REVOKED_TAG || tag == "status:revoked")
 }
 
 fn verify_existing(

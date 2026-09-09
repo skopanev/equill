@@ -11,6 +11,7 @@
 //! before it stops.
 use crate::kernel::error::Error;
 use crate::record::StoredRecord;
+use crate::record::withdrawn;
 use serde::Serialize;
 use std::collections::HashSet;
 use uuid::Uuid;
@@ -197,14 +198,6 @@ pub struct Plan {
     pub removed: Vec<Removed>,
     pub severed: Vec<Severed>,
     pub retained: usize,
-}
-
-/// A tombstone carries the revoked tag; both it and what it withdrew go.
-fn withdrawn(record: &StoredRecord) -> bool {
-    record
-        .tags
-        .iter()
-        .any(|tag| tag == crate::record::REVOKED_TAG)
 }
 
 pub fn build(records: &[StoredRecord]) -> Result<Plan, Error> {

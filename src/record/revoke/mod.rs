@@ -5,6 +5,20 @@ use std::path::Path;
 use uuid::Uuid;
 
 pub const REVOKED_TAG: &str = "equill:revoked";
+/// The spelling a store written before the namespace existed still carries.
+pub const LEGACY_REVOKED_TAG: &str = "status:revoked";
+
+/// Whether a record has been withdrawn.
+///
+/// Both spellings answer to this. A surface that honours only the namespaced
+/// one brings old tombstones back to life — the search already asks for both,
+/// and a second definition living beside it would describe a different store.
+pub fn withdrawn(record: &StoredRecord) -> bool {
+    record
+        .tags
+        .iter()
+        .any(|tag| tag == REVOKED_TAG || tag == LEGACY_REVOKED_TAG)
+}
 const COMMENT_KIND: &str = "equill.revocation.comment";
 
 #[derive(Debug, Serialize)]

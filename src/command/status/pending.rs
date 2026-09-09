@@ -12,6 +12,7 @@
 //! the first `indexed` of them and comparing against the stored checkpoint
 //! answers that without asking the provider anything.
 use crate::kernel::digest::sha256_hex;
+use crate::vector::{Checkpoint, Position};
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
@@ -26,18 +27,14 @@ pub enum Pending {
     Unknown { reason: &'static str },
 }
 
-/// Decides between the three, given the checkpoint and the corpus it describes.
-pub fn assess(
-    checkpoint: Option<(usize, &str)>,
-    corpus: &[(crate::record::StoredRecord, String)],
-    corpus_digest: &str,
-) -> Pending {
-    let Some((indexed, digest)) = checkpoint else {
-        return Pending::Unknown {
-            reason: "no usable checkpoint",
-        };
+/// Decides between the three from the reading the whole report shares.
+pub fn assess(position: &Position) -> Pending {
+    let (indexed, digest) = match &position.checkpoint {
+        Checkpoint::Unusable { reason } => return Pending::Unknown { reason },
+        Checkpoint::Usable { indexed, digest } => (*indexed, digest),
     };
-    if digest == corpus_digest {
+    let corpus = position.corpus.as_slice();
+    if *digest == position.corpus_digest {
         return Pending::None;
     }
     if indexed > corpus.len() {
@@ -45,7 +42,7 @@ pub fn assess(
             reason: "the checkpoint covers more records than the ledger holds",
         };
     }
-    if prefix_digest(&corpus[..indexed]) != digest {
+    if prefix_digest(&corpus[..indexed]) != *digest {
         // Something inside the covered range changed, so the records beyond it
         // are not the whole of the outstanding work.
         return Pending::Unknown {
@@ -54,6 +51,20 @@ pub fn assess(
     }
     Pending::Records {
         count: corpus.len() - indexed,
+    }
+}
+
+impl Pending {
+    /// The same answer as a plain number, for the component line that only has
+    /// room for one. `None` where the size is unknown — never a zero standing in
+    /// for "cannot say", which is what the component used to print beside a
+    /// store block saying the opposite.
+    pub fn records(&self) -> Option<usize> {
+        match self {
+            Pending::None => Some(0),
+            Pending::Records { count } => Some(*count),
+            Pending::Unknown { .. } => Option::None,
+        }
     }
 }
 

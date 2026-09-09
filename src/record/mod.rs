@@ -24,7 +24,7 @@ mod tests;
 
 pub use batch::{BatchItem, BatchReport, append_batch, is_batch};
 pub use model::{AppendReport, EvidenceRef, RecordDraft, StoredRecord};
-pub use revoke::{REVOKED_TAG, RevokeReport, revoke};
+pub use revoke::{LEGACY_REVOKED_TAG, REVOKED_TAG, RevokeReport, revoke, withdrawn};
 pub use similar::{SimilarRecord, find as find_similar};
 pub use verify::{read_all, verify_all};
 #[cfg(test)]

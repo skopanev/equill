@@ -12,7 +12,7 @@ mod reads;
 use super::support;
 use crate::command::init;
 use crate::projection::SearchRequest;
-use crate::record::{REVOKED_TAG, RecordDraft, StoredRecord, append, read_all, revoke};
+use crate::record::{RecordDraft, append, read_all, revoke, withdrawn};
 use crate::schema::{self, TypeDefinition};
 use serde_json::json;
 use std::collections::HashSet;
@@ -35,13 +35,6 @@ fn history_by_ledger(root: &Path) -> HashSet<Uuid> {
         .filter(|record| replaced.contains(&record.id) || withdrawn(record))
         .map(|record| record.id)
         .collect()
-}
-
-fn withdrawn(record: &StoredRecord) -> bool {
-    record
-        .tags
-        .iter()
-        .any(|tag| tag == REVOKED_TAG || tag == "status:revoked")
 }
 
 /// Current, superseded, revoked through the writer, revoked under the legacy

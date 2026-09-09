@@ -75,3 +75,29 @@ fn a_record_that_is_both_is_counted_once_and_the_overlap_is_named() {
         "the numbers a reader is given do not reconcile"
     );
 }
+
+/// A store written before the namespace existed spells the tag `status:revoked`,
+/// and the search has always honoured it. Counting only the namespaced spelling
+/// left those records among the living, so the status described a store with
+/// more standing claims than any query would return.
+#[test]
+fn a_tombstone_under_the_old_spelling_is_still_dead() {
+    let (claim, tombstone, later) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+    let (independent, legacy) = (Uuid::now_v7(), Uuid::now_v7());
+    let mut old = plain(legacy, None, false);
+    old.tags = vec![crate::record::LEGACY_REVOKED_TAG.to_string()];
+    let counts = of(&[
+        plain(claim, None, false),
+        plain(tombstone, Some(claim), true),
+        plain(later, Some(tombstone), false),
+        plain(independent, None, false),
+        old,
+    ]);
+
+    assert_eq!(counts.ledger_revoked, 2, "the tombstone and the old one");
+    assert_eq!(
+        counts.ledger_dead, 3,
+        "the claim, the tombstone and the old one"
+    );
+    assert_eq!(counts.ledger_live, 2, "the chain's end and the independent");
+}

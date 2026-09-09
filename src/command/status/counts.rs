@@ -1,8 +1,8 @@
 //! What the ledger holds, counted the way the rest of the store counts it.
 //!
 //! The numbers come from the same rules the lifecycle and the corpus already
-//! use — a record is superseded when something names it, withdrawn when it
-//! carries the revocation tag. A second definition of "dead" living here would
+//! use — a record is superseded when something names it, withdrawn when
+//! `record::withdrawn` says so. A second definition of "dead" living here would
 //! drift from the one that decides what a search returns, and the status would
 //! start describing a store nobody else sees.
 use crate::kernel::error::Error;
@@ -21,7 +21,10 @@ pub struct LedgerCounts {
     pub ledger_superseded: usize,
     pub ledger_revoked: usize,
     /// Records that are both, which is why the two above can sum to more than
-    /// `ledger_dead`: a tombstone supersedes the claim it withdraws.
+    /// `ledger_dead`. Not what a tombstone does to the claim it withdraws — the
+    /// claim carries no tag and the tombstone replaces nothing else. It is a
+    /// tombstone that was itself later replaced: A, then a tombstone naming A,
+    /// then a record naming the tombstone.
     pub ledger_dead_overlap: usize,
 }
 
@@ -37,10 +40,7 @@ pub fn of(records: &[StoredRecord]) -> LedgerCounts {
     let (mut superseded, mut revoked, mut overlap) = (0, 0, 0);
     for record in records {
         let is_superseded = replaced.contains(&record.id);
-        let is_revoked = record
-            .tags
-            .iter()
-            .any(|tag| tag == crate::record::REVOKED_TAG);
+        let is_revoked = crate::record::withdrawn(record);
         superseded += usize::from(is_superseded);
         revoked += usize::from(is_revoked);
         overlap += usize::from(is_superseded && is_revoked);

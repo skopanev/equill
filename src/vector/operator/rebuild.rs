@@ -10,6 +10,7 @@ use crate::kernel::governance::RootGuard;
 use crate::kernel::lock::StoreLock;
 
 use crate::record::StoredRecord;
+use crate::record::withdrawn;
 use serde::Serialize;
 use std::collections::HashSet;
 use std::fs;
@@ -200,13 +201,6 @@ pub(crate) fn corpus_snapshot(store_root: &Path) -> Result<CorpusSnapshot, Error
         digest: sha256_hex(accumulator.as_bytes()),
         history: history.into_iter().collect(),
     })
-}
-
-fn withdrawn(record: &StoredRecord) -> bool {
-    record
-        .tags
-        .iter()
-        .any(|tag| tag == crate::record::REVOKED_TAG || tag == "status:revoked")
 }
 
 fn physical_name(config: &VectorConfig) -> String {

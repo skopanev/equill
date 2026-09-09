@@ -1,6 +1,8 @@
 pub mod counts;
 #[cfg(test)]
 mod counts_tests;
+#[cfg(test)]
+mod marker_tests;
 pub mod pending;
 #[cfg(test)]
 mod pending_tests;
@@ -11,7 +13,7 @@ mod vector_counts;
 use crate::kernel::error::Error;
 use crate::kernel::store;
 use crate::projection::{self, ProjectionState};
-use crate::vector::{self, VectorFreshness, VectorState};
+use crate::vector::{self, Position, VectorFreshness, VectorState};
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
@@ -78,8 +80,17 @@ pub struct VectorHealth {
     pub vector_pending_records: Option<usize>,
 }
 
+/// The vector position is read once and handed to both halves. Reading it twice
+/// is how the store block and the component block came to disagree about the
+/// same marker inside one document.
 pub fn report(store_root: Option<&Path>) -> Result<StatusReport, Error> {
-    let store_status = store_root.map(inspect_store).transpose()?;
+    let position = match store_root.filter(|root| root.join("store.json").is_file()) {
+        Some(root) => Some(vector::position(root)?),
+        None => None,
+    };
+    let store_status = store_root
+        .map(|root| inspect_store(root, position.as_ref()))
+        .transpose()?;
     let initialized = store_status
         .as_ref()
         .is_some_and(|status| status.initialized);
@@ -91,11 +102,11 @@ pub fn report(store_root: Option<&Path>) -> Result<StatusReport, Error> {
         ok,
         version: env!("CARGO_PKG_VERSION"),
         store: store_status,
-        components: components(store_root, initialized)?,
+        components: components(store_root, initialized, position.as_ref())?,
     })
 }
 
-fn inspect_store(root: &Path) -> Result<StoreStatus, Error> {
+fn inspect_store(root: &Path, position: Option<&Position>) -> Result<StoreStatus, Error> {
     if !root.join("store.json").is_file() {
         return Ok(StoreStatus {
             initialized: false,
@@ -114,7 +125,7 @@ fn inspect_store(root: &Path) -> Result<StoreStatus, Error> {
         namespaces: config.namespaces,
         schemas,
         counts: Some(counts::of(&records)),
-        vector: vector_counts::vector_counts(root)?,
+        vector: position.map(vector_counts::vector_counts),
     })
 }
 
@@ -136,7 +147,11 @@ fn file_stems(directory: &Path) -> Result<Vec<String>, Error> {
     Ok(names)
 }
 
-fn components(store_root: Option<&Path>, store_initialized: bool) -> Result<Vec<Component>, Error> {
+fn components(
+    store_root: Option<&Path>,
+    store_initialized: bool,
+    position: Option<&Position>,
+) -> Result<Vec<Component>, Error> {
     let sqlite = match (store_root, store_initialized) {
         (None, _) => "built-in",
         (Some(_), false) => "missing",
@@ -157,19 +172,17 @@ fn components(store_root: Option<&Path>, store_initialized: bool) -> Result<Vec<
             VectorState::Missing => "missing",
         },
     };
-    // Freshness is only meaningful for a store we can actually look at.
-    let vector_health = match store_root.filter(|_| store_initialized) {
-        None => None,
-        Some(root) => {
-            let reading = vector::freshness_of(root)?;
-            Some(VectorHealth {
-                vector_state: vector,
-                vector_freshness: reading.freshness,
-                vector_indexed_records: reading.indexed_records,
-                vector_pending_records: reading.pending_records,
-            })
+    // Freshness is only meaningful for a store we can actually look at, and it
+    // is the same reading the store block was built from.
+    let vector_health = position.filter(|_| store_initialized).map(|position| {
+        let pending = pending::assess(position);
+        VectorHealth {
+            vector_state: vector,
+            vector_freshness: position.freshness(),
+            vector_indexed_records: position.checkpoint.indexed(),
+            vector_pending_records: pending.records(),
         }
-    };
+    });
     Ok(vec![
         Component {
             id: "ledger.jsonl",

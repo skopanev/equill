@@ -32,8 +32,14 @@ mod freshness_tests {
         let many = component_line(Some(11));
 
         assert_eq!(current, "  ready      vector.qdrant");
-        assert_eq!(lagging, "  ready      vector.qdrant — 1 processing");
-        assert_eq!(many, "  ready      vector.qdrant — 11 processing");
+        assert_eq!(
+            lagging,
+            "  ready      vector.qdrant — 1 outside the checkpoint"
+        );
+        assert_eq!(
+            many,
+            "  ready      vector.qdrant — 11 outside the checkpoint"
+        );
     }
 
     fn component_line(pending: Option<usize>) -> String {

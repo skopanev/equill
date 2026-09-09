@@ -21,12 +21,7 @@ pub(super) fn gate(
     if superseded.contains(&record.id) {
         return Ok(Some(ExclusionReason::Superseded));
     }
-    if !request.include_superseded
-        && record
-            .tags
-            .iter()
-            .any(|tag| tag == "equill:revoked" || tag == "status:revoked")
-    {
+    if !request.include_superseded && crate::record::withdrawn(record) {
         return Ok(Some(ExclusionReason::Revoked));
     }
     let valid_at: Timestamp = record
