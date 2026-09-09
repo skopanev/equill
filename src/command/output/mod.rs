@@ -12,6 +12,7 @@ use serde::Serialize;
 use std::fmt::Write;
 use std::path::Path;
 mod authority;
+mod counts;
 
 pub use authority::{authority, grant, owner, reader};
 
@@ -173,6 +174,7 @@ pub fn status(report: &StatusReport) -> String {
                 store.schemas.len()
             )
             .expect("writing to String cannot fail");
+            counts::store_counts(&mut output, store);
         }
     }
     output.push_str("\nComponents:");

@@ -66,6 +66,7 @@ pub use operator::{
     disable, rebuild, rebuild_with_progress, retrieve, search, search_with, sync,
     sync_with_progress, verify,
 };
+pub use report::{status_checkpoint, status_corpus};
 // Exposed for the lifecycle fixtures, which drive the two read-path helpers
 // directly: they are the whole subject of those tests.
 #[cfg(test)]

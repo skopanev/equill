@@ -73,3 +73,50 @@ pub fn freshness(store: &Path, config: Option<&VectorConfig>) -> Result<Freshnes
         pending_records: Some(records.len().saturating_sub(indexed)),
     })
 }
+
+/// The corpus a status report counts, and its digest.
+///
+/// Read-only and offline: the records come from the ledger and the rules that
+/// decide what is embeddable, not from the collection. `None` when the store
+/// has no vector configured — which is a different answer from an empty
+/// corpus, and the caller has to be able to tell them apart.
+pub type StatusCorpus = (Vec<(crate::record::StoredRecord, String)>, String);
+
+pub fn status_corpus(store: &Path) -> Result<Option<StatusCorpus>, Error> {
+    if super::config::load(store)?
+        .filter(|config| config.enabled)
+        .is_none()
+    {
+        return Ok(None);
+    }
+    super::corpus(store).map(Some)
+}
+
+/// What the last successful pass recorded: how many records it covered and the
+/// digest of that snapshot.
+///
+/// `None` when there is no marker, when it is incomplete, or when it describes
+/// another store, alias or model. A checkpoint that describes something else is
+/// not a smaller number — it is no answer at all, and the caller must not read
+/// it as zero.
+pub fn status_checkpoint(store: &Path) -> Result<Option<(usize, String)>, Error> {
+    let Some(config) = super::config::load(store)?.filter(|config| config.enabled) else {
+        return Ok(None);
+    };
+    let path = store.join(STATE);
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let marker: StateFile = serde_json::from_slice(&fs::read(path)?)?;
+    if !describes(&marker, &config) {
+        return Ok(None);
+    }
+    Ok(
+        match (marker.indexed_records, marker.indexed_sha256.as_deref()) {
+            (Some(indexed), Some(digest)) if crate::vector::model::valid_sha256(digest) => {
+                Some((indexed, digest.to_owned()))
+            }
+            _ => None,
+        },
+    )
+}

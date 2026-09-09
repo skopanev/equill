@@ -1,3 +1,13 @@
+pub mod counts;
+#[cfg(test)]
+mod counts_tests;
+pub mod pending;
+#[cfg(test)]
+mod pending_tests;
+#[cfg(test)]
+mod report_tests;
+mod vector_counts;
+
 use crate::kernel::error::Error;
 use crate::kernel::store;
 use crate::projection::{self, ProjectionState};
@@ -19,6 +29,31 @@ pub struct StoreStatus {
     pub initialized: bool,
     pub namespaces: Vec<String>,
     pub schemas: Vec<String>,
+    /// What the ledger holds. Absent for a store that has none yet.
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub counts: Option<counts::LedgerCounts>,
+    /// What the vector projection has and still owes. Absent when there is no
+    /// projection configured — which is not the same as one that owes nothing.
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub vector: Option<VectorCounts>,
+}
+
+/// The vector side of the same question.
+#[derive(Debug, Serialize)]
+pub struct VectorCounts {
+    /// Live records this store would embed. A property of the ledger, so it is
+    /// counted even when no provider is configured.
+    pub vector_eligible_records: usize,
+    /// How many records the last successful pass covered.
+    ///
+    /// A checkpoint, not a count of points in the collection: status does not
+    /// ask the provider anything, and the two can differ.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vector_checkpoint_records: Option<usize>,
+    pub vector_pending: pending::Pending,
+    /// Whether a pass is running. Nothing durable records that, so this says
+    /// so rather than inferring a number from the backlog.
+    pub vector_processing: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -66,15 +101,20 @@ fn inspect_store(root: &Path) -> Result<StoreStatus, Error> {
             initialized: false,
             namespaces: Vec::new(),
             schemas: Vec::new(),
+            counts: None,
+            vector: None,
         });
     }
     let config = store::load(root)?;
     let mut schemas = file_stems(&root.join("registry/types"))?;
     schemas.sort();
+    let records = crate::record::read_all(root)?;
     Ok(StoreStatus {
         initialized: true,
         namespaces: config.namespaces,
         schemas,
+        counts: Some(counts::of(&records)),
+        vector: vector_counts::vector_counts(root)?,
     })
 }
 
@@ -171,66 +211,4 @@ fn components(store_root: Option<&Path>, store_initialized: bool) -> Result<Vec<
             vector: None,
         },
     ])
-}
-
-#[cfg(test)]
-mod tests {
-    use super::report;
-    use crate::command::init;
-    use std::fs;
-
-    #[test]
-    fn reports_initialized_store_without_exposing_owner() {
-        let path = std::env::temp_dir().join(format!("equill-status-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&path);
-        init::create(&path, "private-owner", "agent.memory").expect("initialize");
-        let value =
-            serde_json::to_value(report(Some(&path)).expect("status")).expect("serialize status");
-
-        assert_eq!(value["store"]["initialized"], true);
-        assert_eq!(value["store"]["namespaces"][0], "agent.memory");
-        assert_eq!(value["components"][2]["state"], "ready");
-        assert!(!value.to_string().contains("private-owner"));
-        fs::remove_dir_all(path).expect("remove test store");
-    }
-}
-
-#[cfg(test)]
-mod freshness_tests {
-    use super::report;
-    use crate::command::output;
-
-    /// `ready` on the left is health. A reader only needs the number when the
-    /// index has not caught up, so a current one says nothing extra.
-    #[test]
-    fn the_human_line_mentions_a_tail_only_when_there_is_one() {
-        let current = component_line(None);
-        let lagging = component_line(Some(1));
-        let many = component_line(Some(11));
-
-        assert_eq!(current, "  ready      vector.qdrant");
-        assert_eq!(lagging, "  ready      vector.qdrant — 1 processing");
-        assert_eq!(many, "  ready      vector.qdrant — 11 processing");
-    }
-
-    fn component_line(pending: Option<usize>) -> String {
-        let mut report = report(None).expect("status");
-        report.components.retain(|item| item.id == "vector.qdrant");
-        let component = report.components.first_mut().expect("vector component");
-        component.state = "ready";
-        component.vector = Some(super::VectorHealth {
-            vector_state: "ready",
-            vector_freshness: match pending {
-                Some(_) => crate::vector::VectorFreshness::Lagging,
-                None => crate::vector::VectorFreshness::Current,
-            },
-            vector_indexed_records: Some(1374),
-            vector_pending_records: pending.or(Some(0)),
-        });
-        output::status(&report)
-            .lines()
-            .find(|line| line.contains("vector.qdrant"))
-            .expect("component line")
-            .to_owned()
-    }
 }
