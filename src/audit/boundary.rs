@@ -12,7 +12,7 @@ pub fn destination() -> Result<PathBuf, Error> {
         Some(path) => PathBuf::from(path),
         None => std::env::var_os("HOME")
             .filter(|home| !home.is_empty())
-            .map(|home| PathBuf::from(home).join(".equill/equill-log"))
+            .map(|home| PathBuf::from(home).join(".equill-log"))
             .ok_or_else(writer::failure)?,
     };
     Ok(if path.is_absolute() {
