@@ -6,7 +6,7 @@
 //! looks exactly like a corpus that did not change — and the vectors of a type
 //! the store just stopped embedding go on answering searches that nothing in
 //! the ledger accounts for.
-use super::{FakeIndex, embedder, fixture};
+use super::super::{FakeIndex, embedder, fixture};
 use crate::record::{RecordDraft, append};
 use crate::schema::{self, TypeDefinition};
 use crate::vector::VectorConfig;

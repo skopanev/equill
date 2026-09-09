@@ -46,6 +46,7 @@ pub use config::{
     EmbeddingConfig, LocalEmbeddingConfig, ModelArtifact, OllamaEmbeddingConfig, OllamaProvider,
     VectorConfig, VoyageEmbeddingConfig, VoyageProvider,
 };
+pub(crate) use coverage::corpus;
 pub use drain::{after_commit, after_commit_inline, projection_after_write, resume};
 pub use embedder::{Embedder, embed_batch};
 pub use embedding::{
@@ -56,7 +57,6 @@ pub use model::{
     CollectionReport, DistanceMetric, EmbeddingDescriptor, EmbeddingDocument, INPUT_SCHEMA,
     VectorPoint, VectorSearchHit, VectorSearchRequest, VectorState,
 };
-pub(crate) use operator::corpus;
 pub use operator::finalize;
 pub(crate) use operator::search_with_policy;
 #[cfg(test)]

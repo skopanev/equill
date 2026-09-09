@@ -82,7 +82,7 @@ fn a_write_during_a_drain_denies_the_exit_condition() {
     configure_unreachable(&root);
     add(&root, "already indexed");
     // Pretend the drain got this far: the checkpoint matches the ledger.
-    let (records, digest) = crate::vector::operator::corpus(&root).expect("corpus");
+    let (records, digest) = crate::vector::corpus(&root).expect("corpus");
     let config = crate::vector::config::load(&root)
         .expect("config")
         .expect("configured");
@@ -100,7 +100,7 @@ fn a_write_during_a_drain_denies_the_exit_condition() {
 
     // Now a write lands while the holder still owns the drain lock.
     add(&root, "arrived mid-drain");
-    let (after, _) = crate::vector::operator::corpus(&root).expect("corpus");
+    let (after, _) = crate::vector::corpus(&root).expect("corpus");
     crate::vector::desired::publish(&root, after.len() as u64).expect("publish");
     let unsettled = crate::vector::worker::caught_up(&root).expect("caught up");
 

@@ -148,7 +148,7 @@ impl Position {
 pub fn position(store: &Path) -> Result<Position, Error> {
     let config = super::config::load(store)?;
     let checkpoint = checkpoint(store, config.as_ref())?;
-    let snapshot = super::operator::corpus_snapshot(store)?;
+    let snapshot = super::coverage::corpus_snapshot(store)?;
     Ok(Position {
         corpus: snapshot.records,
         corpus_digest: snapshot.digest,

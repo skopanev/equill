@@ -5,12 +5,17 @@
 //! nothing, which reads to whoever wrote the profile as "no relevant memory"
 //! rather than "never indexed". That is the failure this exists to make
 //! visible: a wrong answer nobody has any reason to doubt.
+use super::model::vector_error;
 use crate::context::Strategy;
+use crate::kernel::digest::sha256_hex;
 use crate::kernel::error::Error;
+use crate::record::{StoredRecord, withdrawn};
 use serde::Deserialize;
 use serde::Serialize;
+use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
+use uuid::Uuid;
 
 /// Which types this store embeds, read without verifying model artifacts.
 ///
@@ -97,4 +102,107 @@ pub fn uncovered(store_root: &Path) -> Result<Vec<Uncovered>, Error> {
         }
     }
     Ok(found)
+}
+
+/// Records the engine writes about itself. Their payload is digests, so there
+/// is nothing to embed and nothing a semantic query could usefully match. They
+/// are excluded from the corpus rather than indexed, which also keeps a
+/// governance change from leaving every store lagging until someone runs a sync.
+fn embeddable(record: &StoredRecord) -> bool {
+    record.type_name != crate::governance::AUDIT_TYPE
+        && record.type_name != crate::governance::AUDIT_TYPE_V2
+}
+
+pub(crate) struct CorpusSnapshot {
+    pub(crate) records: Vec<(StoredRecord, String)>,
+    pub(crate) digest: String,
+    /// What the index must not keep: replaced, withdrawn, and live records of
+    /// a type this store no longer embeds. Narrowing `embed_types` without this
+    /// leaves their vectors answering searches nothing in the ledger accounts
+    /// for.
+    pub(crate) history: Vec<Uuid>,
+    /// Live records the filter left out, so an operator can see it doing
+    /// something rather than infer it from a number that got smaller.
+    pub(crate) skipped_by_type: usize,
+}
+
+pub(crate) fn corpus(store_root: &Path) -> Result<(Vec<(StoredRecord, String)>, String), Error> {
+    let snapshot = corpus_snapshot(store_root)?;
+    Ok((snapshot.records, snapshot.digest))
+}
+
+/// The corpus every path agrees on.
+///
+/// The ledger is the truth being indexed, so the digest covers exactly what a
+/// canonical read returns: every record hash in record-id order.
+///
+/// Rebuild, the incremental sync and the status report all read it here, so the
+/// filter is honoured by all three by construction rather than by three callers
+/// remembering to. The digest covers the filtered corpus, which is what leaves
+/// the index behind when `embed_types` narrows.
+pub(crate) fn corpus_snapshot(store_root: &Path) -> Result<CorpusSnapshot, Error> {
+    let embed_types = embed_types(store_root)?;
+    let all = crate::record::read_all(store_root)?;
+    let replaced = all
+        .iter()
+        .filter_map(|record| record.supersedes)
+        .collect::<HashSet<_>>();
+    let mut history = all
+        .iter()
+        .filter(|record| replaced.contains(&record.id) || withdrawn(record))
+        .map(|record| record.id)
+        .collect::<HashSet<_>>();
+    let live = all
+        .into_iter()
+        .filter(embeddable)
+        .filter(|record| !history.contains(&record.id))
+        .collect::<Vec<_>>();
+    let mut skipped_by_type = 0;
+    let mut validated = Vec::with_capacity(live.len());
+    for record in live {
+        if wanted(&embed_types, &record.type_name) {
+            validated.push(record);
+        } else {
+            skipped_by_type += 1;
+            history.insert(record.id);
+        }
+    }
+    let mut digests = std::collections::HashMap::new();
+    for entry in fs::read_dir(store_root.join("records"))? {
+        let path = entry?.path();
+        for line in fs::read_to_string(&path)?.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let record: StoredRecord = serde_json::from_str(line)?;
+            digests.insert(record.id, sha256_hex(line.as_bytes()));
+        }
+    }
+    let mut records = validated
+        .into_iter()
+        .map(|record| {
+            let digest = digests
+                .get(&record.id)
+                .cloned()
+                .ok_or_else(|| vector_error("record hash is missing from the ledger"))?;
+            Ok((record, digest))
+        })
+        .collect::<Result<Vec<_>, Error>>()?;
+    records.sort_by_key(|(record, _)| record.id);
+    let mut accumulator = String::new();
+    for (_, digest) in &records {
+        accumulator.push_str(digest);
+    }
+    Ok(CorpusSnapshot {
+        records,
+        digest: sha256_hex(accumulator.as_bytes()),
+        history: history.into_iter().collect(),
+        skipped_by_type,
+    })
+}
+
+/// An empty list is not a filter that matches nothing — it is the absence of a
+/// filter, and the behaviour of every store written before the field existed.
+fn wanted(embed_types: &[String], type_name: &str) -> bool {
+    embed_types.is_empty() || embed_types.iter().any(|name| name == type_name)
 }

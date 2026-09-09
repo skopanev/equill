@@ -4,16 +4,12 @@ use super::super::model::vector_error;
 use super::super::progress::{VectorProgress, VectorProgressSink, emit};
 use super::super::{VectorProjection, embed_batch};
 use super::document::canonical;
-use crate::kernel::digest::sha256_hex;
 use crate::kernel::error::Error;
 use crate::kernel::governance::RootGuard;
 use crate::kernel::lock::StoreLock;
 
 use crate::record::StoredRecord;
-use crate::record::withdrawn;
 use serde::Serialize;
-use std::collections::HashSet;
-use std::fs;
 use std::path::Path;
 use uuid::Uuid;
 
@@ -107,12 +103,11 @@ pub fn rebuild_with_progress(
     }
 
     let _lock = StoreLock::exclusive(store_root)?;
-    // The snapshot captured at the start is what this rebuild indexed, and the
-    // revision activated is the one captured with it. Reading the target here
-    // instead claimed everything written during the pass as covered: those
-    // records were never embedded, the checkpoint drew level with the target,
-    // and the gate — which compares exactly those two numbers — saw nothing
-    // outstanding. The tail was then lost until somebody ran a sync by hand.
+    // The revision activated is the one captured with the corpus. Reading the
+    // target here instead claimed everything written during the pass as
+    // covered: those records were never embedded, the checkpoint drew level
+    // with the target, and the gate — which compares exactly those two numbers
+    // — saw nothing outstanding. The tail was lost until a hand-run sync.
     projection.activate(&physical, Some((records.len(), &digest, revision)))?;
     drop(_lock);
     emit(
@@ -137,9 +132,9 @@ pub(crate) struct Captured {
     pub(crate) records: Vec<(StoredRecord, String)>,
     pub(crate) digest: String,
     pub(crate) revision: u64,
-    /// Live records the configured filter left out of this pass. Carried with
-    /// the rest of the boundary rather than counted again later: a second read
-    /// of the ledger could disagree with the one that was indexed.
+    /// Live records the filter left out. Carried with the rest of the boundary
+    /// rather than counted again: a second read could disagree with the one
+    /// that was indexed.
     pub(crate) skipped_by_type: usize,
 }
 
@@ -147,128 +142,21 @@ pub(crate) struct Captured {
 ///
 /// Under one writer lock so an append cannot land between them: a corpus from
 /// before a write and a target from after it describe a pass that covered
-/// something it never saw. The lock is released before embedding, because
-/// holding it for the length of a model run would stop writes — the very thing
-/// this contract exists to avoid — so whatever arrives afterwards is the next
-/// pass's tail, and the checkpoint says so by staying behind the target.
-///
-/// Target first, then the corpus, matching the incremental sync. Under a shared
-/// lock the order cannot matter; keeping the two passes identical is cheaper
-/// than explaining why they differ.
+/// something it never saw. The lock is released before embedding — holding it
+/// for a model run would stop writes, the very thing this contract avoids — so
+/// whatever arrives afterwards is the next pass's tail, and the checkpoint says
+/// so by staying behind the target. Target first, then the corpus, matching the
+/// incremental sync.
 pub(crate) fn capture(store_root: &Path) -> Result<Captured, Error> {
     let _lock = StoreLock::exclusive(store_root)?;
     let revision = crate::vector::desired::read(store_root)?.map_or(0, |target| target.revision);
-    let snapshot = corpus_snapshot(store_root)?;
+    let snapshot = super::super::coverage::corpus_snapshot(store_root)?;
     Ok(Captured {
         records: snapshot.records,
         digest: snapshot.digest,
         revision,
         skipped_by_type: snapshot.skipped_by_type,
     })
-}
-
-/// The ledger is the truth being indexed, so the digest covers exactly what a
-/// canonical read returns: every record hash in record-id order.
-/// Records the engine writes about itself. Their payload is digests, so there
-/// is nothing to embed and nothing a semantic query could usefully match. They
-/// are excluded from the corpus rather than indexed, which also keeps a
-/// governance change from leaving every store lagging until someone runs a sync.
-fn embeddable(record: &StoredRecord) -> bool {
-    record.type_name != crate::governance::AUDIT_TYPE
-        && record.type_name != crate::governance::AUDIT_TYPE_V2
-}
-
-pub(crate) struct CorpusSnapshot {
-    pub(crate) records: Vec<(StoredRecord, String)>,
-    pub(crate) digest: String,
-    /// What the index must not keep: replaced, withdrawn, and — since the
-    /// filter exists — live records of a type this store no longer embeds.
-    /// Narrowing `embed_types` without this leaves their vectors answering
-    /// searches from a collection nothing in the ledger accounts for.
-    pub(crate) history: Vec<Uuid>,
-    /// Live, embeddable records the configured filter left out. Reported so an
-    /// operator can see the filter doing something rather than infer it from a
-    /// number that got smaller.
-    pub(crate) skipped_by_type: usize,
-}
-
-pub(crate) fn corpus(store_root: &Path) -> Result<(Vec<(StoredRecord, String)>, String), Error> {
-    let snapshot = corpus_snapshot(store_root)?;
-    Ok((snapshot.records, snapshot.digest))
-}
-
-/// The corpus every path agrees on.
-///
-/// Rebuild, the incremental sync and the status report all read it here, so a
-/// configured filter is honoured by all three by construction rather than by
-/// three callers remembering to apply it. The digest covers the filtered
-/// corpus, which is what makes narrowing `embed_types` leave the index behind
-/// and force the next pass, instead of looking like nothing changed.
-pub(crate) fn corpus_snapshot(store_root: &Path) -> Result<CorpusSnapshot, Error> {
-    let embed_types = super::super::coverage::embed_types(store_root)?;
-    let all = crate::record::read_all(store_root)?;
-    let replaced = all
-        .iter()
-        .filter_map(|record| record.supersedes)
-        .collect::<HashSet<_>>();
-    let mut history = all
-        .iter()
-        .filter(|record| replaced.contains(&record.id) || withdrawn(record))
-        .map(|record| record.id)
-        .collect::<HashSet<_>>();
-    let live = all
-        .into_iter()
-        .filter(embeddable)
-        .filter(|record| !history.contains(&record.id))
-        .collect::<Vec<_>>();
-    let mut skipped_by_type = 0;
-    let mut validated = Vec::with_capacity(live.len());
-    for record in live {
-        if wanted(&embed_types, &record.type_name) {
-            validated.push(record);
-        } else {
-            skipped_by_type += 1;
-            history.insert(record.id);
-        }
-    }
-    let mut digests = std::collections::HashMap::new();
-    for entry in fs::read_dir(store_root.join("records"))? {
-        let path = entry?.path();
-        for line in fs::read_to_string(&path)?.lines() {
-            if line.trim().is_empty() {
-                continue;
-            }
-            let record: StoredRecord = serde_json::from_str(line)?;
-            digests.insert(record.id, sha256_hex(line.as_bytes()));
-        }
-    }
-    let mut records = validated
-        .into_iter()
-        .map(|record| {
-            let digest = digests
-                .get(&record.id)
-                .cloned()
-                .ok_or_else(|| vector_error("record hash is missing from the ledger"))?;
-            Ok((record, digest))
-        })
-        .collect::<Result<Vec<_>, Error>>()?;
-    records.sort_by_key(|(record, _)| record.id);
-    let mut accumulator = String::new();
-    for (_, digest) in &records {
-        accumulator.push_str(digest);
-    }
-    Ok(CorpusSnapshot {
-        records,
-        digest: sha256_hex(accumulator.as_bytes()),
-        history: history.into_iter().collect(),
-        skipped_by_type,
-    })
-}
-
-/// An empty list is not a filter that matches nothing — it is the absence of a
-/// filter, and the behaviour of every store written before the field existed.
-fn wanted(embed_types: &[String], type_name: &str) -> bool {
-    embed_types.is_empty() || embed_types.iter().any(|name| name == type_name)
 }
 
 fn physical_name(config: &VectorConfig) -> String {

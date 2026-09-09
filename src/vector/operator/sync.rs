@@ -1,11 +1,11 @@
 use super::super::config::VectorConfig;
+use super::super::coverage::corpus_snapshot;
 use super::super::embedding::EmbeddingRuntime;
 use super::super::model::vector_error;
 use super::super::progress::{VectorProgress, VectorProgressSink, emit};
 use super::super::{Embedder, VectorProjection, embed_batch};
 use super::delta::{pending, verify_descriptor};
 use super::index::SyncIndex;
-use super::rebuild::corpus_snapshot;
 use crate::kernel::error::Error;
 use crate::kernel::governance::RootGuard;
 use crate::kernel::lock::StoreLock;

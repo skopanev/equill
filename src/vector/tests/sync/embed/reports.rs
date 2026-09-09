@@ -1,6 +1,6 @@
 //! What the filter tells the operator it did, and what the health check makes
 //! of a selector the filter left with nothing to search.
-use super::embed_types::{NOTE, set_embed_types, two_types};
+use super::types::{NOTE, set_embed_types, two_types};
 use serde_json::json;
 use std::fs;
 use std::path::Path;
@@ -68,7 +68,7 @@ fn status_says_how_many_the_filter_left_out_and_rebuild_counts_the_same() {
     // The rebuild report reads its count from the same snapshot, so the two
     // surfaces cannot drift into disagreeing about one number.
     assert_eq!(
-        crate::vector::operator::corpus_snapshot(&root)
+        crate::vector::coverage::corpus_snapshot(&root)
             .expect("snapshot")
             .skipped_by_type,
         1

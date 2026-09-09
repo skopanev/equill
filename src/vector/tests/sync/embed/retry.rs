@@ -1,6 +1,6 @@
 //! What a configure that failed halfway leaves for the next attempt.
-use super::embed_types::{stored, two_types};
-use super::embedder;
+use super::super::embedder;
+use super::types::{stored, two_types};
 use crate::vector::catchup::drain::outstanding_for_tests;
 use crate::vector::operator::execute;
 use serde_json::json;
