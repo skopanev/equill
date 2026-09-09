@@ -15,4 +15,4 @@ pub use run::{NativeReport, run};
 #[cfg(test)]
 mod plan_tests;
 #[cfg(test)]
-mod settle_tests;
+mod vector_tests;

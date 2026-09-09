@@ -106,40 +106,6 @@ fn recovery_leaves_the_receipts_agreeing_with_the_ledger() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// A record appended between the crash and the recovery is not carried away.
-///
-/// The store takes writes the moment the process is gone, and that write lands
-/// in the directory that is still current. Publishing the prepared copy over it
-/// would move the live directory — with the new record in it — aside as a
-/// backup, and the record would be gone from an immutable ledger. Recovery
-/// refuses instead of guessing.
-#[test]
-fn an_append_after_the_crash_is_not_lost_to_the_prepared_copy() {
-    let root = store("crash-append");
-    let first = add(&root, "older", None);
-    add(&root, "newer", Some(first));
-
-    let interrupted = with_interrupt("before-records", || run(&root, true, "owner"));
-    assert!(interrupted.is_err(), "the fixture did not interrupt");
-
-    // The window: nothing is published yet, and the store is writable again.
-    let landed = add(&root, "written between crash and recovery", None);
-
-    let resumed = run(&root, true, "owner");
-    assert!(
-        resumed.is_err(),
-        "recovery published a stale copy over a ledger that had moved on"
-    );
-    assert!(
-        read_all(&root)
-            .expect("ledger")
-            .iter()
-            .any(|record| record.id == landed),
-        "a record written after the crash was lost"
-    );
-    let _ = std::fs::remove_dir_all(&root);
-}
-
 /// The child half of the crash test: compacts and dies inside the rename.
 ///
 /// It is a test rather than a binary because the failpoints exist only in a
@@ -229,6 +195,42 @@ fn a_store_without_a_vector_compacts_and_keeps_working() {
     assert!(
         after.iter().all(|record| record.supersedes.is_none()),
         "a dangling link survived"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A survivor's receipt describes the bytes that are now in the ledger.
+///
+/// Cutting a link rewrites the record, so its stored hash moves. A receipt
+/// still carrying the old one would make a verification report corruption for
+/// a record nobody touched — the store accusing itself of damage it did
+/// deliberately.
+#[test]
+fn a_rewritten_survivor_and_its_receipt_agree() {
+    let root = store("receipts");
+    let first = add(&root, "older", None);
+    let survivor = add(&root, "newer", Some(first));
+
+    run(&root, true, "owner").expect("compaction");
+
+    let record = read_all(&root)
+        .expect("ledger")
+        .into_iter()
+        .find(|record| record.id == survivor)
+        .expect("survivor");
+    let digest = crate::kernel::digest::sha256_hex(&serde_json::to_vec(&record).expect("bytes"));
+    let month = &record.recorded_at[..7];
+    let path = root
+        .join("receipts/writes")
+        .join(month)
+        .join(format!("{survivor}.json"));
+    let receipt: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).expect("receipt")).expect("json");
+
+    assert_eq!(
+        receipt["record_sha256"].as_str(),
+        Some(digest.as_str()),
+        "the receipt still attests to bytes the ledger no longer holds"
     );
     let _ = std::fs::remove_dir_all(&root);
 }

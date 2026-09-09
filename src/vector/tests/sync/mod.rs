@@ -33,6 +33,9 @@ pub(crate) struct FakeIndex {
 #[derive(Default)]
 pub(crate) struct FakeState {
     pub(crate) points: HashMap<Uuid, VectorPointMetadata>,
+    /// The vectors themselves, so a test can say a point kept the one it had
+    /// rather than only that its bookkeeping looks unchanged.
+    pub(crate) vectors: HashMap<Uuid, Vec<f32>>,
     pub(crate) points_upserted: usize,
     pub(crate) ready_marks: usize,
     pub(crate) checkpoint: Option<(usize, String)>,
@@ -87,11 +90,20 @@ impl SyncIndex for FakeIndex {
                 },
             );
         }
+        for point in points {
+            state.vectors.insert(point.record_id, point.vector.clone());
+        }
         state.points_upserted += points.len();
         Ok(())
     }
 
     fn delete(&self, _physical: &str, record_ids: &[Uuid]) -> Result<(), Error> {
+        {
+            let mut state = self.inner.lock().unwrap();
+            for id in record_ids {
+                state.vectors.remove(id);
+            }
+        }
         let mut state = self.inner.lock().unwrap();
         for id in record_ids {
             state.points.remove(id);

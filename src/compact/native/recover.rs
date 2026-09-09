@@ -44,9 +44,19 @@ fn inspect(
     let backup = super::super::transaction::sibling(&current, "backup", transaction)?;
     Ok(
         match (current.is_dir(), incoming.is_dir(), backup.is_dir()) {
-            (true, true, _) => Step::Pending,
+            // Prepared and not yet published, with nothing set aside.
+            (true, true, false) => Step::Pending,
+            // A backup beside both: an earlier attempt got further than this
+            // combination admits, and picking which of the two is
+            // authoritative is how a store loses a directory.
+            (true, true, true) => Step::Unclear,
             (true, false, _) => Step::Done,
+            // The prepared copy is there and the live directory is not: finish
+            // the arrival.
             (false, true, _) => Step::Interrupted,
+            // Only the backup survives, so the rename that moved it aside never
+            // completed. Restoring it leaves a readable store — and the work
+            // unfinished, which the journal still records.
             (false, false, true) => Step::Interrupted,
             (false, false, false) => Step::Unclear,
         },
