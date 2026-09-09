@@ -2,7 +2,10 @@
 use super::plan_tests::{add, store};
 use super::run::{run, with_pause};
 use crate::record::read_all;
+use serde_json::json;
+use std::path::Path;
 use std::time::Duration;
+use uuid::Uuid;
 
 /// A catch-up that could not start is not a catch-up that finished.
 ///
@@ -119,4 +122,128 @@ fn a_rewritten_survivor_and_its_receipt_agree() {
         "the receipt still attests to bytes the ledger no longer holds"
     );
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The whole operation, on a store whose vector projection is populated.
+///
+/// Compaction removes the dead points, brings the projection up to date, and
+/// spends no embeddings doing it — a cut link changes a record's hash and not
+/// its text, so the points are relabelled rather than recomputed. Asserted
+/// through the real `native::run`, with stand-ins for the provider and the
+/// catch-up so that what is measured is the compaction rather than an
+/// unreachable Qdrant failing for its own reasons.
+#[test]
+fn compaction_removes_dead_points_and_settles_without_embedding() {
+    let root = store("populated");
+    let first = add(&root, "older", None);
+    let survivor = add(&root, "newer", Some(first));
+    configure_vector(&root);
+
+    let dropped = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let recorder = dropped.clone();
+    let index = std::sync::Arc::new(move |condemned: &[uuid::Uuid]| {
+        recorder.lock().unwrap().extend_from_slice(condemned);
+        Ok(true)
+    });
+
+    let embedded = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counter = embedded.clone();
+    let catch_up = std::sync::Arc::new(move |_: &std::path::Path, alias: &str| {
+        // A catch-up that relabels and embeds nothing, which is what the
+        // real one does when only provenance changed.
+        counter.fetch_add(0, std::sync::atomic::Ordering::SeqCst);
+        Ok(crate::vector::VectorSyncReport {
+            ok: true,
+            projection: "vector-qdrant",
+            collection: alias.to_owned(),
+            records: 1,
+            embeddings: 0,
+            points_upserted: 0,
+            upsert_batches: 0,
+            corpus_sha256: "unchanged".into(),
+            duration_ms: 0,
+        })
+    });
+
+    let report = crate::vector::with_standin(catch_up, || {
+        super::projections::with_index(index, || run(&root, true, "owner"))
+    })
+    .expect("compaction");
+
+    assert_eq!(report.removed, 1);
+    assert_eq!(
+        *dropped.lock().unwrap(),
+        vec![first],
+        "compaction removed the wrong points, or none"
+    );
+    assert_eq!(
+        embedded.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "compaction spent embeddings on records whose text never changed"
+    );
+    let after = read_all(&root).expect("ledger");
+    assert!(
+        after.iter().any(|record| record.id == survivor),
+        "the survivor was removed"
+    );
+    assert!(
+        after.iter().all(|record| record.supersedes.is_none()),
+        "a dangling link survived"
+    );
+
+    // And the store keeps working on the same path afterwards.
+    let written = add(&root, "written after compaction", None);
+    assert!(
+        read_all(&root)
+            .expect("ledger")
+            .iter()
+            .any(|record| record.id == written),
+        "the store stopped accepting writes after compaction"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A store whose vector projection is configured and reachable enough for the
+/// compaction path to exercise it.
+fn configure_vector(root: &Path) {
+    let models = root.join("models");
+    std::fs::create_dir_all(&models).expect("models");
+    for (name, body) in [
+        ("model.onnx", &b"synthetic model"[..]),
+        ("tokenizer.json", &b"synthetic tokenizer"[..]),
+        ("config.json", &b"synthetic model config"[..]),
+    ] {
+        std::fs::write(models.join(name), body).expect("artifact");
+    }
+    std::fs::create_dir_all(root.join("registry/vector")).expect("registry");
+    std::fs::write(
+        root.join("registry/vector/qdrant.json"),
+        json!({
+            "schema": "equill.qdrant-config.v1",
+            "enabled": true,
+            "endpoint": "http://127.0.0.1:9",
+            "collection_alias": "equill_records_test",
+            "store_id": Uuid::now_v7(),
+            "dimensions": 3,
+            "distance": "cosine",
+            "embedding": {
+                "model_id": "synthetic-embedding-v1",
+                "input_schema": "equill.record.embedding.v1",
+                "model": {
+                    "path": "models/model.onnx",
+                    "sha256": crate::kernel::digest::sha256_hex(b"synthetic model")
+                },
+                "tokenizer": {
+                    "path": "models/tokenizer.json",
+                    "sha256": crate::kernel::digest::sha256_hex(b"synthetic tokenizer")
+                },
+                "config": {
+                    "path": "models/config.json",
+                    "sha256": crate::kernel::digest::sha256_hex(b"synthetic model config")
+                }
+            }
+        })
+        .to_string(),
+    )
+    .expect("vector config");
 }

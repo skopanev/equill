@@ -29,9 +29,8 @@ pub struct VectorSyncReport {
     pub duration_ms: u64,
 }
 
-/// Bring the active collection up to the immutable ledger without creating or
-/// switching collections. A long-lived caller can reuse this core operation
-/// after a batch append; record writes themselves never load the model.
+/// Bring the active collection up to the ledger without creating or switching
+/// collections. Record writes themselves never load the model.
 pub(crate) fn catch_up(store_root: &Path) -> Result<VectorSyncReport, Error> {
     catch_up_with_progress(store_root, None)
 }
@@ -74,6 +73,13 @@ pub(crate) fn catch_up_with_progress(
             collection: vector_config.collection_alias.clone(),
         },
     );
+    // A test stands in for the provider here: without it, every claim about
+    // what a catch-up did would rest on an unreachable Qdrant failing for its
+    // own reasons.
+    #[cfg(test)]
+    if let Some(outcome) = substituted(store_root, &vector_config.collection_alias) {
+        return outcome;
+    }
     let projection = VectorProjection::open(store_root)?
         .ok_or_else(|| vector_error("vector projection is not configured"))?;
     execute_with_progress(
@@ -128,9 +134,8 @@ where
     let work = pending(config, index, &physical, &records)?;
     let documents = work.embed;
     let embeddings = documents.len();
-    // Points whose meaning is unchanged and whose envelope is not: they keep
-    // the vector they already have and take the new record hash. No model is
-    // loaded for these, which is the whole point of telling them apart.
+    // Meaning unchanged, envelope not: keep the vector, take the new hash. No
+    // model is loaded for these, which is the point of telling them apart.
     if !work.relabel.is_empty() {
         index.relabel(&physical, &work.relabel)?;
     }
@@ -212,4 +217,34 @@ where
         corpus_sha256: digest,
         duration_ms: started.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
     })
+}
+
+/// A stand-in for the catch-up, installed for one call.
+#[cfg(test)]
+type Standin = std::sync::Arc<dyn Fn(&Path, &str) -> Result<VectorSyncReport, Error> + Send + Sync>;
+
+#[cfg(test)]
+thread_local! {
+    static STANDIN: std::cell::RefCell<Option<Standin>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn substituted(store_root: &Path, alias: &str) -> Option<Result<VectorSyncReport, Error>> {
+    STANDIN
+        .with(|slot| slot.borrow().clone())
+        .map(|standin| standin(store_root, alias))
+}
+
+/// Installed for one call and removed after, even if the body panics.
+#[cfg(test)]
+pub(crate) fn with_standin<T>(standin: Standin, body: impl FnOnce() -> T) -> T {
+    struct Restore(Option<Standin>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            STANDIN.with(|slot| *slot.borrow_mut() = self.0.take());
+        }
+    }
+    let _restore = Restore(STANDIN.with(|slot| slot.borrow_mut().take()));
+    STANDIN.with(|slot| *slot.borrow_mut() = Some(standin));
+    body()
 }

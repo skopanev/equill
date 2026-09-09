@@ -58,6 +58,8 @@ pub use model::{
 pub(crate) use operator::corpus;
 pub use operator::finalize;
 pub(crate) use operator::search_with_policy;
+#[cfg(test)]
+pub(crate) use operator::with_standin;
 pub use operator::{
     QueryEmbedder, RejectedHit, SearchStrategy, StrategySearchReport, VectorConfigReport,
     VectorIndex, VectorRebuildReport, VectorSyncReport, VerifiedHits, canonical, configure,
