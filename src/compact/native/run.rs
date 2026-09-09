@@ -1,5 +1,5 @@
 //! Native compaction end to end: plan, stage, swap, reconcile.
-use super::{apply, journal, plan, projections};
+use super::{apply, journal, projections};
 use crate::kernel::error::Error;
 use crate::kernel::governance::RootGuard;
 use serde::Serialize;
@@ -16,7 +16,7 @@ pub struct NativeReport {
     /// Named plainly: these records survive with a different envelope hash
     /// than they had, because the link into the removed past was cut.
     pub rewritten_envelopes: usize,
-    pub detail: plan::Plan,
+    pub detail: projections::Plan,
 }
 
 /// Finishes any interrupted compaction, then compacts. Two operations with
@@ -58,7 +58,7 @@ fn compact_once(
     // not the lock is held.
     #[cfg(test)]
     pause_after_read();
-    let plan = plan::build(&records)?;
+    let plan = projections::build(&records)?;
     let report = NativeReport {
         ok: true,
         applied: apply_changes,
@@ -115,7 +115,7 @@ fn stage(
     store_root: &Path,
     shadow: &Path,
     records: &[crate::record::StoredRecord],
-    plan: &plan::Plan,
+    plan: &projections::Plan,
 ) -> Result<(), Error> {
     fs::create_dir_all(shadow)?;
     let kept = apply::rewrite(records, plan);

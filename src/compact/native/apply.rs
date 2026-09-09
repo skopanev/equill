@@ -5,7 +5,7 @@
 //! crash before the swap leaves the original untouched; a crash during it is
 //! undone by the same rollback, because the swap is a rename and a rename is
 //! the only step that is not free to fail halfway.
-use super::plan::Plan;
+use super::projections::Plan;
 use crate::kernel::error::Error;
 use crate::record::StoredRecord;
 use std::collections::HashSet;

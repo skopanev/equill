@@ -3,13 +3,14 @@ mod apply;
 #[cfg(test)]
 mod crash_tests;
 mod journal;
-mod plan;
 mod projections;
 mod recover;
 mod run;
+#[cfg(test)]
+mod settle_tests;
 
 pub use apply::{drop_receipts, rewrite, stage_records};
-pub use plan::{Plan, Removal, Removed, Severed, build};
+pub use projections::{Plan, Removal, Removed, Severed, build};
 pub use run::{NativeReport, run};
 
 #[cfg(test)]

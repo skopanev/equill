@@ -54,10 +54,13 @@ fn inspect(
             // The prepared copy is there and the live directory is not: finish
             // the arrival.
             (false, true, _) => Step::Interrupted,
-            // Only the backup survives, so the rename that moved it aside never
-            // completed. Restoring it leaves a readable store — and the work
-            // unfinished, which the journal still records.
-            (false, false, true) => Step::Interrupted,
+            // Only the backup survives: the prepared copy is gone, so there is
+            // nothing to finish with. Restoring the backup would make the store
+            // readable and then look finished — the journal would be cleared
+            // and a later compaction would run against receipts from a
+            // half-published transaction. Refused instead, with the backup and
+            // the journal left exactly where they are.
+            (false, false, true) => Step::Unclear,
             (false, false, false) => Step::Unclear,
         },
     )
@@ -118,9 +121,8 @@ fn changed_since_staging(
         .any(|(name, size)| then.get(name).is_none_or(|before| *before != size)))
 }
 
-/// Moves the prepared directory into place, or restores the backup when the
-/// prepared one is gone. Nothing is deleted here: deleting is what a rollback
-/// does, and this is not one.
+/// Moves the prepared directory into place. Nothing is deleted here: deleting
+/// is what a rollback does, and this is not one.
 fn publish_step(
     store_root: &Path,
     shadow: &Path,
@@ -135,11 +137,6 @@ fn publish_step(
     }
     if incoming.is_dir() {
         fs::rename(&incoming, &current)?;
-    } else if !current.is_dir() && backup.is_dir() {
-        // The old directory was moved aside and the new one never arrived: put
-        // the old one back, so the store is readable and the next run can plan
-        // the work again from a ledger that exists.
-        fs::rename(&backup, &current)?;
     }
     if let Some(parent) = current.parent() {
         sync_directory(parent)?;
