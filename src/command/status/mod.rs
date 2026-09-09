@@ -53,6 +53,11 @@ pub struct VectorCounts {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vector_checkpoint_records: Option<usize>,
     pub vector_pending: pending::Pending,
+    /// Live records the configured `embed_types` filter leaves out. Absent when
+    /// no filter is configured: zero skipped and no filter at all are different
+    /// answers, and a reader has to be able to tell them apart.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vector_skipped_records: Option<usize>,
     /// Whether a pass is running. Nothing durable records that, so this says
     /// so rather than inferring a number from the backlog.
     pub vector_processing: &'static str,

@@ -123,6 +123,11 @@ pub struct Position {
     pub corpus: Vec<(crate::record::StoredRecord, String)>,
     pub corpus_digest: String,
     pub checkpoint: Checkpoint,
+    /// Live records `embed_types` left out, and whether a filter is configured
+    /// at all. Nothing skipped and nothing to skip are different answers, and a
+    /// reader given only a zero cannot tell them apart.
+    pub skipped_by_type: usize,
+    pub filtered: bool,
 }
 
 impl Position {
@@ -143,10 +148,12 @@ impl Position {
 pub fn position(store: &Path) -> Result<Position, Error> {
     let config = super::config::load(store)?;
     let checkpoint = checkpoint(store, config.as_ref())?;
-    let (corpus, corpus_digest) = super::corpus(store)?;
+    let snapshot = super::operator::corpus_snapshot(store)?;
     Ok(Position {
-        corpus,
-        corpus_digest,
+        corpus: snapshot.records,
+        corpus_digest: snapshot.digest,
         checkpoint,
+        skipped_by_type: snapshot.skipped_by_type,
+        filtered: !super::coverage::embed_types(store)?.is_empty(),
     })
 }

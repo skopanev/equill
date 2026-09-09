@@ -16,8 +16,8 @@ pub use document::canonical;
 pub(crate) use index::SyncIndex;
 #[cfg(test)]
 pub(crate) use rebuild::capture;
-pub(crate) use rebuild::corpus;
 pub use rebuild::{VectorRebuildReport, rebuild, rebuild_with_progress};
+pub(crate) use rebuild::{corpus, corpus_snapshot};
 pub use search::{
     QueryEmbedder, RejectedHit, SearchStrategy, VectorIndex, VerifiedHits, retrieve, verify,
 };

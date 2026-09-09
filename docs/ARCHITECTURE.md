@@ -380,6 +380,55 @@ strategy-pluggable and always composable:
 A single-strategy store is honest and complete; multi-strategy is a scale
 concern, and the record log remains the truth all strategies serve.
 
+### Naming which types get embedded
+
+`equill vector rebuild` embedded every record in the ledger. Measured on a
+development store: 135 records embedded, of which the number any vector
+selector could ever return was zero — the contract surfaces are selected by
+recency over coordinates, deliberately, and the only hybrid selector covered
+one type nobody had recorded yet.
+
+`embed_types` in the vector descriptor names the types that get embedded:
+
+```json
+{
+  "schema": "equill.qdrant-config.v1",
+  "embed_types": ["agent.lesson.v1", "agent.finding.v1"]
+}
+```
+
+Absent or empty means every embeddable type, so no existing store changes.
+
+The filter is applied where the corpus is built, which is the one place
+`vector rebuild`, the incremental sync and `equill status` all read — so all
+three honour it by construction rather than by three callers remembering to.
+
+Two consequences worth stating, because both are failures the filter would
+otherwise introduce:
+
+- **Changing the list leaves work owed.** The corpus digest alone would not
+  start a pass: the gate that decides whether one runs compares two small
+  marker files and never scans the ledger. So `vector configure` publishes a
+  new target when the list changes, exactly as an append does. Without it,
+  narrowing the list left the old checkpoint reading as current and no pass
+  ever ran — and the vectors of a type the store had just stopped embedding
+  went on answering searches that nothing in the ledger accounts for.
+- **Excluded records are removed, not merely left alone.** A live record of an
+  unembedded type joins the same deletion list as a superseded or withdrawn
+  one. A smaller index is a smaller surface for deleted content coming back
+  through a collection nobody audits.
+
+A type name nobody registered fails at `vector configure` — a filter that
+never matches would leave the saving imagined while the cost stayed.
+
+`equill doctor` counts selectors with a vector strategy over a type outside the
+list and fails on them, under `vector-embed-types`. Such a selector returns
+nothing, which reads as "no relevant memory" rather than "never indexed".
+
+`equill status` and the rebuild output report how many live records the filter
+left out. The count is absent, not zero, when no filter is configured: nothing
+skipped and nothing to skip are different answers.
+
 ### Queries that are not questions
 
 Some prompts carry no question. A harness that forwards notifications into an

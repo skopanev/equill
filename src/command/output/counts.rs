@@ -33,9 +33,13 @@ pub(super) fn store_counts(output: &mut String, store: &crate::command::status::
             format!("unknown ({reason})")
         }
     };
+    let filtered = match vector.vector_skipped_records {
+        Some(skipped) => format!(", {skipped} skipped by embed_types"),
+        None => String::new(),
+    };
     let _ = write!(
         output,
-        "\nVectors: {} eligible, {checkpoint}, pending {pending}\nProcessing: not tracked",
+        "\nVectors: {} eligible{filtered}, {checkpoint}, pending {pending}\nProcessing: not tracked",
         vector.vector_eligible_records
     );
 }

@@ -31,8 +31,15 @@ pub(crate) fn run(
         }
         VectorCommand::Rebuild { store } => {
             let report = vector::rebuild_with_progress(&store, actor, progress)?;
+            // The skipped count only when a filter is doing something: a
+            // trailing "0 skipped" on every rebuild is noise that trains a
+            // reader to stop looking at the line.
+            let skipped = match report.records_skipped {
+                0 => String::new(),
+                count => format!(", {count} skipped by embed_types"),
+            };
             let text = format!(
-                "Vector projection rebuilt — {} records into {}",
+                "Vector projection rebuilt — {} records into {}{skipped}",
                 report.records, report.collection
             );
             super::output::render(json, &report, text)

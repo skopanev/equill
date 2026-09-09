@@ -25,6 +25,9 @@ pub struct VectorRebuildReport {
     pub projection: &'static str,
     pub collection: String,
     pub records: usize,
+    /// Live records `embed_types` left out of this pass. Reported so the saving
+    /// is visible rather than inferred from a number that got smaller.
+    pub records_skipped: usize,
     pub corpus_sha256: String,
 }
 
@@ -65,6 +68,7 @@ pub fn rebuild_with_progress(
         records,
         digest,
         revision,
+        skipped_by_type: skipped,
     } = capture(store_root)?;
     let physical = physical_name(&vector_config);
     emit(
@@ -123,6 +127,7 @@ pub fn rebuild_with_progress(
         projection: "vector-qdrant",
         collection: physical,
         records: records.len(),
+        records_skipped: skipped,
         corpus_sha256: digest,
     })
 }
@@ -132,6 +137,10 @@ pub(crate) struct Captured {
     pub(crate) records: Vec<(StoredRecord, String)>,
     pub(crate) digest: String,
     pub(crate) revision: u64,
+    /// Live records the configured filter left out of this pass. Carried with
+    /// the rest of the boundary rather than counted again later: a second read
+    /// of the ledger could disagree with the one that was indexed.
+    pub(crate) skipped_by_type: usize,
 }
 
 /// Both halves of the boundary, taken together.
@@ -154,6 +163,7 @@ pub(crate) fn capture(store_root: &Path) -> Result<Captured, Error> {
         records: snapshot.records,
         digest: snapshot.digest,
         revision,
+        skipped_by_type: snapshot.skipped_by_type,
     })
 }
 
@@ -171,7 +181,15 @@ fn embeddable(record: &StoredRecord) -> bool {
 pub(crate) struct CorpusSnapshot {
     pub(crate) records: Vec<(StoredRecord, String)>,
     pub(crate) digest: String,
+    /// What the index must not keep: replaced, withdrawn, and — since the
+    /// filter exists — live records of a type this store no longer embeds.
+    /// Narrowing `embed_types` without this leaves their vectors answering
+    /// searches from a collection nothing in the ledger accounts for.
     pub(crate) history: Vec<Uuid>,
+    /// Live, embeddable records the configured filter left out. Reported so an
+    /// operator can see the filter doing something rather than infer it from a
+    /// number that got smaller.
+    pub(crate) skipped_by_type: usize,
 }
 
 pub(crate) fn corpus(store_root: &Path) -> Result<(Vec<(StoredRecord, String)>, String), Error> {
@@ -179,22 +197,40 @@ pub(crate) fn corpus(store_root: &Path) -> Result<(Vec<(StoredRecord, String)>, 
     Ok((snapshot.records, snapshot.digest))
 }
 
+/// The corpus every path agrees on.
+///
+/// Rebuild, the incremental sync and the status report all read it here, so a
+/// configured filter is honoured by all three by construction rather than by
+/// three callers remembering to apply it. The digest covers the filtered
+/// corpus, which is what makes narrowing `embed_types` leave the index behind
+/// and force the next pass, instead of looking like nothing changed.
 pub(crate) fn corpus_snapshot(store_root: &Path) -> Result<CorpusSnapshot, Error> {
+    let embed_types = super::super::coverage::embed_types(store_root)?;
     let all = crate::record::read_all(store_root)?;
     let replaced = all
         .iter()
         .filter_map(|record| record.supersedes)
         .collect::<HashSet<_>>();
-    let history = all
+    let mut history = all
         .iter()
         .filter(|record| replaced.contains(&record.id) || withdrawn(record))
         .map(|record| record.id)
         .collect::<HashSet<_>>();
-    let validated = all
+    let live = all
         .into_iter()
         .filter(embeddable)
         .filter(|record| !history.contains(&record.id))
         .collect::<Vec<_>>();
+    let mut skipped_by_type = 0;
+    let mut validated = Vec::with_capacity(live.len());
+    for record in live {
+        if wanted(&embed_types, &record.type_name) {
+            validated.push(record);
+        } else {
+            skipped_by_type += 1;
+            history.insert(record.id);
+        }
+    }
     let mut digests = std::collections::HashMap::new();
     for entry in fs::read_dir(store_root.join("records"))? {
         let path = entry?.path();
@@ -225,7 +261,14 @@ pub(crate) fn corpus_snapshot(store_root: &Path) -> Result<CorpusSnapshot, Error
         records,
         digest: sha256_hex(accumulator.as_bytes()),
         history: history.into_iter().collect(),
+        skipped_by_type,
     })
+}
+
+/// An empty list is not a filter that matches nothing — it is the absence of a
+/// filter, and the behaviour of every store written before the field existed.
+fn wanted(embed_types: &[String], type_name: &str) -> bool {
+    embed_types.is_empty() || embed_types.iter().any(|name| name == type_name)
 }
 
 fn physical_name(config: &VectorConfig) -> String {

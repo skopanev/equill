@@ -13,6 +13,8 @@ fn at(
     digest: &str,
 ) -> Pending {
     assess(&Position {
+        skipped_by_type: 0,
+        filtered: false,
         corpus: corpus.to_vec(),
         corpus_digest: digest.to_owned(),
         checkpoint: match checkpoint {

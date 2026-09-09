@@ -22,7 +22,8 @@ pub use api::{
     assemble_with_options, assemble_with_renderer, assemble_with_renderer_and_limits,
     assemble_with_renderer_and_options,
 };
-pub use model::{ContextBundle, ContextRequest, RegistryReport, RuntimeBudget};
+pub use model::{ContextBundle, ContextRequest, RegistryReport, RuntimeBudget, Strategy};
+pub use registry::load_selector;
 
 pub fn register_profile(store: &Path, file: &Path, actor: &str) -> Result<RegistryReport, Error> {
     registry::register_profile(store, file, actor)

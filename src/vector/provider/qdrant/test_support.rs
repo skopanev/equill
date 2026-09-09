@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 pub(super) fn config() -> VectorConfig {
     VectorConfig {
+        embed_types: Vec::new(),
         schema: "equill.qdrant-config.v1".into(),
         enabled: true,
         endpoint: "http://127.0.0.1:9".into(),

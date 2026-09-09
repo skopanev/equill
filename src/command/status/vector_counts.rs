@@ -13,6 +13,7 @@ pub(super) fn vector_counts(position: &Position) -> VectorCounts {
         vector_eligible_records: position.corpus.len(),
         vector_checkpoint_records: position.checkpoint.indexed(),
         vector_pending: pending::assess(position),
+        vector_skipped_records: position.filtered.then_some(position.skipped_by_type),
         vector_processing: "not_tracked",
     }
 }

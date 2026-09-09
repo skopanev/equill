@@ -1,5 +1,6 @@
 pub(crate) mod catchup;
 mod config;
+pub mod coverage;
 
 pub(crate) use catchup::desired;
 pub(crate) use catchup::{drain, worker};

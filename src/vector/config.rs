@@ -8,7 +8,7 @@ use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
-const CONFIG: &str = "registry/vector/qdrant.json";
+pub(super) const CONFIG: &str = "registry/vector/qdrant.json";
 const SCHEMA: &str = "equill.qdrant-config.v1";
 
 mod voyage;
@@ -27,6 +27,9 @@ pub struct VectorConfig {
     pub dimensions: u64,
     pub distance: DistanceMetric,
     pub embedding: EmbeddingConfig,
+    /// Types this store embeds; empty means all of them. See `coverage`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub embed_types: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key_env: Option<String>,
     #[serde(default)]
@@ -118,6 +121,7 @@ fn validate_shape(config: &VectorConfig) -> Result<(), Error> {
     if !(1..=65_536).contains(&config.dimensions) {
         return Err(vector_error("dimensions must be between 1 and 65536"));
     }
+    super::coverage::validate_names(&config.embed_types)?;
     if config.embedding.model_id().trim().is_empty()
         || config.embedding.input_schema() != INPUT_SCHEMA
     {

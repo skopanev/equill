@@ -38,6 +38,7 @@ fn pinned_model_embeds_a_prefixed_query_through_loopback() {
 
 fn config(endpoint: String, digest: String) -> VectorConfig {
     VectorConfig {
+        embed_types: Vec::new(),
         schema: "equill.qdrant-config.v1".into(),
         enabled: true,
         endpoint: "http://127.0.0.1:6334".into(),

@@ -105,6 +105,7 @@ fn config(directory: &Path) -> VectorConfig {
         sha256: sha256_hex(&std::fs::read(directory.join(name)).expect("artifact")),
     };
     VectorConfig {
+        embed_types: Vec::new(),
         schema: "equill.qdrant-config.v1".into(),
         enabled: true,
         endpoint: "http://127.0.0.1:6333".into(),

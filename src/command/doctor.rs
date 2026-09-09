@@ -1,6 +1,6 @@
 use crate::kernel::error::Error;
 use crate::kernel::store;
-use crate::{context, defense, integrity, retrieval};
+use crate::{context, defense, integrity, retrieval, vector};
 use serde::Serialize;
 use std::path::Path;
 
@@ -14,6 +14,11 @@ pub struct DoctorReport {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deep_defense: Option<defense::DeepReport>,
     pub context_profile_faults: usize,
+    /// Selectors that would search vectors for a type `embed_types` leaves out.
+    /// They return nothing and read as "no relevant memory" rather than "never
+    /// indexed", so the health check counts them rather than leaving the
+    /// silence to be discovered.
+    pub vector_uncovered_selectors: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -40,6 +45,14 @@ pub fn report(store_root: Option<&Path>, full: bool, deep: bool) -> Result<Docto
         checks.push(Check {
             id: "retrieval-settings",
             items: 1,
+        });
+    }
+    let mut vector_uncovered_selectors = 0;
+    if let Some(root) = store_root.filter(|_| store_initialized.is_some()) {
+        vector_uncovered_selectors = vector::coverage::uncovered(root)?.len();
+        checks.push(Check {
+            id: "vector-embed-types",
+            items: vector_uncovered_selectors,
         });
     }
     let mut context_profile_faults = 0;
@@ -87,7 +100,8 @@ pub fn report(store_root: Option<&Path>, full: bool, deep: bool) -> Result<Docto
         .filter(|_| deep)
         .map(defense::audit)
         .transpose()?;
-    let ok = context_profile_faults == 0
+    let ok = vector_uncovered_selectors == 0
+        && context_profile_faults == 0
         && deep_defense
             .as_ref()
             .is_none_or(|report| report.findings == 0);
@@ -105,5 +119,6 @@ pub fn report(store_root: Option<&Path>, full: bool, deep: bool) -> Result<Docto
         checks,
         deep_defense,
         context_profile_faults,
+        vector_uncovered_selectors,
     })
 }
