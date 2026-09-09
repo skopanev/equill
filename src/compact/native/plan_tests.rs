@@ -1,10 +1,14 @@
 //! What the plan says goes, what stays, and what stays changed.
 use super::projections::{Forgetful, condemned, drop_points};
 use super::{Removal, build};
+use crate::command::init;
 use crate::kernel::error::Error;
 use crate::record::StoredRecord;
+use crate::record::{RecordDraft, append};
+use crate::schema::{self, TypeDefinition};
 use serde_json::json;
 use std::cell::RefCell;
+use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 fn record(id: Uuid, supersedes: Option<Uuid>, tags: Vec<String>) -> StoredRecord {
@@ -188,4 +192,49 @@ fn a_compaction_with_nothing_to_remove_does_not_touch_the_provider() {
     drop_points(&index, &condemned(&plan)).expect("drop");
 
     assert_eq!(*index.calls.borrow(), 0);
+}
+
+pub(super) fn store(name: &str) -> PathBuf {
+    let root = std::env::temp_dir().join(format!(
+        "equill-compact-race-{name}-{}",
+        uuid::Uuid::now_v7()
+    ));
+    init::create(&root, "owner", "agent.memory").expect("init");
+    schema::register(
+        &root,
+        TypeDefinition {
+            type_name: "agent.lesson.v1".into(),
+            uri: "equill://agent.lesson/v1".into(),
+            owner: "owner".into(),
+            payload_schema: json!({
+                "type": "object",
+                "properties": { "rule": { "type": "string" } },
+                "required": ["rule"],
+                "additionalProperties": false
+            }),
+            lifecycle: Default::default(),
+        },
+        "owner",
+    )
+    .expect("schema");
+    root
+}
+
+pub(super) fn add(root: &Path, rule: &str, supersedes: Option<uuid::Uuid>) -> uuid::Uuid {
+    append(
+        root,
+        RecordDraft {
+            namespace: "agent.memory".into(),
+            type_name: "agent.lesson.v1".into(),
+            observed_at: "2026-01-01T00:00:00Z".into(),
+            valid_at: None,
+            payload: json!({ "rule": rule }),
+            evidence: Vec::new(),
+            tags: Vec::new(),
+            supersedes,
+        },
+        "owner",
+    )
+    .expect("append")
+    .id
 }

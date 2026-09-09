@@ -25,9 +25,7 @@ pub fn condemned(plan: &Plan) -> Vec<Uuid> {
 /// are expensive, the surviving ones are still correct, and only the condemned
 /// are removed.
 pub fn reconcile(store_root: &std::path::Path, condemned: &[Uuid]) -> Result<(), Error> {
-    if let Some(projection) = crate::vector::VectorProjection::open(store_root)? {
-        drop_points(&projection, condemned)?;
-    }
+    let configured = forget_condemned(store_root, condemned)?;
     crate::projection::rebuild(store_root)?;
     // The survivors whose links were cut have new record hashes, and their
     // points still carry the old ones. Left to the next ordinary write, the
@@ -44,6 +42,20 @@ pub fn reconcile(store_root: &std::path::Path, condemned: &[Uuid]) -> Result<(),
         return Err(Error::Compact(format!(
             "compaction could not bring the vector projection up to date: {error}"
         )));
+    }
+    // Absence of an error is not the same as having done the work. A catch-up
+    // that could not take the drain lease returns a default report — no error,
+    // nothing done — and reading that as success would let compaction declare
+    // the projections settled, clear its journal, and leave the survivors
+    // carrying stale hashes with nothing left to notice.
+    // Only where there is a projection to settle. A store that never asked for
+    // a vector has nothing to catch up, and that also reports `ran: false`.
+    if configured && !caught_up.ran {
+        return Err(Error::Compact(
+            "another catch-up holds the vector lease; compaction cannot confirm the \
+             projection is settled"
+                .into(),
+        ));
     }
     Ok(())
 }
@@ -80,4 +92,55 @@ pub fn drop_points(index: &impl Forgetful, condemned: &[Uuid]) -> Result<(), Err
     }
     let physical = index.active()?;
     index.forget(&physical, condemned)
+}
+
+/// Drops the condemned points through whatever index this store has, and says
+/// whether there was one.
+///
+/// A seam because the only honest test of "compaction removed the points and
+/// recomputed nothing" needs an index that answers: a real provider is
+/// unreachable in a test, and an unreachable one fails for a reason that has
+/// nothing to do with what is being measured.
+fn forget_condemned(store_root: &std::path::Path, condemned: &[Uuid]) -> Result<bool, Error> {
+    #[cfg(test)]
+    if let Some(outcome) = substitute(condemned) {
+        return outcome;
+    }
+    match crate::vector::VectorProjection::open(store_root)? {
+        Some(projection) => {
+            drop_points(&projection, condemned)?;
+            Ok(true)
+        }
+        None => Ok(false),
+    }
+}
+
+#[cfg(test)]
+type Substitute = std::sync::Arc<dyn Fn(&[Uuid]) -> Result<bool, Error> + Send + Sync>;
+
+#[cfg(test)]
+thread_local! {
+    static INDEX: std::cell::RefCell<Option<Substitute>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn substitute(condemned: &[Uuid]) -> Option<Result<bool, Error>> {
+    INDEX
+        .with(|slot| slot.borrow().clone())
+        .map(|index| index(condemned))
+}
+
+/// Installs a stand-in index for one call, and takes it away afterwards even if
+/// the body panics.
+#[cfg(test)]
+pub(super) fn with_index<T>(index: Substitute, body: impl FnOnce() -> T) -> T {
+    struct Restore(Option<Substitute>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            INDEX.with(|slot| *slot.borrow_mut() = self.0.take());
+        }
+    }
+    let _restore = Restore(INDEX.with(|slot| slot.borrow_mut().take()));
+    INDEX.with(|slot| *slot.borrow_mut() = Some(index));
+    body()
 }

@@ -5,8 +5,6 @@ mod crash_tests;
 mod journal;
 mod plan;
 mod projections;
-#[cfg(test)]
-mod race_tests;
 mod recover;
 mod run;
 
@@ -16,3 +14,5 @@ pub use run::{NativeReport, run};
 
 #[cfg(test)]
 mod plan_tests;
+#[cfg(test)]
+mod settle_tests;

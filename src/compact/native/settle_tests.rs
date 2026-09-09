@@ -1,55 +1,54 @@
-//! A write that lands in the middle of a compaction.
+//! Whether compaction may call the projections settled.
+use super::plan_tests::{add, store};
 use super::run::{run, with_pause};
-use crate::command::init;
-use crate::record::{RecordDraft, append, read_all};
-use crate::schema::{self, TypeDefinition};
-use serde_json::json;
-use std::path::{Path, PathBuf};
+use crate::record::read_all;
 use std::time::Duration;
 
-pub(super) fn store(name: &str) -> PathBuf {
-    let root = std::env::temp_dir().join(format!(
-        "equill-compact-race-{name}-{}",
-        uuid::Uuid::now_v7()
-    ));
-    init::create(&root, "owner", "agent.memory").expect("init");
-    schema::register(
-        &root,
-        TypeDefinition {
-            type_name: "agent.lesson.v1".into(),
-            uri: "equill://agent.lesson/v1".into(),
-            owner: "owner".into(),
-            payload_schema: json!({
-                "type": "object",
-                "properties": { "rule": { "type": "string" } },
-                "required": ["rule"],
-                "additionalProperties": false
-            }),
-            lifecycle: Default::default(),
-        },
-        "owner",
-    )
-    .expect("schema");
-    root
-}
+/// A catch-up that could not start is not a catch-up that finished.
+///
+/// When the drain lease is held elsewhere the worker returns a default report:
+/// nothing done, and no error to notice. Reading that as success let compaction
+/// declare the projections settled and clear its journal, leaving the survivors
+/// carrying stale hashes with nothing left to find them.
+#[test]
+fn a_held_drain_lease_stops_compaction_claiming_the_projection_is_settled() {
+    let root = store("held-lease");
+    let first = add(&root, "older", None);
+    add(&root, "newer", Some(first));
 
-pub(super) fn add(root: &Path, rule: &str, supersedes: Option<uuid::Uuid>) -> uuid::Uuid {
-    append(
-        root,
-        RecordDraft {
-            namespace: "agent.memory".into(),
-            type_name: "agent.lesson.v1".into(),
-            observed_at: "2026-01-01T00:00:00Z".into(),
-            valid_at: None,
-            payload: json!({ "rule": rule }),
-            evidence: Vec::new(),
-            tags: Vec::new(),
-            supersedes,
-        },
-        "owner",
-    )
-    .expect("append")
-    .id
+    // An index that answers, so the only thing that can fail is the catch-up.
+    // With an unreachable provider this test would go red for a reason that has
+    // nothing to do with the lease.
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let recorder = seen.clone();
+    let index = std::sync::Arc::new(move |condemned: &[uuid::Uuid]| {
+        recorder.lock().unwrap().extend_from_slice(condemned);
+        Ok(true)
+    });
+
+    // Someone else is draining.
+    let _lease = crate::kernel::lock::TryLock::acquire(&root, "vector-drain.lock")
+        .expect("lock")
+        .expect("the lease was already held");
+
+    let outcome = super::projections::with_index(index, || run(&root, true, "owner"));
+
+    assert!(
+        !seen.lock().unwrap().is_empty(),
+        "the fixture never reached the point removal"
+    );
+
+    assert!(
+        outcome.is_err(),
+        "compaction reported success while the projection was never settled"
+    );
+    assert!(
+        super::journal::Journal::read(&root)
+            .expect("journal")
+            .is_some(),
+        "the journal was cleared even though the work was not finished"
+    );
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 /// Governance and the writer hold different locks, so holding the governance

@@ -6,7 +6,7 @@
 //! store unreadable.
 use super::journal::Journal;
 use super::journal::with_interrupt;
-use super::race_tests::{add, store};
+use super::plan_tests::{add, store};
 use super::run::run;
 use crate::record::read_all;
 
