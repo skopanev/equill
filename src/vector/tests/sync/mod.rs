@@ -24,23 +24,23 @@ use uuid::Uuid;
 const PHYSICAL: &str = "equill_sync_active";
 
 #[derive(Clone)]
-pub(super) struct FakeIndex {
+pub(crate) struct FakeIndex {
     root: PathBuf,
     config: VectorConfig,
-    pub(super) inner: Arc<Mutex<FakeState>>,
+    pub(crate) inner: Arc<Mutex<FakeState>>,
 }
 
 #[derive(Default)]
-pub(super) struct FakeState {
-    pub(super) points: HashMap<Uuid, VectorPointMetadata>,
-    pub(super) points_upserted: usize,
-    pub(super) ready_marks: usize,
-    pub(super) checkpoint: Option<(usize, String)>,
-    pub(super) fail_upsert: bool,
+pub(crate) struct FakeState {
+    pub(crate) points: HashMap<Uuid, VectorPointMetadata>,
+    pub(crate) points_upserted: usize,
+    pub(crate) ready_marks: usize,
+    pub(crate) checkpoint: Option<(usize, String)>,
+    pub(crate) fail_upsert: bool,
     /// Counted separately from upserts, because the whole point of relabelling
     /// is that it happens without the model: a test that cannot tell the two
     /// apart cannot prove the model stayed idle.
-    pub(super) points_relabelled: usize,
+    pub(crate) points_relabelled: usize,
 }
 
 impl SyncIndex for FakeIndex {
@@ -126,7 +126,7 @@ impl SyncIndex for FakeIndex {
     }
 }
 
-pub(super) struct FakeEmbedder {
+pub(crate) struct FakeEmbedder {
     descriptor: EmbeddingDescriptor,
     append_during_embed: Option<PathBuf>,
 }
@@ -162,7 +162,7 @@ fn a_failed_pass_keeps_the_last_searchable_checkpoint() {
     fs::remove_dir_all(root).unwrap();
 }
 
-pub(super) fn fixture(name: &str) -> (PathBuf, VectorConfig, FakeIndex) {
+pub(crate) fn fixture(name: &str) -> (PathBuf, VectorConfig, FakeIndex) {
     let root = super::support::root(name);
     init::create(&root, "owner", "agent.memory").unwrap();
     schema::register(
@@ -197,7 +197,7 @@ pub(super) fn fixture(name: &str) -> (PathBuf, VectorConfig, FakeIndex) {
     (root, config, index)
 }
 
-pub(super) fn embedder(
+pub(crate) fn embedder(
     config: &VectorConfig,
     append_during_embed: Option<PathBuf>,
 ) -> FakeEmbedder {
@@ -214,7 +214,7 @@ pub(super) fn embedder(
     }
 }
 
-pub(super) fn add(root: &Path, rule: &str) {
+pub(crate) fn add(root: &Path, rule: &str) {
     append(
         root,
         RecordDraft {

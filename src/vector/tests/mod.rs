@@ -9,4 +9,4 @@ mod hydration;
 mod lifecycle;
 mod search;
 pub(crate) mod support;
-mod sync;
+pub(crate) mod sync;

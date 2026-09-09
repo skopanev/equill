@@ -31,7 +31,7 @@ mod embedding;
 mod fusion;
 mod hydrate;
 mod model;
-mod operator;
+pub(crate) mod operator;
 mod progress;
 mod provider;
 mod report;

@@ -25,7 +25,22 @@ pub fn condemned(plan: &Plan) -> Vec<Uuid> {
 /// are expensive, the surviving ones are still correct, and only the condemned
 /// are removed.
 pub fn reconcile(store_root: &std::path::Path, condemned: &[Uuid]) -> Result<(), Error> {
-    let configured = forget_condemned(store_root, condemned)?;
+    // Held while the points are removed, and released before the catch-up that
+    // needs it. A sync running alongside has already read a snapshot from
+    // before the compaction: it would upsert points for records this call is
+    // deleting, and they would come back with nothing in the ledger behind
+    // them. Taking the lease means either it finished before this started or
+    // it has not started yet.
+    let removed = {
+        let lease = crate::kernel::lock::TryLock::acquire(store_root, "vector-drain.lock")?;
+        if lease.is_none() {
+            return Err(Error::Compact(
+                "a catch-up is running; compaction cannot remove points it might re-add".into(),
+            ));
+        }
+        forget_condemned(store_root, condemned)?
+    };
+    let configured = removed;
     crate::projection::rebuild(store_root)?;
     // The survivors whose links were cut have new record hashes, and their
     // points still carry the old ones. Left to the next ordinary write, the

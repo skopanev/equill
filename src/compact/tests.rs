@@ -31,7 +31,11 @@ fn dry_run_is_read_only_and_apply_rebuilds_the_manifest() {
         format!(
             "{}{}{}{}{}",
             line("expired", None, Some("2020-01-01T00:00:00Z"), &[]),
-            line("warning", None, Some("2026-08-10T00:00:00Z"), &[]),
+            // Fifteen days ago, so it sits inside the thirty-day warning window
+            // wherever this suite runs. A fixed date put it inside the window
+            // when it was written and outside it once enough days had passed,
+            // and the test then failed for everyone on a date nobody chose.
+            line("warning", None, Some(&recently()), &[]),
             line("dead", None, None, &["anchor:ticket:closed-ticket"]),
             line("active", None, None, &["anchor:ticket:open-ticket"]),
             line("unknown", None, None, &["anchor:ticket:unknown-ticket"]),
@@ -54,12 +58,10 @@ fn dry_run_is_read_only_and_apply_rebuilds_the_manifest() {
     ingest::import_manifest(&root, &manifest, "test-owner").expect("initial import");
     let before = snapshot(&root, &[&one, &two]);
 
-    let dry = planner::build(
-        &root,
-        &manifest,
-        "2026-08-27T00:00:00Z".parse().expect("time"),
-    )
-    .expect("dry plan");
+    // The same clock the apply below uses. Planning against a fixed instant
+    // while applying against the real one made the two disagree as soon as the
+    // calendar moved past the fixture.
+    let dry = planner::build(&root, &manifest, jiff::Timestamp::now()).expect("dry plan");
     assert_eq!(
         dry.inputs
             .iter()
@@ -138,6 +140,12 @@ fn register_schema(root: &Path) {
     )
     .expect("schema file");
     schema::register_file(root, &path, "test-owner").expect("register schema");
+}
+
+/// Fifteen days before now, in RFC 3339: comfortably inside a thirty-day
+/// window from either end.
+fn recently() -> String {
+    (jiff::Timestamp::now() - std::time::Duration::from_secs(15 * 86_400)).to_string()
 }
 
 fn line(id: &str, supersedes: Option<&str>, expires_at: Option<&str>, tags: &[&str]) -> String {
