@@ -38,7 +38,7 @@ pub(super) fn append(
         file.seek(SeekFrom::End(-1))?;
         let mut tail = [0];
         file.read_exact(&mut tail)?;
-        if tail != [b'\n'] {
+        if tail != *b"\n" {
             return Err(failure());
         }
     }
