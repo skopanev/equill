@@ -1,14 +1,7 @@
 //! Taking the removed records out of the projections too.
 //!
-//! This has to happen as part of compaction, not after it. The vector sync
-//! learns which points are stale by reading the ledger for superseded and
-//! revoked records — and once compaction has removed those lines, there is
-//! nothing left to learn from. A point whose record is gone from the ledger is
-//! never revisited: it would sit in the collection, answering searches, with no
-//! record behind it.
-//!
-//! So the list of ids is taken while the ledger still names them, and spent
-//! before it stops.
+//! Keep the condemned ids until reconciliation succeeds: once their ledger
+//! lines are removed, an ordinary vector sync cannot discover stale points.
 use crate::kernel::error::Error;
 use crate::record::StoredRecord;
 use crate::record::withdrawn;
@@ -28,23 +21,37 @@ pub fn condemned(plan: &Plan) -> Vec<Uuid> {
 /// are expensive, the surviving ones are still correct, and only the condemned
 /// are removed.
 pub fn reconcile(store_root: &std::path::Path, condemned: &[Uuid]) -> Result<(), Error> {
-    // Held while the points are removed, and released before the catch-up that
-    // needs it. A sync running alongside has already read a snapshot from
+    // Held through point removal and the text rebuild. A worker may hold a
+    // text snapshot even when vectors are disabled; it must finish before the
+    // rebuild or it could put removed records back. A sync may hold a snapshot from
     // before the compaction: it would upsert points for records this call is
     // deleting, and they would come back with nothing in the ledger behind
     // them. Taking the lease means either it finished before this started or
     // it has not started yet.
-    let removed = {
-        let lease = crate::kernel::lock::TryLock::acquire(store_root, "vector-drain.lock")?;
-        if lease.is_none() {
-            return Err(Error::Compact(
-                "a catch-up is running; compaction cannot remove points it might re-add".into(),
-            ));
-        }
-        forget_condemned(store_root, condemned)?
+    let configured = {
+        let _lease = crate::kernel::lock::TryLock::acquire(store_root, "vector-drain.lock")?;
+        let _text_lease = if _lease.is_none() {
+            if !crate::vector::drain::enabled(store_root)? {
+                // Both callers released the writer lock before entering here.
+                // The local text worker can finish; no provider is being awaited.
+                #[cfg(test)]
+                super::settle_tests::waiting_for_text();
+                Some(crate::kernel::lock::StoreLock::named(
+                    store_root,
+                    "vector-drain.lock",
+                )?)
+            } else {
+                return Err(Error::Compact(
+                    "a catch-up is running; compaction cannot remove points it might re-add".into(),
+                ));
+            }
+        } else {
+            None
+        };
+        let configured = forget_condemned(store_root, condemned)?;
+        crate::projection::rebuild(store_root)?;
+        configured
     };
-    let configured = removed;
-    crate::projection::rebuild(store_root)?;
     // The survivors whose links were cut have new record hashes, and their
     // points still carry the old ones. Left to the next ordinary write, the
     // index would disagree with the ledger until something unrelated happened

@@ -141,8 +141,8 @@ fn compaction_removes_dead_points_and_settles_without_embedding() {
 /// — and reading that as success let compaction clear its journal.
 #[test]
 fn a_held_drain_lease_stops_compaction_claiming_the_projection_is_settled() {
-    let root = store("held-lease");
-    let first = add(&root, "older", None);
+    let (root, _, _) = crate::vector::tests::sync::fixture("held-lease");
+    let first = read_all(&root).expect("ledger")[0].id;
     add(&root, "newer", Some(first));
 
     // An index that answers, so the only thing that can fail is the catch-up.

@@ -214,7 +214,7 @@ fn start(store: &Path) -> DrainReport {
     }
 }
 
-fn enabled(store: &Path) -> Result<bool, Error> {
+pub(crate) fn enabled(store: &Path) -> Result<bool, Error> {
     Ok(super::super::config::load(store)?
         .filter(|config| config.enabled)
         .is_some())

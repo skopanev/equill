@@ -4,6 +4,95 @@ use super::plan_tests::{add, store};
 use super::run::run;
 use crate::record::read_all;
 
+thread_local! {
+    static TEXT_WAIT: std::cell::RefCell<Option<std::sync::mpsc::Sender<()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+pub(super) fn waiting_for_text() {
+    TEXT_WAIT.with(|slot| {
+        if let Some(sender) = slot.borrow().as_ref() {
+            sender.send(()).expect("report contention");
+        }
+    });
+}
+
+/// Hold the worker's old snapshot until compaction reaches actual contention.
+/// Channels order the race; timeouts only bound a broken test's deadlock.
+#[test]
+fn text_only_compaction_waits_for_the_worker_and_removes_its_stale_snapshot() {
+    use crate::kernel::lock::TryLock;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let root = store("text-contention");
+    let first = add(&root, "older", None);
+    let survivor = add(&root, "newer", Some(first));
+    let snapshot = read_all(&root).expect("worker snapshot");
+    let lease = TryLock::acquire(&root, "vector-drain.lock")
+        .expect("drain lock")
+        .expect("free drain lease");
+    let (waiting_tx, waiting_rx) = mpsc::channel();
+    let (done_tx, done_rx) = mpsc::channel();
+    let compacting = root.clone();
+    let compactor = std::thread::spawn(move || {
+        TEXT_WAIT.with(|slot| *slot.borrow_mut() = Some(waiting_tx));
+        done_tx
+            .send(run(&compacting, true, "owner"))
+            .expect("outcome");
+    });
+
+    waiting_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("compaction reached the held lease");
+    assert!(
+        done_rx.try_recv().is_err(),
+        "compaction bypassed the worker"
+    );
+    // Compaction must release the writer lock before waiting: a worker can
+    // need it to finish, and keeping it would invert the lock order.
+    let writer = TryLock::acquire(&root, "writer.lock").expect("writer lock");
+    assert!(
+        writer.is_some(),
+        "compaction waited while holding the writer lock"
+    );
+    drop(writer);
+    let truth = read_all(&root).expect("published ledger");
+    assert_eq!(truth.len(), 1);
+    assert_eq!(truth[0].id, survivor);
+    for record in snapshot {
+        let digest = crate::kernel::digest::sha256_hex(&serde_json::to_vec(&record).unwrap());
+        let ledger = format!("records/{}.jsonl", &record.recorded_at[..7]);
+        crate::projection::index(&root, &record, &digest, &ledger).expect("late worker upsert");
+    }
+    assert!(
+        crate::projection::verify(&root, &truth).is_err(),
+        "fixture has no stale projection"
+    );
+    drop(lease);
+
+    let report = done_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("compaction finished")
+        .expect("compaction");
+    compactor.join().expect("compactor thread");
+    assert_eq!(report.removed, 1);
+    assert_eq!(
+        crate::projection::verify(&root, &truth).expect("reconciled projection"),
+        1
+    );
+    assert!(Journal::read(&root).expect("journal").is_none());
+    let written = add(&root, "after contention", None);
+    crate::vector::after_commit_inline(&root, 1);
+    let after = read_all(&root).expect("ledger after append");
+    assert!(after.iter().any(|record| record.id == written));
+    assert_eq!(
+        crate::projection::verify(&root, &after).expect("next append indexed"),
+        2
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// A store with no vector configured compacts and keeps working.
 ///
 /// Named for what it measures. It does not prove the relabelling: with no

@@ -169,9 +169,15 @@ fn compacting_twice_removes_nothing_the_second_time() {
     let first = record(&root, "first version", None);
     record(&root, "second version", Some(&first));
 
-    run(&root, &["compact", "--apply"]);
+    let first_compaction = run(&root, &["compact", "--apply"]);
+    assert!(
+        first_compaction.status.success(),
+        "{}",
+        stderr(&first_compaction)
+    );
     let after_first = ledger_lines(&root);
     let second = run(&root, &["compact", "--dry-run"]);
+    assert!(second.status.success(), "{}", stderr(&second));
 
     assert!(
         stdout(&second).contains("Would remove 0"),
@@ -190,7 +196,8 @@ fn the_store_still_accepts_writes_and_revocations_after_compaction() {
     let first = record(&root, "first version", None);
     let survivor = record(&root, "second version", Some(&first));
 
-    run(&root, &["compact", "--apply"]);
+    let compacted = run(&root, &["compact", "--apply"]);
+    assert!(compacted.status.success(), "{}", stderr(&compacted));
 
     let appended = record(&root, "written after compaction", None);
     assert!(!appended.is_empty());
