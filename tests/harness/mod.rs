@@ -13,6 +13,7 @@
 // other.
 #![allow(dead_code)]
 
+pub mod confirmation;
 pub mod fixture;
 pub mod h2;
 pub mod provider;

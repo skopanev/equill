@@ -2,7 +2,7 @@
 
 Every CLI invocation and every nonempty MCP request has one durable request
 intent before its operation begins, followed by one immutable completion event.
-The default destination is `.equill/equill-log` inside the caller's home.
+The default destination is `.equill-log` inside the caller's home.
 `EQUILL_AUDIT_DIR` selects an isolated alternative, including disposable test
 directories. An audit destination inside a project store is refused.
 
