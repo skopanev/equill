@@ -113,10 +113,10 @@ fn an_interrupt_to_the_writers_group_leaves_the_worker_running() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// Killing the worker outright releases ownership, and the next ordinary
-/// command starts a fresh one.
+/// Killing the worker releases ownership. Reads stay passive; the next write
+/// starts a fresh worker through its normal after-commit handoff.
 #[test]
-fn killing_the_worker_lets_the_next_command_start_another() {
+fn killing_the_worker_keeps_reads_passive_and_the_next_write_restarts_it() {
     let provider = SlowProvider::start();
     let root = store_against("kill", &provider.endpoint());
     record(&root, 0);
@@ -132,12 +132,18 @@ fn killing_the_worker_lets_the_next_command_start_another() {
     kill_workers(&root);
     assert!(settles(&root, Duration::from_secs(5)), "the worker is gone");
 
-    // An ordinary read must find the work outstanding and start another.
+    // A read does not claim outstanding work or race its own snapshot.
+    let handoff = root.join("projections/qdrant/handoff.json");
+    let before_handoff = std::fs::read(&handoff).ok();
     let out = equill(&root, &["search", "--query", "lesson", "--limit", "1"]);
     assert!(out.status.success(), "the read failed");
+    assert_eq!(std::fs::read(&handoff).ok(), before_handoff);
+    assert_eq!(children(&root), 0, "the read started a worker");
+
+    record(&root, 1);
     assert!(
         alive(&root, harness::WORKER_PATIENCE / 2),
-        "an ordinary command did not restart the work after a kill"
+        "the next write did not restart the work after a kill"
     );
     provider.release();
     settles(&root, Duration::from_secs(10));

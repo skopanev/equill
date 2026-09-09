@@ -112,9 +112,8 @@ fn execute(
     cli: command::cli::Cli,
     progress: Option<&mut dyn vector::VectorProgressSink>,
 ) -> Result<String, kernel::error::Error> {
-    // Every command that opens a store gives a lagging index one catch-up
-    // attempt. The worker itself is excluded so it cannot start a copy of its
-    // own work, and read-held stores stay passive.
+    // Eligible maintenance commands can resume a lagging index. Read-only
+    // commands stay passive; writes arrange their own after-commit handoff.
     if let Some(store) = cli.command.store_to_resume()
         && !command::cli::held_to_reading(store)
     {

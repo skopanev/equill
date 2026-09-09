@@ -21,15 +21,13 @@ impl Command {
     ///   is: two marker reads before every write, to reach a conclusion the
     ///   write is about to reach anyway.
     ///
-    /// Everything else that opens a store is included — `status` and `doctor`
-    /// among them. A health check that reports a lagging index while declining
-    /// to let it catch up is reporting a problem it could have ended.
+    /// Read-only invocations stay passive: starting maintenance immediately
+    /// before capturing their answer makes their own worker race the read.
+    /// Writes retain their after-commit handoff; explicit vector maintenance
+    /// remains available when no further writes arrive.
     pub fn store_to_resume(&self) -> Option<&std::path::Path> {
         match self {
             Self::Compact { store, .. }
-            | Self::Context { store, .. }
-            | Self::Search { store, .. }
-            | Self::Get { store, .. }
             | Self::Revoke { store, .. }
             | Self::Mcp { store, .. }
             | Self::Rebuild { store, .. } => Some(store),
@@ -39,9 +37,15 @@ impl Command {
             Self::Owner { command } => command.store(),
             Self::Grant { command } => command.store(),
             Self::Reader { command } => command.store(),
-            Self::Doctor { store, .. } => store.as_deref(),
-            Self::Status { store } => store.as_deref(),
-            Self::Audit { .. } | Self::Init { .. } | Self::Record(_) | Self::Import { .. } => None,
+            Self::Context { .. }
+            | Self::Search { .. }
+            | Self::Get { .. }
+            | Self::Doctor { .. }
+            | Self::Status { .. }
+            | Self::Audit { .. }
+            | Self::Init { .. }
+            | Self::Record(_)
+            | Self::Import { .. } => None,
         }
     }
 }
@@ -49,10 +53,8 @@ impl Command {
 impl SchemaCommand {
     fn store(&self) -> Option<&std::path::Path> {
         match self {
-            Self::Export { .. } => None,
-            Self::List { store } | Self::Show { store, .. } | Self::Register { store, .. } => {
-                Some(store)
-            }
+            Self::Export { .. } | Self::List { .. } | Self::Show { .. } => None,
+            Self::Register { store, .. } => Some(store),
         }
     }
 }

@@ -6,6 +6,48 @@ use serde_json::json;
 use std::{cell::Cell, fs, path::Path, time::Duration};
 
 #[test]
+fn cli_full_read_succeeds_while_background_snapshot_lock_is_held() {
+    let root = store("shared-read");
+    append_only(&root, draft("synthetic committed record"), "owner").unwrap();
+    crate::projection::catch_up_text(&root).unwrap();
+    super::configure_unreachable(&root);
+    crate::vector::desired::advance(&root, 1).unwrap();
+    assert!(crate::vector::drain::outstanding_for_tests(&root));
+    let _lock = crate::kernel::lock::StoreLock::shared(&root).unwrap();
+    starter::with_starter(
+        |_| panic!("read-only CLI must not start a worker"),
+        || {
+            let output = crate::run([
+                "equill",
+                "--json",
+                "doctor",
+                "--store",
+                root.to_str().unwrap(),
+                "--full",
+            ])
+            .expect("CLI reads alongside background capture");
+            let report: serde_json::Value = serde_json::from_str(&output).unwrap();
+            assert_eq!(report["ok"], true);
+        },
+    );
+    drop(_lock);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn background_text_capture_does_not_exclude_existing_public_reader() {
+    let root = store("shared-text");
+    append_only(&root, draft("synthetic pending text"), "owner").unwrap();
+    let _reader = crate::kernel::lock::ReadLock::acquire(&root).unwrap();
+    assert_eq!(
+        crate::projection::catch_up_text_background(&root).unwrap(),
+        1
+    );
+    drop(_reader);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn internal_text_snapshot_waits_for_writer_without_losing_tail() {
     let root = store("text-snapshot-contention");
     append_only(&root, draft("synthetic tail"), "owner").unwrap();

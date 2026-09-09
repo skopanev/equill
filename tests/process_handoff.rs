@@ -106,7 +106,7 @@ fn a_failed_attempt_is_remembered_until_something_changes() {
 }
 
 /// Killing a worker must not wedge the store. The claim it never consumed goes
-/// stale, and ordinary activity picks the work up again.
+/// stale, and the next producer write picks the work up again.
 #[test]
 fn a_killed_worker_does_not_wedge_the_store() {
     let root = store("killed");
@@ -118,7 +118,13 @@ fn a_killed_worker_does_not_wedge_the_store() {
         ),
         "the first worker ran"
     );
-    settles(&root, Duration::from_secs(10));
+    assert!(
+        settles(&root, Duration::from_secs(10)),
+        "first worker stopped"
+    );
+    // This fixture tests a killed claim, not the dead-provider cooldown tested
+    // above. Remove that earlier failure so a new start is actually eligible.
+    let _ = std::fs::remove_file(root.join("projections/qdrant/cooldown.json"));
 
     // Simulate a worker that died holding its claim: write one by hand and kill
     // nothing, which is indistinguishable from a child killed before it
@@ -128,12 +134,21 @@ fn a_killed_worker_does_not_wedge_the_store() {
         &serde_json::json!({ "id": uuid::Uuid::now_v7(), "issued_unix_ms": 1_u64 }),
     );
 
-    // Any ordinary command must recover: the claim is old, so it is replaced.
+    // Passive reads leave even a stale handoff untouched.
+    let claim = root.join("projections/qdrant/handoff.json");
+    let stale = std::fs::read(&claim).expect("stale handoff");
     let out = equill(&root, &["search", "--query", "lesson", "--limit", "1"]);
     assert!(
         out.status.success(),
         "an ordinary read failed: {}",
         String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(std::fs::read(&claim).expect("passive handoff"), stale);
+    record(&root, 1);
+    assert_ne!(
+        std::fs::read(&claim).ok(),
+        Some(stale),
+        "the next write must replace or consume the stale handoff"
     );
     settles(&root, Duration::from_secs(10));
     let _ = std::fs::remove_dir_all(&root);

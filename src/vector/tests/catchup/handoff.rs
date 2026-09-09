@@ -97,7 +97,7 @@ fn concurrent_writers_do_not_each_start_a_worker() {
 /// dropped without releasing it cleanly — which is what a kill looks like to
 /// everyone else: the lock is gone, the target is not.
 #[test]
-fn a_dead_worker_leaves_work_that_the_next_command_picks_up() {
+fn a_dead_worker_leaves_work_that_an_explicit_resume_picks_up() {
     let root = configured("recover");
     reset_starts();
     with_starter(counting_starter, || after_commit(&root, 0));
@@ -114,7 +114,7 @@ fn a_dead_worker_leaves_work_that_the_next_command_picks_up() {
 
     let report = with_starter(counting_starter, || resume(&root));
 
-    assert!(report.spawned, "an ordinary command restarts the work");
+    assert!(report.spawned, "an explicit resume restarts the work");
     assert_eq!(starts(), 2);
 }
 

@@ -45,10 +45,10 @@ fn a_started_child_is_a_handoff_without_waiting_to_watch_it() {
     assert_eq!(starts(), 1, "one start, no matter how many callers");
 }
 
-/// The non-query half of the recovery requirement: a command that is not a
-/// search, get or context must also restart a dead worker's work.
+/// Passive reads do not race their own worker; a mutating non-query command
+/// still restarts outstanding work after a previous worker died.
 #[test]
-fn a_non_query_command_also_restarts_outstanding_work() {
+fn a_mutating_non_query_resumes_work_while_schema_list_stays_passive() {
     let root = configured("non-query");
     reset_starts();
     with_starter(counting_starter, || after_commit(&root, 0));
@@ -56,8 +56,7 @@ fn a_non_query_command_also_restarts_outstanding_work() {
     // claim being released, not from anyone watching it die.
     crate::vector::catchup::handoff::release_for_tests(&root);
 
-    // schema list opens the store and reads nothing about vectors.
-    let resumed = with_starter(counting_starter, || {
+    let passive = with_starter(counting_starter, || {
         crate::command::cli::Command::Schema {
             command: crate::command::cli::SchemaCommand::List {
                 store: root.clone(),
@@ -66,11 +65,25 @@ fn a_non_query_command_also_restarts_outstanding_work() {
         .store_to_resume()
         .map(resume)
     });
+    assert!(passive.is_none(), "schema list must stay read-only");
+    assert_eq!(starts(), 1, "a passive read must not start another worker");
+
+    let resumed = with_starter(counting_starter, || {
+        crate::command::cli::Command::Revoke {
+            store: root.clone(),
+            id: uuid::Uuid::nil().to_string(),
+            comment: None,
+        }
+        .store_to_resume()
+        .map(resume)
+    });
 
     assert!(
         resumed.is_some_and(|report| report.spawned),
-        "an ordinary non-query command restarts the work"
+        "a mutating non-query command restarts the work"
     );
+    assert_eq!(starts(), 2, "the mutation starts exactly one replacement");
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 /// The starter seam hands itself back too, and hands back what it replaced.

@@ -162,7 +162,7 @@ pub(crate) struct Captured {
 /// incremental sync.
 pub(crate) fn capture(store_root: &Path) -> Result<Captured, Error> {
     let (revision, embed_types, captured) = {
-        let _lock = StoreLock::exclusive(store_root)?;
+        let _lock = StoreLock::shared(store_root)?;
         let revision =
             crate::vector::desired::read(store_root)?.map_or(0, |target| target.revision);
         let embed_types = super::super::coverage::embed_types(store_root)?;

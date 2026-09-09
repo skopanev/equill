@@ -95,7 +95,7 @@ pub fn catch_up_text(store_root: &Path) -> Result<usize, Error> {
 /// Public reads still use the nonblocking path above.
 pub(crate) fn catch_up_text_background(store_root: &Path) -> Result<usize, Error> {
     let captured = {
-        let _lock = StoreLock::exclusive(store_root)?;
+        let _lock = StoreLock::shared(store_root)?;
         crate::record::snapshot::capture_exclusive(store_root, None)?
     };
     catch_up_captured(store_root, captured)

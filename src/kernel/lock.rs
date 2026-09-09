@@ -49,6 +49,18 @@ impl Drop for ReadLock {
 }
 
 impl StoreLock {
+    /// Background snapshot capture excludes canonical writers, not public readers.
+    pub(crate) fn shared(store: &Path) -> Result<Self, Error> {
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(store.join("locks/writer.lock"))?;
+        FileExt::lock_shared(&file)?;
+        Ok(Self { file })
+    }
+
     pub fn exclusive(store: &Path) -> Result<Self, Error> {
         Self::named(store, "writer.lock")
     }
