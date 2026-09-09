@@ -175,7 +175,7 @@ fn unavailable_vector_falls_back_to_the_full_record_budget() {
 #[test]
 fn lagging_vector_with_record_ceiling_answers_and_reports_its_freshness() {
     let root = seeded("mixed-lagging", "hybrid");
-    crate::vector::tests::support::stage_lagging_index(&root, 20);
+    crate::vector::tests::support::stage_lagging_index(&root, 20, 1);
     let bundle = with_semantic_half(vector::<30>, || context(&root, 7));
     let semantic = bundle.receipt.semantic.as_ref().expect("hybrid account");
 

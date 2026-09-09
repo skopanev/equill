@@ -6,7 +6,7 @@ mod watermark;
 #[cfg(test)]
 pub(crate) use graph::validate_append;
 pub(crate) use graph::validate_graph;
-pub(crate) use state::{LifecycleState, load as load_state, save as save_state};
+pub(crate) use state::{LifecycleState, from_records, load as load_state, save as save_state};
 
 use super::StoredRecord;
 use crate::kernel::error::Error;
@@ -205,12 +205,7 @@ pub(crate) fn registered_types(store: &Path) -> Result<Vec<(String, TypeDefiniti
 /// a store with no usable state has nothing else to build from.
 pub(crate) fn rebuild_state(store: &Path) -> Result<LifecycleState, Error> {
     let claiming = registered_types(store)?;
-    let mut built = state::empty();
-    for record in super::read_all(store)? {
-        let keys = keys_of(&record, &claiming);
-        built.record(&record, keys);
-    }
-    Ok(built)
+    from_records(&super::read_all_exclusive(store)?, &claiming)
 }
 
 fn eligible(candidate: &StoredRecord, record: &StoredRecord, definition: &TypeDefinition) -> bool {

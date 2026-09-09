@@ -7,6 +7,23 @@ use super::append;
 use super::tests::{lesson, store};
 use std::fs;
 
+#[test]
+fn superseding_an_unindexed_record_reads_only_its_named_shard() {
+    let root = store();
+    let first = super::append_only(&root, lesson("synthetic predecessor"), "writer").unwrap();
+    let mut replacement = lesson("synthetic replacement");
+    replacement.supersedes = Some(first.id);
+    super::hotpath::reset();
+    super::located::shard_reads();
+    super::append_only(&root, replacement, "writer").unwrap();
+    assert_eq!(
+        super::hotpath::touched(),
+        super::hotpath::Touched::default()
+    );
+    assert_eq!(super::located::shard_reads(), 1);
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// The confirmation boundary, observed rather than timed.
 ///
 /// A caller is told a record is durable once the ledger holds it and its

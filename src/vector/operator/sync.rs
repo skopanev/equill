@@ -1,5 +1,4 @@
 use super::super::config::VectorConfig;
-use super::super::coverage::corpus_snapshot;
 use super::super::embedding::EmbeddingRuntime;
 use super::super::model::vector_error;
 use super::super::progress::{VectorProgress, VectorProgressSink, emit};
@@ -77,7 +76,7 @@ pub(crate) fn catch_up_with_progress(
     // what a catch-up did would rest on an unreachable Qdrant failing for its
     // own reasons.
     #[cfg(test)]
-    if let Some(outcome) = substituted(store_root, &vector_config.collection_alias) {
+    if let Some(outcome) = super::index::substituted(store_root, &vector_config.collection_alias) {
         return outcome;
     }
     let projection = VectorProjection::open(store_root)?
@@ -122,14 +121,16 @@ where
     let physical = index.active_collection()?;
     // Read the target BEFORE the corpus: a write that lands while this pass runs
     // must leave the checkpoint behind the target rather than be swallowed by it.
-    let revision = crate::vector::desired::read(store_root)?.map_or(0, |target| target.revision);
-    // Deliberately NOT under the writer lock: holding it across a full ledger
-    // hash made every concurrent write wait for the scan (measured p95 165ms and
-    // 873ms). The ledger is append-only and the reader stops at the last
-    // completed line, so an unlocked snapshot is a consistent prefix.
-    let snapshot = corpus_snapshot(store_root)?;
+    // Operator/background work may wait for the active writer, but holds the
+    // lock only over coherent target/filter/descriptor capture, never model work.
+    let snapshot = super::rebuild::capture(store_root)?;
+    let revision = snapshot.revision;
     let records = snapshot.records;
     let digest = snapshot.digest;
+    // Carried rather than re-read: the descriptor can change while this pass
+    // runs, and a checkpoint stamped with the filter as it stands at the end
+    // would claim a corpus the pass never saw.
+    let filter = snapshot.embed_types_sha256;
     index.delete(&physical, &snapshot.history)?;
     let work = pending(config, index, &physical, &records)?;
     let documents = work.embed;
@@ -197,7 +198,8 @@ where
         // The checkpoint records what this pass covered, so the next one knows
         // its tail. Only the marker write needs the lock.
         let _lock = StoreLock::exclusive(store_root)?;
-        index.mark_indexed(&physical, records.len(), &digest, revision)?;
+        let filter = filter.as_deref();
+        index.mark_indexed(&physical, records.len(), &digest, revision, filter)?;
     }
     emit(
         &mut progress,
@@ -217,34 +219,4 @@ where
         corpus_sha256: digest,
         duration_ms: started.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
     })
-}
-
-/// A stand-in for the catch-up, installed for one call.
-#[cfg(test)]
-type Standin = std::sync::Arc<dyn Fn(&Path, &str) -> Result<VectorSyncReport, Error> + Send + Sync>;
-
-#[cfg(test)]
-thread_local! {
-    static STANDIN: std::cell::RefCell<Option<Standin>> = const { std::cell::RefCell::new(None) };
-}
-
-#[cfg(test)]
-fn substituted(store_root: &Path, alias: &str) -> Option<Result<VectorSyncReport, Error>> {
-    STANDIN
-        .with(|slot| slot.borrow().clone())
-        .map(|standin| standin(store_root, alias))
-}
-
-/// Installed for one call and removed after, even if the body panics.
-#[cfg(test)]
-pub(crate) fn with_standin<T>(standin: Standin, body: impl FnOnce() -> T) -> T {
-    struct Restore(Option<Standin>);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            STANDIN.with(|slot| *slot.borrow_mut() = self.0.take());
-        }
-    }
-    let _restore = Restore(STANDIN.with(|slot| slot.borrow_mut().take()));
-    STANDIN.with(|slot| *slot.borrow_mut() = Some(standin));
-    body()
 }

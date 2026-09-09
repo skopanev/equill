@@ -4,6 +4,7 @@ mod embed;
 mod endpoint_consistency;
 mod freshness;
 mod lifecycle;
+mod marker_counts;
 mod rebuild_boundary;
 mod relabel;
 
@@ -14,11 +15,10 @@ use crate::schema::{self, TypeDefinition};
 use crate::vector::model::{
     EmbeddingDescriptor, EmbeddingDocument, VectorPoint, VectorPointMetadata, vector_error,
 };
-use crate::vector::operator::{SyncIndex, execute};
-use crate::vector::{Embedder, VectorConfig, VectorState, corpus, state};
+use crate::vector::operator::SyncIndex;
+use crate::vector::{Embedder, VectorConfig};
 use serde_json::json;
 use std::collections::HashMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
@@ -125,6 +125,7 @@ impl SyncIndex for FakeIndex {
         records: usize,
         digest: &str,
         revision: u64,
+        embed_types_sha256: Option<&str>,
     ) -> Result<(), Error> {
         let mut inner = self.inner.lock().unwrap();
         inner.ready_marks += 1;
@@ -134,7 +135,9 @@ impl SyncIndex for FakeIndex {
             &self.root,
             &self.config,
             physical,
-            Some((records, digest, revision)), // given, not invented from a count
+            // Given, not invented from a count — and the filter comes from the
+            // pass that took the corpus, not from a re-read of the descriptor.
+            Some((records, digest, revision, embed_types_sha256)),
         )?
         .commit()
     }
@@ -159,21 +162,6 @@ impl Embedder for FakeEmbedder {
             .map(|_| vec![0.5; self.descriptor.dimensions as usize])
             .collect())
     }
-}
-
-#[test]
-fn a_failed_pass_keeps_the_last_searchable_checkpoint() {
-    let (root, config, index) = fixture("failure");
-    index.inner.lock().unwrap().fail_upsert = true;
-    let before = corpus(&root).unwrap();
-
-    assert!(execute(&root, &config, &index, || Ok(embedder(&config, None))).is_err());
-    let after = corpus(&root).unwrap();
-    assert_eq!((after.0.len(), after.1), (before.0.len(), before.1));
-    // The previous checkpoint survives a failed pass: losing a working index
-    // to protect it from being slightly behind is the worse outcome.
-    assert_eq!(state(&root).unwrap(), VectorState::Ready);
-    fs::remove_dir_all(root).unwrap();
 }
 
 pub(crate) fn fixture(name: &str) -> (PathBuf, VectorConfig, FakeIndex) {

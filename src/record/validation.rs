@@ -68,9 +68,9 @@ fn validate_payload(
             } else {
                 &pointer
             };
-            // The offending value is quoted back in full by the validator; a
-            // rule that is too long would then bury its own error message.
-            format!("{at}: {}", shorten(&error.to_string()))
+            // Validator Display includes the rejected payload. A schema
+            // coordinate identifies the constraint without exposing its value.
+            format!("{at}: violates {}", error.schema_path())
         })
         .collect::<Vec<_>>();
     if faults.is_empty() {
@@ -85,24 +85,6 @@ fn validate_payload(
         message.push_str(&format!(" (and {hidden} more)"));
     }
     Err(Error::InvalidRecord(message))
-}
-
-/// The validator quotes the offending value before stating the reason, so a
-/// value that is itself too long would push its own explanation out of view.
-/// Keep both ends: enough of the value to recognise it, all of the reason.
-fn shorten(text: &str) -> String {
-    const HEAD: usize = 60;
-    const TAIL: usize = 90;
-    let indices = text
-        .char_indices()
-        .map(|(index, _)| index)
-        .collect::<Vec<_>>();
-    if indices.len() <= HEAD + TAIL {
-        return text.to_owned();
-    }
-    let head = &text[..indices[HEAD]];
-    let tail = &text[indices[indices.len() - TAIL]..];
-    format!("{head}… …{tail}")
 }
 
 fn validate_tags(tags: &[String]) -> Result<(), Error> {

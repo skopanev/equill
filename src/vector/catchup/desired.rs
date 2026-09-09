@@ -38,6 +38,27 @@ pub fn advance(store: &Path, appended: u64) -> Result<u64, Error> {
     Ok(revision)
 }
 
+/// Reserve a replayable target while the canonical writer holds its lock.
+/// The transaction persists this value before append, then publishes it only
+/// after immutable data is durable. Retrying publication never increments it.
+pub(crate) fn reserve(store: &Path, appended: u64) -> Result<Option<u64>, Error> {
+    if !super::super::config::load(store)?.is_some_and(|config| config.enabled) {
+        return Ok(None);
+    }
+    Ok(Some(
+        read(store)?
+            .map_or(0, |value| value.revision)
+            .saturating_add(appended),
+    ))
+}
+
+pub(crate) fn publish_reserved(store: &Path, revision: Option<u64>) -> Result<(), Error> {
+    match revision {
+        Some(revision) => publish(store, revision),
+        None => Ok(()),
+    }
+}
+
 pub fn publish(store: &Path, revision: u64) -> Result<(), Error> {
     // A target only ever moves forward. Callers publish under the writer lock,
     // so this should never trigger — but a watermark that can go backwards turns

@@ -20,6 +20,7 @@ struct ScanBody<'a> {
 
 pub fn audit(store_root: &Path) -> Result<super::DeepReport, Error> {
     let _lock = StoreLock::exclusive(store_root)?;
+    crate::record::snapshot::ensure_settled(store_root)?;
     let custom_rules = crate::defense::policy::custom_rules(store_root)?;
     let mut ledgers = ledgers(store_root)?;
     ledgers.sort();

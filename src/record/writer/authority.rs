@@ -32,20 +32,46 @@ pub(crate) fn require_current_writer(
     identity::require_type_writer(&store::load(store)?, actor, namespace, type_name)
 }
 
+/// Check the requested scope before recovery can mutate store state.
+pub(super) fn require_current_record_scope(
+    store: &Path,
+    actor: &str,
+    record: &StoredRecord,
+) -> Result<(), Error> {
+    identity::require_record_writer(
+        &store::load(store)?,
+        actor,
+        WriteTarget {
+            namespace: &record.namespace,
+            type_name: &record.type_name,
+            payload: &record.payload,
+        },
+        None,
+    )
+}
+
 /// Re-read authority and bind both ends of a replacement to one grant.
 pub(super) fn require_current_record_writer(
     store: &Path,
     actor: &str,
     record: &StoredRecord,
+    state: &crate::record::lifecycle::LifecycleState,
 ) -> Result<(), Error> {
     let config = store::load(store)?;
     let predecessor = record
         .supersedes
         .map(|id| {
-            super::super::read_all(store)?
-                .into_iter()
-                .find(|item| item.id == id)
-                .ok_or_else(|| Error::InvalidRecord(format!("supersedes target is unknown: {id}")))
+            let entry = state.entries.get(&id).ok_or_else(|| {
+                Error::InvalidRecord(format!("supersedes target is unknown: {id}"))
+            })?;
+            let locator = crate::projection::LedgerLocator {
+                record_id: id,
+                ledger: entry.ledger.clone(),
+                record_sha256: entry.record_sha256.clone(),
+            };
+            crate::record::read_located_exclusive(store, &[locator])?
+                .pop()
+                .ok_or_else(|| Error::Integrity(format!("supersedes candidate is absent: {id}")))
         })
         .transpose()?;
     identity::require_record_writer(

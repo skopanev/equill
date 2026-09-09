@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::projection::ProjectionState;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RecordDraft {
     pub namespace: String,
@@ -20,6 +20,15 @@ pub struct RecordDraft {
     pub tags: Vec<String>,
     #[serde(default)]
     pub supersedes: Option<Uuid>,
+}
+
+/// A caller-chosen operation identity, separate from immutable record content.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AppendRequest {
+    pub draft: RecordDraft,
+    #[serde(default)]
+    pub idempotency_key: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

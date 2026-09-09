@@ -28,6 +28,21 @@ pub struct Check {
 }
 
 pub fn report(store_root: Option<&Path>, full: bool, deep: bool) -> Result<DoctorReport, Error> {
+    report_with_records(store_root, full, deep, None)
+}
+
+/// Post-swap verification while the caller retains the writer lock and rollback fence.
+pub(crate) fn report_exclusive(store_root: &Path) -> Result<DoctorReport, Error> {
+    let records = crate::record::read_all_exclusive(store_root)?;
+    report_with_records(Some(store_root), true, false, Some(&records))
+}
+
+fn report_with_records(
+    store_root: Option<&Path>,
+    full: bool,
+    deep: bool,
+    records: Option<&[crate::record::StoredRecord]>,
+) -> Result<DoctorReport, Error> {
     let store_initialized = store_root
         .map(|root| store::load(root).map(|_| true))
         .transpose()?;
@@ -59,8 +74,14 @@ pub fn report(store_root: Option<&Path>, full: bool, deep: bool) -> Result<Docto
     if (full || deep)
         && let Some(root) = store_root
     {
-        let scan = integrity::scan(root)?;
-        context_profile_faults = context::profile_faults(root)?;
+        let scan = match records {
+            Some(records) => integrity::scan_records(root, records)?,
+            None => integrity::scan(root)?,
+        };
+        context_profile_faults = match records {
+            Some(records) => context::profile_faults_with_records(root, records)?,
+            None => context::profile_faults(root)?,
+        };
         checks.extend([
             Check {
                 id: "schemas",

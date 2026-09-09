@@ -129,7 +129,7 @@ pub fn finish(
     swaps: Vec<Swap>,
     sources: &mut [SourceStage],
 ) -> Result<(), Error> {
-    let result = doctor::report(Some(store), true, false).and_then(|report| {
+    let result = doctor::report_exclusive(store).and_then(|report| {
         if report.ok {
             receipt.commit()
         } else {

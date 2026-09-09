@@ -207,7 +207,8 @@ fn a_hybrid_bundle_reports_how_far_behind_the_index_was() {
     let root = seed("hybrid-lagging");
     append(&root, "Another needle", &[], None, "2026-01-02T00:00:00Z");
     append(&root, "A third needle", &[], None, "2026-01-03T00:00:00Z");
-    crate::vector::tests::support::stage_lagging_index(&root, 1);
+    // One record covered by the checkpoint, two written after it.
+    crate::vector::tests::support::stage_lagging_index(&root, 1, 2);
 
     let bundle = with_semantic_half(half, || {
         assemble(
@@ -230,7 +231,7 @@ fn a_hybrid_bundle_reports_how_far_behind_the_index_was() {
     // Three records in the ledger, one covered by the checkpoint: the counts
     // are the store's, not the substituted half's.
     assert_eq!(semantic.vector_indexed_records, Some(1));
-    assert_eq!(semantic.vector_pending_records, Some(2));
+    assert_eq!(semantic.vector_pending_records, None);
     assert_eq!(semantic.vector_selected_records, Some(3));
     assert_eq!(semantic.fts_selected_records, Some(0));
     fs::remove_dir_all(root).expect("remove store");

@@ -3,6 +3,21 @@ use crate::kernel::error::Error;
 use crate::{command, schema};
 use std::path::Path;
 
+pub fn export(
+    json: bool,
+    store: &Path,
+    output: &Path,
+    all_registered: bool,
+) -> Result<String, Error> {
+    let report = schema::export(store, output, all_registered)?;
+    crate::audit::result::remember([], report.exported, None, None);
+    let text = format!(
+        "exported {} schemas ({} current, {} legacy)",
+        report.exported, report.current, report.legacy
+    );
+    command::output::render(json, &report, text)
+}
+
 pub fn list(json: bool, store: &Path) -> Result<String, Error> {
     let report = schema::list(store)?;
     let text = report

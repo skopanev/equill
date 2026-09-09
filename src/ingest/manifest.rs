@@ -58,6 +58,16 @@ pub(crate) fn import_resolved(
     entries: Vec<ResolvedInput>,
     actor: &str,
 ) -> Result<ImportSetReport, Error> {
+    // Empty sets never reach the record writer. Their receipt is nevertheless
+    // a mutation, with no input scope from which to derive a scoped grant.
+    let _empty_guard = if entries.is_empty() {
+        crate::kernel::identity::require_writer(&crate::kernel::store::load(store)?, actor)?;
+        let guard = crate::kernel::lock::StoreLock::exclusive(store)?;
+        crate::kernel::identity::require_writer(&crate::kernel::store::load(store)?, actor)?;
+        Some(guard)
+    } else {
+        None
+    };
     let manifest_sha256 = sha256_hex(manifest_bytes);
     let mut reports = Vec::with_capacity(entries.len());
     let mut receipts = Vec::with_capacity(entries.len());

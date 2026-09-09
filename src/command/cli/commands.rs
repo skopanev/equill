@@ -1,18 +1,19 @@
 //! The command list. Its argument vocabularies live beside it in `args`.
 use super::args::*;
 use super::authority::{GrantCommand, OwnerCommand, ReaderCommand};
-use super::{PresentationArgs, RecordFormatArg};
+use super::{AuditCommand, PresentationArgs, RecordFormatArg};
 use clap::Subcommand;
 use std::path::PathBuf;
 
 #[derive(Debug, Subcommand)]
-// One variant is much larger than the rest because one command takes many more
-// options than the rest. The lint is about the cost of moving a large enum
-// around; this one is parsed once per process and matched once. Boxing it would
-// buy nothing and would put a Box between clap's derive and every field it
-// fills.
+// Parsed once per invocation; boxing the large context variant buys nothing.
 #[allow(clippy::large_enum_variant)]
 pub enum Command {
+    /// Read isolated request history without creating another audit event.
+    Audit {
+        #[command(subcommand)]
+        command: AuditCommand,
+    },
     /// Create a store, its root owner, and its first namespace.
     Init {
         /// Store directory to create.
@@ -30,14 +31,7 @@ pub enum Command {
     },
     /// Append one schema-validated immutable record.
     #[command(after_help = ACTOR_HELP)]
-    Record {
-        /// Initialized store directory.
-        #[arg(long)]
-        store: PathBuf,
-        /// Record draft JSON file. Actor comes from EQUILL_ACTOR.
-        #[arg(long)]
-        input: PathBuf,
-    },
+    Record(super::RecordArgs),
     /// Import a legacy JSONL batch through the canonical writer.
     #[command(after_help = ACTOR_HELP)]
     Import {

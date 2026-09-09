@@ -188,5 +188,7 @@ fn finish_previous(store_root: &Path) -> Result<Option<Recovered>, Error> {
         transaction: journal.transaction.clone(),
     };
     resume(store_root, journal)?;
+    let records = crate::record::read_all_exclusive(store_root)?;
+    crate::record::reconcile_operations(store_root, &records, true)?;
     Ok(Some(recovered))
 }

@@ -92,16 +92,18 @@ pub fn sync_events(physical: &str, digest: &str, pending: usize) -> Vec<VectorPr
 
 /// Leave the store with a configured index whose checkpoint is real but stale.
 ///
-/// Freshness is read from the store, not from the substituted half, so a staged
-/// hybrid answer over a bare store would honestly report `Disabled` and no
-/// counts — and a receipt asserting on those would be asserting that nothing
-/// was configured. This writes a checkpoint that describes this store, this
-/// alias and this model, and covers fewer records than the ledger holds.
-pub(crate) fn stage_lagging_index(root: &std::path::Path, indexed: usize) {
+/// Freshness is read from published markers, not from the substituted half and
+/// not from the ledger, so staging a lagging index means staging both sides of
+/// that comparison: a target the ledger published and a checkpoint that covers
+/// `indexed` records at a revision `pending` writes behind it. A bare store
+/// with no markers at all would honestly report `Unknown`, and a receipt
+/// asserting on those would be asserting that nothing was configured.
+pub(crate) fn stage_lagging_index(root: &std::path::Path, indexed: usize, pending: usize) {
     let config = config(root);
     write(root, &config);
     let directory = root.join("projections/qdrant");
     fs::create_dir_all(&directory).expect("marker directory");
+    crate::vector::desired::publish(root, (indexed + pending) as u64).expect("publish target");
     fs::write(
         directory.join("state.json"),
         serde_json::to_vec(&serde_json::json!({
@@ -112,9 +114,44 @@ pub(crate) fn stage_lagging_index(root: &std::path::Path, indexed: usize) {
             "physical_collection": "equill_records_test_p0",
             "model_sha256": config["embedding"]["model"]["sha256"],
             "indexed_records": indexed,
+            "indexed_revision": indexed,
             // A digest of something, and deliberately not of this corpus: the
             // difference is what makes the checkpoint behind rather than level.
             "indexed_sha256": "f".repeat(64),
+        }))
+        .expect("marker JSON"),
+    )
+    .expect("write marker");
+}
+
+/// Configure the index and publish a checkpoint that says it is level with the
+/// store's published target.
+///
+/// Markers only: no provider, no ledger read. The revision is whatever the
+/// store actually published, so the answer this stages is `Current` whether the
+/// fixture appended before or after the config landed.
+pub(crate) fn stage_current_index(root: &std::path::Path, indexed: usize) {
+    let config = config(root);
+    write(root, &config);
+    let directory = root.join("projections/qdrant");
+    fs::create_dir_all(&directory).expect("marker directory");
+    let revision = crate::vector::desired::read(root)
+        .expect("desired marker readable")
+        .map_or(0, |target| target.revision);
+    fs::write(
+        directory.join("state.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "schema": "equill.qdrant-state.v2",
+            "state": "ready",
+            "store_id": config["store_id"],
+            "collection_alias": config["collection_alias"],
+            "physical_collection": "equill_records_test_p0",
+            "model_sha256": config["embedding"]["model"]["sha256"],
+            "indexed_records": indexed,
+            "indexed_revision": revision,
+            // A digest of something: freshness compares revisions, and only the
+            // format of this field is checked on the request path.
+            "indexed_sha256": "a".repeat(64),
         }))
         .expect("marker JSON"),
     )

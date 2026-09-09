@@ -56,6 +56,7 @@ fn dry_run_is_read_only_and_apply_rebuilds_the_manifest() {
         "{{\"path\":\"one.jsonl\",\"role\":\"rules\",{policy}}}\n{{\"path\":\"two.jsonl\",\"role\":\"lessons\",{policy}}}\n"
     )).expect("manifest");
     ingest::import_manifest(&root, &manifest, "test-owner").expect("initial import");
+    register_profile(&root);
     let before = snapshot(&root, &[&one, &two]);
 
     // The same clock the apply below uses. Planning against a fixed instant
@@ -106,7 +107,40 @@ fn dry_run_is_read_only_and_apply_rebuilds_the_manifest() {
     assert_eq!((scan.records, scan.projection_records), (4, 4));
     assert_eq!(repeat.removed, 0);
     assert!(root.join(applied.receipt.expect("receipt")).is_file());
+    assert!(
+        crate::command::doctor::report(Some(&root), true, false)
+            .expect("doctor")
+            .ok
+    );
     fs::remove_dir_all(root).expect("remove store");
+}
+
+fn register_profile(root: &Path) {
+    for (name, value) in [
+        (
+            "selector",
+            json!({
+                "id": "compact.lesson.v1", "version": "1", "type": "agent.lesson.v1",
+                "strategies": ["recency"]
+            }),
+        ),
+        (
+            "profile",
+            json!({
+                "id": "compact.worker.v1", "version": "1", "actors": [],
+                "grants": [{ "namespace": "agent.memory", "types": ["agent.lesson.v1"] }],
+                "selectors": ["compact.lesson.v1"]
+            }),
+        ),
+    ] {
+        let file = root.join(format!("{name}.json"));
+        fs::write(&file, serde_json::to_vec(&value).expect("registry json")).expect("registry");
+        if name == "selector" {
+            crate::context::register_selector(root, &file, "test-owner").expect("selector");
+        } else {
+            crate::context::register_profile(root, &file, "test-owner").expect("profile");
+        }
+    }
 }
 
 fn store(name: &str) -> PathBuf {

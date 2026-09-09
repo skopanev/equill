@@ -1,9 +1,11 @@
 mod batch;
 pub(crate) mod lifecycle;
+pub(crate) mod located;
 mod model;
 mod receipt;
 mod revoke;
 mod similar;
+pub(crate) mod snapshot;
 mod validation;
 mod verify;
 pub mod word_limit;
@@ -23,13 +25,17 @@ mod lifecycle_tests;
 mod tests;
 
 pub use batch::{BatchItem, BatchReport, append_batch, is_batch};
-pub use model::{AppendReport, EvidenceRef, RecordDraft, StoredRecord};
+pub use located::{read as read_located, read_exclusive as read_located_exclusive};
+pub use model::{AppendReport, AppendRequest, EvidenceRef, RecordDraft, StoredRecord};
 pub use revoke::{LEGACY_REVOKED_TAG, REVOKED_TAG, RevokeReport, revoke, withdrawn};
 pub use similar::{SimilarRecord, find as find_similar};
+pub(crate) use verify::{VerifiedSnapshot, read_all_exclusive, read_captured, read_snapshot};
 pub use verify::{read_all, verify_all};
 #[cfg(test)]
 pub(crate) use writer::require_current_writer;
-pub use writer::{append, append_file, append_only};
+pub(crate) use writer::{AtomicDraft, AtomicScope, append_atomic};
+pub use writer::{append, append_file, append_only, append_only_request, append_request};
+pub(crate) use writer::{reconcile_operations, recover as recover_writes};
 
 /// Append, then bring the text index level before returning.
 ///

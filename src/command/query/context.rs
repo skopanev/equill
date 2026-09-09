@@ -115,6 +115,12 @@ pub fn context(
     } else {
         command::present::records(&selected, super::shape(format), &fields)?
     };
+    crate::audit::result::remember(
+        bundle.selected_record_ids.iter().copied(),
+        bundle.selected_record_ids.len(),
+        bundle.receipt_path.as_deref(),
+        None,
+    );
     telemetry::record_query(
         &store,
         "context",

@@ -90,7 +90,7 @@ fn a_write_during_a_drain_denies_the_exit_condition() {
         &root,
         &config,
         "equill_drain_test_physical",
-        Some((records.len(), &digest, records.len() as u64)),
+        Some((records.len(), &digest, records.len() as u64, None)),
     )
     .expect("stage")
     .commit()

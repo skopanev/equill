@@ -140,10 +140,12 @@ fn invalid_payload_names_the_field_and_the_constraint() {
     let message = error.to_string();
 
     assert!(message.contains("/rule"), "{message}");
-    assert!(message.contains("longer than 500"), "{message}");
+    assert!(message.contains("maxLength"), "{message}");
     assert!(message.contains("/source"), "{message}");
-    assert!(message.contains("\"gm\""), "{message}");
-    // The offending value must not bury the reason that follows it.
+    assert!(message.contains("enum"), "{message}");
+    assert!(!message.contains("\"gm\""), "{message}");
+    assert!(!message.contains("xxxxxxxx"), "{message}");
+    // Coordinates name the constraint without echoing rejected values.
     assert!(message.len() < 600, "message is {} bytes", message.len());
 
     let missing = append(
@@ -152,12 +154,7 @@ fn invalid_payload_names_the_field_and_the_constraint() {
         "writer",
     )
     .expect_err("reject missing field");
-    assert!(
-        missing
-            .to_string()
-            .contains("\"source\" is a required property"),
-        "{missing}"
-    );
+    assert!(missing.to_string().contains("/required"), "{missing}");
 
     fs::remove_dir_all(path).expect("remove test store");
 }

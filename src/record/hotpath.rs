@@ -19,6 +19,8 @@ thread_local! {
     static LEDGER_READS: Cell<usize> = const { Cell::new(0) };
     static LIFECYCLE_WALKS: Cell<usize> = const { Cell::new(0) };
     static PROJECTION_WRITES: Cell<usize> = const { Cell::new(0) };
+    static LEDGER_SYNCS: Cell<usize> = const { Cell::new(0) };
+    static BATCH_TRANSACTIONS: Cell<usize> = const { Cell::new(0) };
 }
 
 /// A reading of what happened since the last reset.
@@ -42,9 +44,24 @@ pub(crate) fn projection_write() {
 }
 
 pub(crate) fn reset() {
+    LEDGER_SYNCS.with(|count| count.set(0));
+    BATCH_TRANSACTIONS.with(|count| count.set(0));
     LEDGER_READS.with(|count| count.set(0));
     LIFECYCLE_WALKS.with(|count| count.set(0));
     PROJECTION_WRITES.with(|count| count.set(0));
+}
+
+pub(crate) fn ledger_sync() {
+    LEDGER_SYNCS.with(|count| count.set(count.get() + 1));
+}
+pub(crate) fn batch_transaction() {
+    BATCH_TRANSACTIONS.with(|count| count.set(count.get() + 1));
+}
+pub(crate) fn write_counts() -> (usize, usize) {
+    (
+        LEDGER_SYNCS.with(Cell::get),
+        BATCH_TRANSACTIONS.with(Cell::get),
+    )
 }
 
 pub(crate) fn touched() -> Touched {

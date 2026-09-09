@@ -1,6 +1,6 @@
 [package]
 name = "equill"
-version = "0.2.31"
+version = "0.2.32"
 edition = "2024"
 rust-version = "1.88"
 description = "Local-first typed records and reproducible context assembly"
@@ -10,6 +10,7 @@ publish = false
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
 fs2 = "0.4"
+libc = "0.2"
 jiff = { version = "0.2", default-features = false, features = ["std"] }
 jsonschema = { version = "0.51", default-features = false }
 regex = "1"
@@ -42,3 +43,15 @@ strip = true
 [[test]]
 name = "read_only_actor"
 path = "tests/readonly/main.rs"
+
+[[test]]
+name = "idempotency"
+path = "tests/writer/idempotency.rs"
+
+[[test]]
+name = "import_batch_release"
+path = "tests/writer/import_release.rs"
+
+[[test]]
+name = "audit_requests"
+path = "tests/audit/main.rs"

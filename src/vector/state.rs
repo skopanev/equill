@@ -32,6 +32,16 @@ pub(super) struct StateFile {
     pub(super) indexed_revision: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) indexed_sha256: Option<String>,
+    /// The `embed_types` filter the indexed corpus was taken under, as a set.
+    ///
+    /// Absent means no filter, which is what every marker written before the
+    /// field existed says and what a store configuring none still writes. It is
+    /// part of the marker's identity rather than of its freshness: a checkpoint
+    /// taken under a different filter does not describe a smaller corpus, it
+    /// describes a different one, and reading it as a position in this store is
+    /// how a narrowed index stayed current over records it had never dropped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) embed_types_sha256: Option<String>,
 }
 
 /// Whether the index reflects the ledger as it is now. This is not health: an
@@ -42,7 +52,7 @@ pub(super) struct StateFile {
 pub enum VectorFreshness {
     /// The indexed snapshot matches the ledger.
     Current,
-    /// The index is healthy and behind by a known number of records.
+    /// The index is healthy and behind; pending record count may be unknown.
     Lagging,
     /// A pre-v2 checkpoint: searchable, but its snapshot was never recorded.
     Unknown,
@@ -53,6 +63,7 @@ pub struct Freshness {
     pub freshness: VectorFreshness,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub indexed_records: Option<usize>,
+    /// Absent means unknown, not zero. Revision gaps are not document counts.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_records: Option<usize>,
 }
@@ -94,11 +105,15 @@ impl Drop for StagedReady {
     }
 }
 
+/// `snapshot` is (records, digest, revision, the filter it was taken under).
+/// The filter travels with the rest of the boundary instead of being re-read
+/// here: a descriptor that changes while a pass runs would otherwise stamp the
+/// checkpoint with a filter the pass never applied.
 pub(crate) fn stage_ready(
     store: &Path,
     config: &VectorConfig,
     physical: &str,
-    snapshot: Option<(usize, &str, u64)>,
+    snapshot: Option<(usize, &str, u64, Option<&str>)>,
 ) -> Result<StagedReady, Error> {
     stage(store, config, physical, StoredState::Ready, snapshot)
 }
@@ -108,7 +123,7 @@ fn stage(
     config: &VectorConfig,
     physical: &str,
     state: StoredState,
-    snapshot: Option<(usize, &str, u64)>,
+    snapshot: Option<(usize, &str, u64, Option<&str>)>,
 ) -> Result<StagedReady, Error> {
     if !valid_collection_name(physical) {
         return Err(vector_error("invalid collection name"));
@@ -126,9 +141,10 @@ fn stage(
         collection_alias: config.collection_alias.clone(),
         physical_collection: physical.into(),
         model_sha256: config.embedding.model_sha256().to_owned(),
-        indexed_records: snapshot.map(|(count, _, _)| count),
-        indexed_revision: snapshot.map(|(_, _, revision)| revision),
-        indexed_sha256: snapshot.map(|(_, digest, _)| digest.to_owned()),
+        indexed_records: snapshot.map(|(count, _, _, _)| count),
+        indexed_revision: snapshot.map(|(_, _, revision, _)| revision),
+        indexed_sha256: snapshot.map(|(_, digest, _, _)| digest.to_owned()),
+        embed_types_sha256: snapshot.and_then(|(_, _, _, filter)| filter.map(str::to_owned)),
     };
     let bytes = serde_json::to_vec(&marker)
         .map_err(|_| vector_error("ready marker serialization failed"))?;
@@ -188,6 +204,14 @@ pub(super) fn describes(marker: &StateFile, config: &VectorConfig) -> bool {
         && marker.store_id == config.store_id
         && marker.collection_alias == config.collection_alias
         && marker.model_sha256 == config.embedding.model_sha256()
+        // A checkpoint taken under another filter is not this store's position.
+        // Without this, a configure that stored the descriptor and then died
+        // before publishing its target left a marker that still looked current:
+        // the retry saw an unchanged filter, published nothing, and the vectors
+        // of an excluded type answered searches nothing in the ledger accounts
+        // for. Both absent means no filter on either side, which is what every
+        // marker written before this field says.
+        && marker.embed_types_sha256 == super::coverage::fingerprint(&config.embed_types)
         && valid_collection_name(&marker.physical_collection)
 }
 

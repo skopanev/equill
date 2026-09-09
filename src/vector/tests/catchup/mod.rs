@@ -6,6 +6,7 @@ mod gating;
 mod handoff;
 mod harness;
 mod latency;
+mod text;
 
 use crate::command::init;
 use crate::record::{RecordDraft, append_indexed};

@@ -62,6 +62,6 @@ fn spawn(store: &Path) -> Result<(), Error> {
 /// connection the store never asked for and file an error for the absence of
 /// something optional.
 pub(super) fn catch_text_up_first(store: &std::path::Path) -> bool {
-    let _ = crate::projection::catch_up_text(store);
+    let _ = crate::projection::catch_up_text_background(store);
     matches!(super::super::config::load(store), Ok(Some(config)) if config.enabled)
 }

@@ -54,7 +54,7 @@ pub fn catalog() -> Value {
             }})),
         tool("record", "Append one validated immutable record.",
             json!({ "type": "object", "required": ["draft"],
-                "properties": { "draft": { "type": "object" } } })),
+                "properties": { "draft": { "type": "object" }, "idempotency_key": { "type": "string" } } })),
     ]})
 }
 

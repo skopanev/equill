@@ -16,6 +16,8 @@ pub struct NativeReport {
     /// Named plainly: these records survive with a different envelope hash
     /// than they had, because the link into the removed past was cut.
     pub rewritten_envelopes: usize,
+    /// Explicit operation keys that lose their original outcome on physical purge.
+    pub expired_idempotency_keys: usize,
     pub detail: projections::Plan,
 }
 
@@ -49,16 +51,21 @@ fn compact_once(
     // writer's lock means a record written between here and the swap would be
     // dropped by the rewrite that never saw it.
     let writer = crate::kernel::lock::StoreLock::exclusive(store_root)?;
+    if apply_changes {
+        crate::record::recover_writes(store_root)?;
+    }
     // Before the ledger is read, because an interruption inside a rename can
     // leave the ledger directory missing entirely — and then reading it first
     // means the store can never repair itself.
-    let records = crate::record::read_all(store_root)?;
+    let records = crate::record::read_all_exclusive(store_root)?;
     // The window a concurrent append falls into. A test needs it wide enough to
     // aim at: guessing at timing is how a race test comes out green whether or
     // not the lock is held.
     #[cfg(test)]
     pause_after_read();
     let plan = projections::build(&records)?;
+    let kept = apply::rewrite(&records, &plan);
+    let expired_idempotency_keys = crate::record::reconcile_operations(store_root, &kept, false)?;
     let report = NativeReport {
         ok: true,
         applied: apply_changes,
@@ -66,6 +73,7 @@ fn compact_once(
         severed: plan.severed.len(),
         retained: plan.retained,
         rewritten_envelopes: plan.severed.len(),
+        expired_idempotency_keys,
         detail: plan,
     };
     if !apply_changes {
@@ -96,6 +104,7 @@ fn compact_once(
     };
     journal.write(store_root)?;
     publish(store_root, &shadow, &transaction, &mut journal)?;
+    crate::record::reconcile_operations(store_root, &kept, true)?;
     // Released before reconciling: rebuilding the text projection takes the
     // same writer lock, and holding it here would deadlock against ourselves.
     // An append landing in this window is fine — it is in the ledger, and the

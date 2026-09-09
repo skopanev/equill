@@ -1,12 +1,14 @@
 mod abandoned;
+mod publication;
+#[cfg(test)]
+mod publication_tests;
 mod recovery;
 mod shard;
 
 use crate::defense::DefenseFinding;
 use crate::kernel::error::Error;
 use serde::Serialize;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -45,6 +47,7 @@ pub(super) const RECEIPTS: &str = "receipts";
 
 #[cfg(test)]
 pub(crate) use abandoned::seam as quarantine_seam;
+pub(crate) use recovery::finalize;
 pub use recovery::resolve_pending;
 
 pub struct StagedReceipt {
@@ -69,6 +72,11 @@ impl StagedReceipt {
     /// anything in memory.
     pub fn handle(&self) -> &str {
         &self.handle
+    }
+
+    /// Once the ledger append can start, errors must leave recovery evidence.
+    pub(crate) fn preserve(&mut self) {
+        self.settled = true;
     }
 
     /// Move the staged receipt into place.
@@ -149,13 +157,7 @@ pub fn stage(
     crate::kernel::path::within(store_root, &relative)?;
     let handle = format!("{PENDING}/{}.json", receipt.receipt_id);
     let pending = crate::kernel::path::within(store_root, &handle)?;
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&pending)?;
-    serde_json::to_writer(&mut file, receipt)?;
-    file.write_all(b"\n")?;
-    file.sync_all()?;
+    publication::stage(store_root, &handle, receipt)?;
     // The staged receipt's own name, published before the ledger is touched.
     // The append comes after this returns, so a crash between them must leave a
     // stage with no record — which recovery reads as a pre-append crash — and

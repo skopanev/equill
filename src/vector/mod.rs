@@ -46,6 +46,7 @@ pub use config::{
     EmbeddingConfig, LocalEmbeddingConfig, ModelArtifact, OllamaEmbeddingConfig, OllamaProvider,
     VectorConfig, VoyageEmbeddingConfig, VoyageProvider,
 };
+#[cfg(test)]
 pub(crate) use coverage::corpus;
 pub use drain::{after_commit, after_commit_inline, projection_after_write, resume};
 pub use embedder::{Embedder, embed_batch};
@@ -118,6 +119,10 @@ impl VectorProjection {
     }
 
     pub fn search(&self, request: &VectorSearchRequest) -> Result<Vec<VectorSearchHit>, Error> {
+        #[cfg(test)]
+        if let Some(candidates) = hydrate::test_candidates() {
+            return hydrate::from_ledger(&self.store, request, candidates);
+        }
         let candidates = self.collection.search(request)?;
         hydrate::from_ledger(&self.store, request, candidates)
     }
@@ -127,7 +132,7 @@ impl VectorProjection {
     pub fn activate(
         &self,
         physical: &str,
-        snapshot: Option<(usize, &str, u64)>,
+        snapshot: Option<(usize, &str, u64, Option<&str>)>,
     ) -> Result<(), Error> {
         activate_collection(
             &self.store,
@@ -160,12 +165,13 @@ impl VectorProjection {
         records: usize,
         digest: &str,
         revision: u64,
+        embed_types_sha256: Option<&str>,
     ) -> Result<(), Error> {
         state::stage_ready(
             &self.store,
             &self.config,
             physical,
-            Some((records, digest, revision)),
+            Some((records, digest, revision, embed_types_sha256)),
         )?
         .commit()
     }
@@ -176,7 +182,7 @@ fn activate_collection<T: Transport>(
     config: &VectorConfig,
     collection: &Collection<T>,
     physical: &str,
-    snapshot: Option<(usize, &str, u64)>,
+    snapshot: Option<(usize, &str, u64, Option<&str>)>,
 ) -> Result<(), Error> {
     let marker = state::stage_ready(store, config, physical, snapshot)?;
     let change = collection.activate(physical)?;

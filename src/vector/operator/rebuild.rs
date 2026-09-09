@@ -65,6 +65,8 @@ pub fn rebuild_with_progress(
         digest,
         revision,
         skipped_by_type: skipped,
+        embed_types_sha256,
+        history: _,
     } = capture(store_root)?;
     let physical = physical_name(&vector_config);
     emit(
@@ -108,7 +110,15 @@ pub fn rebuild_with_progress(
     // covered: those records were never embedded, the checkpoint drew level
     // with the target, and the gate — which compares exactly those two numbers
     // — saw nothing outstanding. The tail was lost until a hand-run sync.
-    projection.activate(&physical, Some((records.len(), &digest, revision)))?;
+    projection.activate(
+        &physical,
+        Some((
+            records.len(),
+            &digest,
+            revision,
+            embed_types_sha256.as_deref(),
+        )),
+    )?;
     drop(_lock);
     emit(
         &mut progress,
@@ -132,10 +142,13 @@ pub(crate) struct Captured {
     pub(crate) records: Vec<(StoredRecord, String)>,
     pub(crate) digest: String,
     pub(crate) revision: u64,
+    pub(crate) history: Vec<Uuid>,
     /// Live records the filter left out. Carried with the rest of the boundary
     /// rather than counted again: a second read could disagree with the one
     /// that was indexed.
     pub(crate) skipped_by_type: usize,
+    /// The filter the corpus above was taken under.
+    pub(crate) embed_types_sha256: Option<String>,
 }
 
 /// Both halves of the boundary, taken together.
@@ -148,14 +161,27 @@ pub(crate) struct Captured {
 /// so by staying behind the target. Target first, then the corpus, matching the
 /// incremental sync.
 pub(crate) fn capture(store_root: &Path) -> Result<Captured, Error> {
-    let _lock = StoreLock::exclusive(store_root)?;
-    let revision = crate::vector::desired::read(store_root)?.map_or(0, |target| target.revision);
-    let snapshot = super::super::coverage::corpus_snapshot(store_root)?;
+    let (revision, embed_types, captured) = {
+        let _lock = StoreLock::exclusive(store_root)?;
+        let revision =
+            crate::vector::desired::read(store_root)?.map_or(0, |target| target.revision);
+        let embed_types = super::super::coverage::embed_types(store_root)?;
+        let captured = crate::record::snapshot::capture_exclusive(store_root, None)?;
+        (revision, embed_types, captured)
+    };
+    // Descriptors, lengths, target and filter are fixed. Hashing and validation
+    // happen after releasing the writer lock, just like embedding and indexing.
+    let snapshot = super::super::coverage::from_snapshot(
+        crate::record::read_captured(store_root, captured)?,
+        embed_types,
+    )?;
     Ok(Captured {
         records: snapshot.records,
         digest: snapshot.digest,
         revision,
         skipped_by_type: snapshot.skipped_by_type,
+        history: snapshot.history,
+        embed_types_sha256: snapshot.embed_types_sha256,
     })
 }
 

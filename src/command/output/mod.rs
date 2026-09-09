@@ -3,7 +3,6 @@ use super::init::InitReport;
 use super::status::StatusReport;
 use crate::compact::CompactReport;
 use crate::context::RegistryReport;
-use crate::ingest::{ImportReport, ImportSetReport};
 use crate::kernel::error::Error;
 use crate::projection::{RebuildReport, SearchReport};
 use crate::record::AppendReport;
@@ -13,8 +12,10 @@ use std::fmt::Write;
 use std::path::Path;
 mod authority;
 mod counts;
+mod ingest;
 
 pub use authority::{authority, grant, owner, reader};
+pub use ingest::{import, import_set};
 
 pub fn render<T: Serialize>(json: bool, value: &T, human: String) -> Result<String, Error> {
     if json {
@@ -47,6 +48,13 @@ pub fn native_compact(report: &crate::compact::NativeReport) -> String {
             report.severed
         );
     }
+    if report.expired_idempotency_keys > 0 {
+        let _ = write!(
+            text,
+            "\n{} idempotency key(s) expire with physically removed records; later requests using those keys are new writes",
+            report.expired_idempotency_keys
+        );
+    }
     if !report.applied {
         text.push_str("\nNothing was changed. Re-run with --apply.");
     }
@@ -65,6 +73,7 @@ pub fn init(path: &Path, report: &InitReport) -> String {
 }
 
 pub fn record(report: &AppendReport) -> String {
+    crate::audit::result::remember([report.id], 1, Some(&report.receipt), Some(report.durable));
     // Two projections, named: a bare "Projection: ready" described the text
     // index while reading as a claim about search freshness generally.
     format!(
@@ -77,17 +86,21 @@ pub fn record(report: &AppendReport) -> String {
     )
 }
 
-pub fn import(report: &ImportReport) -> String {
-    format!(
-        "Imported {} record(s)\nSkipped: {}\nInput SHA-256: {}",
-        report.imported, report.skipped, report.input_sha256
-    )
+pub fn batch(report: &crate::record::BatchReport) -> String {
+    crate::audit::result::remember(
+        report.records.iter().filter_map(|item| item.id),
+        report.stored,
+        None,
+        None,
+    );
+    format!("{} stored, {} rejected", report.stored, report.rejected)
 }
 
-pub fn import_set(report: &ImportSetReport) -> String {
+pub fn revoke(report: &crate::record::RevokeReport) -> String {
+    crate::audit::result::remember([report.tombstone], 1, Some(&report.receipt), Some(true));
     format!(
-        "Imported {} record(s) from {} input(s)\nSkipped: {}\nReceipt: {}",
-        report.imported, report.inputs, report.skipped, report.receipt
+        "Revoked {} — tombstone {}",
+        report.revoked, report.tombstone
     )
 }
 
@@ -215,6 +228,7 @@ pub fn search(report: &SearchReport) -> String {
 }
 
 pub fn rebuild(report: &RebuildReport) -> String {
+    crate::audit::result::remember([], report.records, None, None);
     format!(
         "Rebuilt {}\nRecords indexed: {}",
         report.projection, report.records

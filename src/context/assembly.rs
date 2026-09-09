@@ -63,6 +63,7 @@ pub fn assemble(
         retrieval::Cardinality::Answering,
         runtime_budget.records,
         &policy,
+        crate::record::read_all(store_root)?,
     )?;
     let budgeted = budget::apply(
         std::mem::take(&mut retrieved.candidates),

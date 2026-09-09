@@ -13,10 +13,14 @@ use crate::record::StoredRecord;
 use std::path::Path;
 
 pub use model::{
-    HistoricRecords, HistoryCount, LifecycleScope, ProjectionState, RebuildReport, SearchHit,
-    SearchReport, SearchRequest,
+    HistoricRecords, HistoryCount, LedgerLocator, LifecycleScope, LocatorReport, LocatorRequest,
+    ProjectionState, RebuildReport, SearchHit, SearchReport, SearchRequest,
 };
 pub use provider::sqlite::MAX_SCAN;
+
+pub fn locators(store_root: &Path, request: &LocatorRequest) -> Result<LocatorReport, Error> {
+    provider::sqlite::locators(store_root, request)
+}
 
 pub fn initialize(store_root: &Path) -> Result<(), Error> {
     provider::sqlite::initialize(store_root)
@@ -39,6 +43,14 @@ pub fn index(
 
 pub fn mark_degraded(store_root: &Path, record: &StoredRecord, reason: &str) {
     let _ = provider::sqlite::mark_degraded(store_root, record.id, reason);
+}
+
+/// Publish one already-verified truth snapshot in one provider transaction.
+pub fn index_batch(store_root: &Path, records: &[StoredRecord]) -> Result<(), Error> {
+    provider::sqlite::index_batch(store_root, records)?;
+    provider::sqlite::clear_degraded(store_root)?;
+    marker::record_watermark(store_root, marker::ledger_bytes(store_root)?, records.len());
+    Ok(())
 }
 
 pub fn search(store_root: &Path, request: &SearchRequest) -> Result<SearchReport, Error> {
@@ -71,14 +83,29 @@ pub fn verify(store_root: &Path, records: &[StoredRecord]) -> Result<usize, Erro
 /// correctness boundary. A burst of writes coalesces into one pass, the same
 /// way the vector catch-up does.
 ///
-/// No writer lock. An earlier version took `StoreLock::exclusive` to snapshot
-/// the ledger, which made every concurrent write wait for a full scan and an
-/// index pass — the exact contention that was removed from the vector path for
-/// the exact same reason. Reading without it is sound because the ledger is
-/// append-only and `read_all` stops at the last completed line, so the worst a
-/// concurrent append can do is be missed and picked up by the next pass.
+/// Capture committed descriptors and byte bounds under a nonblocking shared
+/// writer lock. Parsing and indexing run after release; an unresolved atomic
+/// journal or active writer returns an explicit retryable error, never a prefix.
 pub fn catch_up_text(store_root: &Path) -> Result<usize, Error> {
-    let reached = marker::ledger_bytes(store_root)?;
+    let captured = crate::record::snapshot::capture(store_root, None)?;
+    catch_up_captured(store_root, captured)
+}
+
+/// The finite drain waits for an active writer only during descriptor capture.
+/// Public reads still use the nonblocking path above.
+pub(crate) fn catch_up_text_background(store_root: &Path) -> Result<usize, Error> {
+    let captured = {
+        let _lock = StoreLock::exclusive(store_root)?;
+        crate::record::snapshot::capture_exclusive(store_root, None)?
+    };
+    catch_up_captured(store_root, captured)
+}
+
+fn catch_up_captured(
+    store_root: &Path,
+    captured: crate::record::snapshot::Snapshot,
+) -> Result<usize, Error> {
+    let reached = captured.bytes;
     let (at, covered) = watermark(store_root)
         .map(|mark| (mark.ledger_bytes, mark.indexed_records))
         .unwrap_or((0, 0));
@@ -87,7 +114,9 @@ pub fn catch_up_text(store_root: &Path) -> Result<usize, Error> {
         // ledger where it left it should cost a stat, not a scan.
         return Ok(0);
     }
-    let records = crate::record::read_all(store_root)?;
+    let snapshot = crate::record::read_captured(store_root, captured)?;
+    let reached = snapshot.bytes;
+    let records = snapshot.records;
     // Only what the last pass did not cover. Re-indexing the whole store on
     // every wake is harmless in the sense that upserts are idempotent, and
     // ruinous in the sense that a few hundred fsyncs land on the same disk a
@@ -134,8 +163,13 @@ pub fn catch_up_text(store_root: &Path) -> Result<usize, Error> {
 pub fn rebuild(store_root: &Path) -> Result<RebuildReport, Error> {
     store::load(store_root)?;
     let _lock = StoreLock::exclusive(store_root)?;
-    let records = crate::record::read_all(store_root)?;
+    let records = crate::record::read_all_exclusive(store_root)?;
     provider::sqlite::rebuild(store_root, &records)?;
+    let reached = marker::ledger_bytes(store_root)?;
+    // Rebuild also follows physical compaction, which can shrink immutable
+    // truth. Publish both positions from this same writer-locked snapshot.
+    marker::publish_target(store_root, records.len(), reached)?;
+    marker::record_watermark(store_root, reached, records.len());
     Ok(RebuildReport {
         ok: true,
         projection: "sqlite-fts",

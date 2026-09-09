@@ -17,6 +17,12 @@ pub fn records(
     format: Format,
     fields: &[String],
 ) -> Result<String, Error> {
+    crate::audit::result::remember(
+        records.iter().map(|record| record.id),
+        records.len(),
+        None,
+        None,
+    );
     match format {
         Format::Text => {
             // Answered as a set: a role, its process and that process's steps

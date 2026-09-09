@@ -18,6 +18,32 @@ pub fn index(
     index_record(&mut connection, record, sha256, ledger)
 }
 
+pub fn index_batch(store_root: &Path, records: &[StoredRecord]) -> Result<(), Error> {
+    let mut connection = sqlite::open(&sqlite::database(store_root))?;
+    sqlite::create_schema(&connection)?;
+    let transaction = connection
+        .transaction()
+        .map_err(|error| sqlite::projection_error("start batch transaction", error))?;
+    #[cfg(test)]
+    crate::record::hotpath::batch_transaction();
+    for record in records {
+        let digest = sha256_hex(&serde_json::to_vec(record)?);
+        let month = record
+            .recorded_at
+            .get(..7)
+            .ok_or_else(|| Error::Projection("invalid record ledger coordinate".into()))?;
+        write_row(
+            &transaction,
+            record,
+            &digest,
+            &format!("records/{month}.jsonl"),
+        )?;
+    }
+    transaction
+        .commit()
+        .map_err(|error| sqlite::projection_error("commit batch transaction", error))
+}
+
 pub fn rebuild(store_root: &Path, records: &[StoredRecord]) -> Result<(), Error> {
     let final_path = sqlite::database(store_root);
     let directory = sqlite::parent(&final_path)?;
@@ -49,14 +75,26 @@ fn index_record(
     sha256: &str,
     ledger: &str,
 ) -> Result<(), Error> {
+    let transaction = connection
+        .transaction()
+        .map_err(|error| sqlite::projection_error("start index transaction", error))?;
+    write_row(&transaction, record, sha256, ledger)?;
+    transaction
+        .commit()
+        .map_err(|error| sqlite::projection_error("commit index transaction", error))
+}
+
+fn write_row(
+    transaction: &rusqlite::Transaction<'_>,
+    record: &StoredRecord,
+    sha256: &str,
+    ledger: &str,
+) -> Result<(), Error> {
     let payload = serde_json::to_string(&record.payload)?;
     let evidence = serde_json::to_string(&record.evidence)?;
     let tags = serde_json::to_string(&record.tags)?;
     let content = sqlite::content(record)?;
     let revoked = i64::from(withdrawn(record));
-    let transaction = connection
-        .transaction()
-        .map_err(|error| sqlite::projection_error("start index transaction", error))?;
     let inserted = transaction
         .execute(
             queries::INSERT_RECORD,
@@ -79,9 +117,9 @@ fn index_record(
         )
         .map_err(|error| sqlite::projection_error("index record", error))?;
     if inserted == 0 {
-        verify_existing(&transaction, record, sha256)?;
+        verify_existing(transaction, record, sha256)?;
     }
-    mark_lifecycle(&transaction, record)?;
+    mark_lifecycle(transaction, record)?;
     transaction
         .execute(
             "DELETE FROM records_fts WHERE id = ?1",
@@ -94,9 +132,7 @@ fn index_record(
             params![record.id.to_string(), content],
         )
         .map_err(|error| sqlite::projection_error("write FTS record", error))?;
-    transaction
-        .commit()
-        .map_err(|error| sqlite::projection_error("commit index transaction", error))
+    Ok(())
 }
 
 /// Lifecycle, written where the fact appears rather than derived on every read.

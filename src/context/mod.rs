@@ -43,6 +43,13 @@ pub fn default_profile(store: &Path) -> Result<String, Error> {
 }
 
 pub fn profile_faults(store_root: &Path) -> Result<usize, Error> {
+    profile_faults_with_records(store_root, &crate::record::read_all(store_root)?)
+}
+
+pub(crate) fn profile_faults_with_records(
+    store_root: &Path,
+    records: &[crate::record::StoredRecord],
+) -> Result<usize, Error> {
     let mut faults = 0;
     for path in registry::profile_files(store_root)? {
         let profile: model::ContextProfile = serde_json::from_slice(&fs::read(path)?)?;
@@ -78,6 +85,7 @@ pub fn profile_faults(store_root: &Path) -> Result<usize, Error> {
             retrieval::Cardinality::Diagnosing,
             None,
             &crate::retrieval::resolve(store_root, Default::default())?,
+            records.to_vec(),
         )?;
         let budgeted = budget::apply(
             retrieved.candidates,

@@ -1,4 +1,5 @@
 mod catalog;
+mod export;
 mod lookup;
 mod model;
 mod registry;
@@ -8,6 +9,7 @@ mod validation;
 mod tests;
 
 pub use catalog::{CatalogReport, TypeReport, list, show};
+pub use export::{ExportReport, export};
 pub use lookup::{load, verify_all};
 pub use model::{LifecycleMode, LifecyclePolicy, TypeDefinition};
 pub(crate) use registry::register_authorized;

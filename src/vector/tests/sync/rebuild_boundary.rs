@@ -33,7 +33,12 @@ fn a_write_during_a_rebuild_leaves_the_checkpoint_behind_the_target() {
         &root,
         &config,
         PHYSICAL,
-        Some((captured.records.len(), &captured.digest, captured.revision)),
+        Some((
+            captured.records.len(),
+            &captured.digest,
+            captured.revision,
+            captured.embed_types_sha256.as_deref(),
+        )),
     )
     .expect("stage")
     .commit()
@@ -68,7 +73,12 @@ fn reading_the_target_at_activation_is_what_swallowed_the_tail() {
         &root,
         &config,
         PHYSICAL,
-        Some((captured.records.len(), &captured.digest, late)),
+        Some((
+            captured.records.len(),
+            &captured.digest,
+            late,
+            captured.embed_types_sha256.as_deref(),
+        )),
     )
     .expect("stage")
     .commit()

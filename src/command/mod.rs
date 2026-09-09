@@ -6,6 +6,7 @@ pub mod init;
 pub mod output;
 pub mod present;
 pub mod query;
+pub(crate) mod record;
 pub mod status;
 pub(crate) mod vector;
 mod vector_state;

@@ -31,7 +31,9 @@ pub enum Pending {
 pub fn assess(position: &Position) -> Pending {
     let (indexed, digest) = match &position.checkpoint {
         Checkpoint::Unusable { reason } => return Pending::Unknown { reason },
-        Checkpoint::Usable { indexed, digest } => (*indexed, digest),
+        Checkpoint::Usable {
+            indexed, digest, ..
+        } => (*indexed, digest),
     };
     let corpus = position.corpus.as_slice();
     if *digest == position.corpus_digest {

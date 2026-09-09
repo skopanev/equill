@@ -1,6 +1,8 @@
-//! How far behind the index is. A report, not a gate: it re-reads and hashes the
-//! whole ledger, which answers the question honestly and would be ruinous on the
-//! path of every command.
+//! How far behind the index is. A report, not a gate: `position` re-reads and
+//! hashes the whole ledger, which answers the question honestly and would be
+//! ruinous on the path of every command. `freshness` is the request-path half:
+//! it compares two small markers the writer and the worker already published,
+//! and never touches the ledger.
 use super::config::VectorConfig;
 use super::model::{valid_sha256, vector_error};
 use super::state::{Freshness, STATE, StateFile, VectorFreshness, describes};
@@ -8,32 +10,40 @@ use crate::kernel::error::Error;
 use std::fs;
 use std::path::Path;
 
-/// How far behind the index is, read without loading a model or touching the
-/// provider. A store nobody has written to since the last sync is `Current`; a
-/// store that has moved on is `Lagging` by a countable number of records; a
-/// pre-v2 checkpoint is `Unknown`, because its snapshot was never recorded.
+/// How far behind the index is, read without loading a model, touching the
+/// provider, or reading the ledger. A store nobody has written to since the
+/// last sync is `Current`; a store that has moved on is `Lagging` with an
+/// unknown pending-document count; a pre-v2 checkpoint is `Unknown`, because its
+/// snapshot was never recorded.
 ///
 /// Freshness is never an error: a lagging index still answers, and saying so
 /// honestly is the point.
 pub fn freshness(store: &Path, config: Option<&VectorConfig>) -> Result<Freshness, Error> {
-    let Checkpoint::Usable { indexed, digest } = checkpoint(store, config)? else {
+    let Checkpoint::Usable {
+        indexed,
+        revision,
+        target,
+        ..
+    } = checkpoint(store, config)?
+    else {
         return Ok(Freshness {
             freshness: VectorFreshness::Unknown,
             indexed_records: None,
             pending_records: None,
         });
     };
-    let (records, current) = super::corpus(store)?;
+    // Compare the same target that validated this checkpoint. A revision gap
+    // counts publications, not documents: filtered records and configuration
+    // changes can advance it without creating any embedding work.
+    let (state, pending) = if revision == target {
+        (VectorFreshness::Current, Some(0))
+    } else {
+        (VectorFreshness::Lagging, None)
+    };
     Ok(Freshness {
-        freshness: if current == digest {
-            VectorFreshness::Current
-        } else {
-            VectorFreshness::Lagging
-        },
+        freshness: state,
         indexed_records: Some(indexed),
-        // Records the snapshot did not cover. Never negative and never falsely
-        // zero: a shrinking corpus reports nothing pending rather than a lie.
-        pending_records: Some(records.len().saturating_sub(indexed)),
+        pending_records: pending,
     })
 }
 
@@ -47,8 +57,19 @@ pub fn freshness(store: &Path, config: Option<&VectorConfig>) -> Result<Freshnes
 /// behind and a foreign marker as fully caught up.
 #[derive(Debug)]
 pub enum Checkpoint {
-    Usable { indexed: usize, digest: String },
-    Unusable { reason: &'static str },
+    Usable {
+        indexed: usize,
+        /// The desired revision this checkpoint covered.
+        revision: u64,
+        /// The target `revision` was validated against, from the same read.
+        /// Carried so a caller can compare the two without re-reading the
+        /// marker a second time and racing whoever published it.
+        target: u64,
+        digest: String,
+    },
+    Unusable {
+        reason: &'static str,
+    },
 }
 
 impl Checkpoint {
@@ -96,20 +117,28 @@ pub fn checkpoint(store: &Path, config: Option<&VectorConfig>) -> Result<Checkpo
             ));
         }
     };
+    // A v2 snapshot always records the revision it covered. One without it was
+    // not written by this contract, and a freshness answered from it would be
+    // a guess dressed as a number.
+    let Some(revision) = marker.indexed_revision else {
+        return Ok(unusable("the marker predates revision checkpoints"));
+    };
     // A checkpoint cannot have covered a target that was never published.
     // Absent means revision zero, which is what the sync itself uses when there
     // is no target, so a checkpoint at zero against no target is level rather
     // than ahead.
     let target = super::desired::read(store)?.map_or(0, |desired| desired.revision);
-    if marker
-        .indexed_revision
-        .is_some_and(|indexed| indexed > target)
-    {
+    if revision > target {
         return Ok(unusable(
             "the checkpoint claims a revision the store never published",
         ));
     }
-    Ok(Checkpoint::Usable { indexed, digest })
+    Ok(Checkpoint::Usable {
+        indexed,
+        revision,
+        target,
+        digest,
+    })
 }
 
 /// One reading of where the index stands, for every part of a status report.

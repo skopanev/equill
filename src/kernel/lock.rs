@@ -1,10 +1,51 @@
 use crate::kernel::error::Error;
 use fs2::FileExt;
 use std::fs::{File, OpenOptions};
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
 pub struct StoreLock {
     file: File,
+}
+
+/// Read-only, nonblocking access to the existing writer lock. A read must not
+/// create store files or wait behind a long import.
+pub(crate) struct ReadLock {
+    file: File,
+}
+
+impl ReadLock {
+    pub(crate) fn acquire(store: &Path) -> Result<Option<Self>, Error> {
+        let file = match OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(store.join("locks/writer.lock"))
+        {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        if !file.metadata()?.is_file() {
+            return Err(Error::Integrity("writer lock is not a regular file".into()));
+        }
+        FileExt::try_lock_shared(&file).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::WouldBlock {
+                Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::WouldBlock,
+                    "committed snapshot busy: writer active; retry",
+                ))
+            } else {
+                error.into()
+            }
+        })?;
+        Ok(Some(Self { file }))
+    }
+}
+
+impl Drop for ReadLock {
+    fn drop(&mut self) {
+        let _ = FileExt::unlock(&self.file);
+    }
 }
 
 impl StoreLock {

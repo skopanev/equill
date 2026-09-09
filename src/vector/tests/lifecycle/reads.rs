@@ -46,6 +46,36 @@ fn a_text_search_reads_no_records() {
     fs::remove_dir_all(root).expect("cleanup");
 }
 
+/// The whole text-search path, counted end to end, on the store shape every
+/// production deployment has: a configured vector index with published markers.
+///
+/// The proof above ran unconfigured, where freshness exited before it could
+/// touch anything. Configured, freshness used to hash the whole corpus on the
+/// path of every search — the one full-ledger read this ticket had left.
+#[test]
+fn a_text_search_on_a_configured_store_reads_no_records() {
+    let root = populated("fts-configured-no-read");
+    let indexed = read_all(&root).expect("ledger").len();
+    super::super::support::stage_current_index(&root, indexed);
+
+    crate::record::hotpath::reset();
+    let report = crate::vector::search(&root, &request(10), crate::vector::SearchStrategy::Fts)
+        .expect("search");
+    let after = crate::record::hotpath::touched().ledger_reads;
+
+    assert!(!report.hits.is_empty(), "the fixture matched nothing");
+    assert_eq!(
+        report.vector_freshness,
+        crate::vector::VectorFreshness::Current,
+        "the staged markers say current"
+    );
+    assert_eq!(
+        after, 0,
+        "a configured text search read the ledger {after} times"
+    );
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
 /// A scope holding more history than the projection will scan used to be
 /// refused outright, with a message telling the caller to narrow by namespace
 /// or type — a refusal to serve an answer that existed, over a bound the caller

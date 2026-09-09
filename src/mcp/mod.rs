@@ -28,16 +28,60 @@ pub fn serve(
     mut output: impl Write,
 ) -> Result<(), Error> {
     for line in input.lines() {
-        let line = line?;
+        let line = match line {
+            Ok(line) => line,
+            Err(error) => {
+                crate::audit::Invocation::mcp(b"", actor)?.finish(b"", Some("transport"))?;
+                return Err(error.into());
+            }
+        };
         if line.trim().is_empty() {
             continue;
         }
-        let Some(response) = handle(store, actor, log_queries, &line) else {
-            continue;
+        let mut audit = crate::audit::Invocation::mcp(line.as_bytes(), actor)?;
+        let response = handle(store, actor, log_queries, &line);
+        let mut bytes = response
+            .as_ref()
+            .map(serde_json::to_vec)
+            .transpose()?
+            .unwrap_or_default();
+        let value: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+        let class = if value.get("error").is_some() {
+            Some("validation")
+        } else if value.pointer("/result/isError").and_then(Value::as_bool) == Some(true) {
+            Some("execution")
+        } else {
+            None
         };
-        output.write_all(&serde_json::to_vec(&response)?)?;
-        output.write_all(b"\n")?;
-        output.flush()?;
+        let id = audit.id();
+        if audit.prepare(&bytes, class).is_err() && response.is_some() {
+            let mut annotated = value;
+            let notice =
+                json!({"state":"pending","invocation":id,"operation_result_preserved":true});
+            if annotated.get("result").is_some() {
+                annotated["result"]["audit"] = notice;
+            } else {
+                annotated["error"]["data"]["audit"] = notice;
+            }
+            bytes = serde_json::to_vec(&annotated)?;
+            // The notice changes the delivered response, not the domain result.
+            // Persist its final fingerprint even when the same sink fault remains.
+            let _ = audit.prepare(&bytes, class);
+        }
+        let sent = if response.is_some() {
+            output
+                .write_all(&bytes)
+                .and_then(|_| output.write_all(b"\n"))
+                .and_then(|_| output.flush())
+        } else {
+            Ok(())
+        };
+        if audit.settle(sent.is_err()).is_err() {
+            eprintln!(
+                "equill: audit pending for invocation {id}; the operation result is preserved"
+            );
+        }
+        sent?;
     }
     Ok(())
 }

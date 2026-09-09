@@ -16,6 +16,16 @@ use std::path::PathBuf;
 
 #[derive(Debug, Subcommand)]
 pub enum SchemaCommand {
+    /// Export current schema definitions, or explicitly include registered history.
+    Export {
+        #[arg(long)]
+        store: PathBuf,
+        /// New destination directory outside the source store; never overwritten.
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long)]
+        all_registered: bool,
+    },
     /// List the types this store has registered.
     List {
         /// Initialized store directory.

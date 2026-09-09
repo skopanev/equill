@@ -6,7 +6,7 @@
 //! tail means the previous writer died mid-line, and appending after it would
 //! bury the damage under valid data.
 use super::super::receipt::{self, WriteReceipt, WriteStatus};
-use super::super::{AppendReport, RecordDraft, StoredRecord};
+use super::super::{AppendReport, RecordDraft};
 use crate::defense;
 use crate::kernel::error::Error;
 use crate::kernel::lock::StoreLock;
@@ -14,12 +14,6 @@ use std::fs::OpenOptions;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use uuid::Uuid;
-
-/// `block_write` always returns an error for a blocked draft; this exists only
-/// so the types line up if that ever changes, and says loudly what it assumes.
-pub(super) fn unreachable_report(_report: AppendReport) -> (AppendReport, StoredRecord) {
-    unreachable!("a blocked write returns an error rather than a report")
-}
 
 pub(super) fn block_write(
     store_root: &Path,
@@ -29,6 +23,7 @@ pub(super) fn block_write(
     month: &str,
     defense: defense::DefenseResult,
 ) -> Result<AppendReport, Error> {
+    super::authority::require_draft_writer(&crate::kernel::store::load(store_root)?, actor, draft)?;
     let receipt = WriteReceipt {
         receipt_id: Uuid::now_v7(),
         status: WriteStatus::BlockedByMemoryDefense,
@@ -46,7 +41,11 @@ pub(super) fn block_write(
         defense_findings: &defense.findings,
     };
     let matches = defense.findings.len();
+    #[cfg(test)]
+    super::seam::before_lock(store_root);
     let _lock = StoreLock::exclusive(store_root)?;
+    super::authority::require_draft_writer(&crate::kernel::store::load(store_root)?, actor, draft)?;
+    super::recover(store_root)?;
     let staged = receipt::stage(store_root, month, &receipt)?;
     let path = staged.relative().to_owned();
     staged.commit()?;

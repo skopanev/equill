@@ -21,9 +21,16 @@ pub struct FullScan {
 
 pub fn scan(store_root: &Path) -> Result<FullScan, Error> {
     let stored_records = record::read_all(store_root)?;
+    scan_records(store_root, &stored_records)
+}
+
+pub(crate) fn scan_records(
+    store_root: &Path,
+    stored_records: &[record::StoredRecord],
+) -> Result<FullScan, Error> {
     let records = stored_records.len();
-    let projection_records = projection::verify(store_root, &stored_records)?;
-    let (import_receipts, import_inputs) = ingest::verify_receipts(store_root, &stored_records)?;
+    let projection_records = projection::verify(store_root, stored_records)?;
+    let (import_receipts, import_inputs) = ingest::verify_receipts(store_root, stored_records)?;
     Ok(FullScan {
         schemas: schema::verify_all(store_root)?,
         records,

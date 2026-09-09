@@ -1,10 +1,12 @@
-use super::super::VectorSearchRequest;
-use super::super::hydrate::{from_ledger, test_hydrate};
-use super::super::provider::qdrant::ProviderHit;
+mod retrieve;
+mod scoped;
 use crate::kernel::digest::sha256_hex;
 use crate::record::StoredRecord;
 use crate::record::{RecordDraft, append};
 use crate::schema::{self, TypeDefinition};
+use crate::vector::VectorSearchRequest;
+use crate::vector::hydrate::{from_ledger, test_hydrate};
+use crate::vector::provider::qdrant::ProviderHit;
 use serde_json::json;
 use std::fs;
 use uuid::Uuid;
@@ -22,7 +24,15 @@ fn valid_candidate_returns_the_canonical_record() {
 
 #[test]
 fn public_hydration_reads_the_immutable_ledger() {
-    let root = super::support::root("hydrate-ledger");
+    let (root, record) = ledger_store("hydrate-ledger");
+    let hits = from_ledger(&root, &request(), vec![candidate(&record)]).expect("hydrate");
+    assert_eq!(hits[0].record.id, record.id);
+    assert_eq!(hits[0].record.payload, json!({ "rule": "ledger truth" }));
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+fn ledger_store(name: &str) -> (std::path::PathBuf, StoredRecord) {
+    let root = super::support::root(name);
     crate::command::init::create(&root, "writer", "agent.memory").expect("store");
     schema::register(
         &root,
@@ -51,12 +61,10 @@ fn public_hydration_reads_the_immutable_ledger() {
         "writer",
     )
     .expect("record");
+    crate::projection::catch_up_text(&root).expect("index fixture");
     let record = crate::record::read_all(&root).expect("ledger").remove(0);
-    let hits = from_ledger(&root, &request(), vec![candidate(&record)]).expect("hydrate");
-
-    assert_eq!(hits[0].record.id, report.id);
-    assert_eq!(hits[0].record.payload, json!({ "rule": "ledger truth" }));
-    fs::remove_dir_all(root).expect("cleanup");
+    assert_eq!(record.id, report.id);
+    (root, record)
 }
 
 #[test]
@@ -80,7 +88,17 @@ fn record_sha_and_requested_filters_are_rechecked() {
 
     let mut wrong_filter = request();
     wrong_filter.namespaces = vec!["other.namespace".into()];
-    assert!(test_hydrate(&wrong_filter, vec![candidate(&record)], vec![record]).is_err());
+    assert!(
+        test_hydrate(
+            &wrong_filter,
+            vec![candidate(&record)],
+            vec![record.clone()]
+        )
+        .is_err()
+    );
+    let mut wrong_type = request();
+    wrong_type.type_names = vec!["other.type.v1".into()];
+    assert!(test_hydrate(&wrong_type, vec![candidate(&record)], vec![record]).is_err());
 }
 
 fn candidate(record: &StoredRecord) -> ProviderHit {

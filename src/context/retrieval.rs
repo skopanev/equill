@@ -68,12 +68,12 @@ pub fn retrieve(
     cardinality: Cardinality,
     record_limit: Option<usize>,
     policy: &crate::retrieval::Policy,
+    mut records: Vec<StoredRecord>,
 ) -> Result<Retrieval, Error> {
     let at: jiff::Timestamp = request
         .at
         .parse()
         .map_err(|_| Error::Context("request at must be RFC3339".into()))?;
-    let mut records = crate::record::read_all(store)?;
     records.sort_by_key(|record| record.id);
     let selector_map = selectors
         .iter()

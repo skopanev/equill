@@ -44,7 +44,23 @@ pub fn call(
                 .get("draft")
                 .ok_or_else(|| Error::InvalidRecord("record needs a draft".into()))?;
             let draft: record::RecordDraft = serde_json::from_value(draft.clone())?;
-            value(&record::append(store, draft, actor)?)
+            let idempotency_key = match arguments.get("idempotency_key") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(key)) => Some(key.clone()),
+                Some(_) => {
+                    return Err(Error::InvalidRecord(
+                        "idempotency_key must be a string".into(),
+                    ));
+                }
+            };
+            value(&record::append_request(
+                store,
+                record::AppendRequest {
+                    draft,
+                    idempotency_key,
+                },
+                actor,
+            )?)
         }
         other => Err(Error::InvalidRecord(format!("unknown tool {other}"))),
     }

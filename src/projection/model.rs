@@ -2,6 +2,28 @@ use crate::record::StoredRecord;
 use serde::Serialize;
 use std::fmt::{Display, Formatter};
 
+#[derive(Clone, Debug)]
+pub struct LocatorRequest {
+    pub ids: Vec<uuid::Uuid>,
+}
+
+/// An index hint, never proof of the record's content or continued existence.
+#[derive(Clone, Debug)]
+pub struct LedgerLocator {
+    pub record_id: uuid::Uuid,
+    pub ledger: String,
+    pub record_sha256: String,
+}
+
+#[derive(Debug)]
+pub struct LocatorReport {
+    pub state: ProjectionState,
+    /// Informational: callers must establish freshness before trusting absence.
+    pub watermark: Option<super::TextWatermark>,
+    /// Found coordinates in request order. Missing ids are omitted.
+    pub located: Vec<LedgerLocator>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ProjectionState {

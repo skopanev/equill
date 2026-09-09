@@ -1,4 +1,4 @@
-use super::{AppendReport, RecordDraft, append_only};
+use super::{AppendReport, AppendRequest, RecordDraft, append_only_request};
 use crate::kernel::error::Error;
 use serde::Serialize;
 use std::fs;
@@ -31,14 +31,16 @@ pub fn append_batch(store_root: &Path, source: &Path, actor: &str) -> Result<Bat
     let mut records = Vec::new();
     let mut stored = 0;
     let mut rejected = 0;
+    let mut unkeyed = 0;
     for (index, line) in contents.lines().enumerate() {
         if line.trim().is_empty() {
             continue;
         }
         let line_number = index + 1;
         match write(store_root, line, actor) {
-            Ok(report) => {
+            Ok((report, advance)) => {
                 stored += 1;
+                unkeyed += u64::from(advance);
                 records.push(BatchItem {
                     line: line_number,
                     id: Some(report.id),
@@ -59,7 +61,7 @@ pub fn append_batch(store_root: &Path, source: &Path, actor: &str) -> Result<Bat
         // One catch-up for the whole batch rather than one per record: forty
         // records should cost one pass, not forty.
         let _ = crate::projection::catch_up_text(store_root);
-        crate::vector::after_commit(store_root, stored as u64);
+        crate::vector::after_commit(store_root, unkeyed);
     }
     if records.is_empty() {
         return Err(Error::InvalidRecord("input contains no records".into()));
@@ -76,7 +78,9 @@ pub fn append_batch(store_root: &Path, source: &Path, actor: &str) -> Result<Bat
 /// single-record file keeps behaving exactly as it did.
 pub fn is_batch(source: &Path) -> Result<bool, Error> {
     let contents = fs::read_to_string(source)?;
-    if serde_json::from_str::<RecordDraft>(&contents).is_ok() {
+    if serde_json::from_str::<RecordDraft>(&contents).is_ok()
+        || serde_json::from_str::<AppendRequest>(&contents).is_ok()
+    {
         return Ok(false);
     }
     let mut lines = 0;
@@ -89,9 +93,18 @@ pub fn is_batch(source: &Path) -> Result<bool, Error> {
     Ok(lines > 1 && object_line)
 }
 
-fn write(store_root: &Path, line: &str, actor: &str) -> Result<AppendReport, Error> {
-    let draft: RecordDraft = serde_json::from_str(line)?;
-    append_only(store_root, draft, actor)
+fn write(store_root: &Path, line: &str, actor: &str) -> Result<(AppendReport, bool), Error> {
+    let value: serde_json::Value = serde_json::from_str(line)?;
+    let request = if value.get("draft").is_some() {
+        serde_json::from_value(value)?
+    } else {
+        AppendRequest {
+            draft: serde_json::from_value(value)?,
+            idempotency_key: None,
+        }
+    };
+    let advance = request.idempotency_key.is_none();
+    append_only_request(store_root, request, actor).map(|report| (report, advance))
 }
 
 #[cfg(test)]

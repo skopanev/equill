@@ -37,7 +37,19 @@ fn import_jsonl_inner(
     let bytes = fs::read(input)?;
     let input_sha256 = sha256_hex(&bytes);
     let lines = parse_source(&bytes, allow_empty)?;
-    let mut known = known_imports(store)?;
+    let requested = super::scope::requested(&lines);
+    record::append_atomic(store, actor, &requested, |truth| {
+        plan(lines, input_sha256, truth)
+    })
+}
+
+fn plan(
+    lines: Vec<ParsedLine>,
+    input_sha256: String,
+    truth: &[record::StoredRecord],
+) -> Result<(Vec<record::AtomicDraft>, ImportReport), Error> {
+    let mut known = known_imports(truth);
+    let mut drafts = Vec::new();
     let mut records = Vec::with_capacity(lines.len());
     let mut imported = 0;
     let mut skipped = 0;
@@ -69,34 +81,25 @@ fn import_jsonl_inner(
         let legacy_id = source.id.clone();
         let draft = draft(source, &digest, &known.by_legacy, &known.ids)
             .map_err(|error| Error::Import(format!("line {line}: {error}")))?;
-        let report = record::append_only(store, draft, actor)
-            .map_err(|error| Error::Import(format!("line {line}: {error}")))?;
-        known.by_digest.insert(digest.clone(), report.id);
-        known.by_legacy.insert(legacy_id.clone(), report.id);
-        known.ids.insert(report.id);
-        records.push(item(
-            line,
-            digest,
-            legacy_id,
-            report.id,
-            ImportStatus::Imported,
-        ));
+        let id = Uuid::now_v7();
+        drafts.push(record::AtomicDraft { id, line, draft });
+        known.by_digest.insert(digest.clone(), id);
+        known.by_legacy.insert(legacy_id.clone(), id);
+        known.ids.insert(id);
+        records.push(item(line, digest, legacy_id, id, ImportStatus::Imported));
         imported += 1;
     }
-    // One catch-up for the whole set: forty records should cost one model load,
-    // not forty. A partial import still publishes what actually committed.
-    if imported > 0 {
-        let _ = crate::projection::catch_up_text(store);
-        crate::vector::after_commit(store, imported as u64);
-    }
-    Ok(ImportReport {
-        ok: true,
-        input_sha256,
-        total: records.len(),
-        imported,
-        skipped,
-        records,
-    })
+    Ok((
+        drafts,
+        ImportReport {
+            ok: true,
+            input_sha256,
+            total: records.len(),
+            imported,
+            skipped,
+            records,
+        },
+    ))
 }
 
 pub(crate) fn parse_source(bytes: &[u8], allow_empty: bool) -> Result<Vec<ParsedLine>, Error> {
@@ -129,25 +132,27 @@ struct KnownImports {
     ids: HashSet<Uuid>,
 }
 
-fn known_imports(store: &Path) -> Result<KnownImports, Error> {
+fn known_imports(records: &[record::StoredRecord]) -> KnownImports {
     let mut known = KnownImports {
         by_digest: HashMap::new(),
         by_legacy: HashMap::new(),
         ids: HashSet::new(),
     };
-    for record in record::read_all(store)? {
+    for record in records {
         known.ids.insert(record.id);
-        for evidence in record.evidence {
+        for evidence in &record.evidence {
             if evidence.kind == IMPORT_KIND {
-                if let Some(digest) = evidence.sha256 {
-                    known.by_digest.insert(digest, record.id);
+                if let Some(digest) = &evidence.sha256 {
+                    known.by_digest.insert(digest.clone(), record.id);
                 }
             } else if evidence.kind == LEGACY_ID_KIND {
-                known.by_legacy.insert(evidence.reference, record.id);
+                known
+                    .by_legacy
+                    .insert(evidence.reference.clone(), record.id);
             }
         }
     }
-    Ok(known)
+    known
 }
 
 fn draft(

@@ -12,7 +12,21 @@ pub(super) fn from_ledger(
     request: &VectorSearchRequest,
     candidates: Vec<ProviderHit>,
 ) -> Result<Vec<VectorSearchHit>, Error> {
-    let records = record::read_all(store)?;
+    let locators = crate::projection::locators(
+        store,
+        &crate::projection::LocatorRequest {
+            ids: candidates
+                .iter()
+                .map(|candidate| candidate.record_id)
+                .collect(),
+        },
+    )?;
+    if locators.located.len() != candidates.len() {
+        return Err(vector_error(
+            "query candidate locator is missing; rebuild the text projection",
+        ));
+    }
+    let records = record::read_located(store, &locators.located)?;
     hydrate(request, candidates, records)
 }
 
@@ -66,4 +80,28 @@ pub(super) fn test_hydrate(
     records: Vec<StoredRecord>,
 ) -> Result<Vec<VectorSearchHit>, Error> {
     hydrate(request, candidates, records)
+}
+
+#[cfg(test)]
+thread_local! {
+    static CANDIDATES: std::cell::RefCell<Option<Vec<ProviderHit>>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+pub(super) fn test_candidates() -> Option<Vec<ProviderHit>> {
+    CANDIDATES.with(|slot| slot.borrow().clone())
+}
+
+/// Only the external index response is substituted; canonical hydration and
+/// embedding-input verification remain on the production retrieval path.
+#[cfg(test)]
+pub(super) fn with_candidates<T>(hits: Vec<ProviderHit>, body: impl FnOnce() -> T) -> T {
+    struct Restore(Option<Vec<ProviderHit>>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            CANDIDATES.with(|slot| *slot.borrow_mut() = self.0.take());
+        }
+    }
+    let _restore = Restore(CANDIDATES.with(|slot| slot.replace(Some(hits))));
+    body()
 }

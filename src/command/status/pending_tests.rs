@@ -20,6 +20,10 @@ fn at(
         checkpoint: match checkpoint {
             Some((indexed, digest)) => Checkpoint::Usable {
                 indexed,
+                // Unused by `assess`, which measures pending against the corpus
+                // it was handed rather than against published revisions.
+                revision: 0,
+                target: 0,
                 digest: digest.to_owned(),
             },
             None => Checkpoint::Unusable {

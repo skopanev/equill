@@ -124,8 +124,14 @@ pub(crate) struct CorpusSnapshot {
     /// Live records the filter left out, so an operator can see it doing
     /// something rather than infer it from a number that got smaller.
     pub(crate) skipped_by_type: usize,
+    /// The filter this snapshot was taken under. Carried rather than re-read
+    /// later: the descriptor can change while a pass runs, and a checkpoint
+    /// stamped with the filter as it is at the end would claim a corpus the
+    /// pass never saw.
+    pub(crate) embed_types_sha256: Option<String>,
 }
 
+#[cfg(test)]
 pub(crate) fn corpus(store_root: &Path) -> Result<(Vec<(StoredRecord, String)>, String), Error> {
     let snapshot = corpus_snapshot(store_root)?;
     Ok((snapshot.records, snapshot.digest))
@@ -142,7 +148,16 @@ pub(crate) fn corpus(store_root: &Path) -> Result<(Vec<(StoredRecord, String)>, 
 /// the index behind when `embed_types` narrows.
 pub(crate) fn corpus_snapshot(store_root: &Path) -> Result<CorpusSnapshot, Error> {
     let embed_types = embed_types(store_root)?;
-    let all = crate::record::read_all(store_root)?;
+    from_snapshot(crate::record::read_snapshot(store_root)?, embed_types)
+}
+
+/// The filter and ledger boundary are supplied together by a locked rebuild.
+/// Ordinary callers capture nonblockingly; neither path rereads live tail bytes.
+pub(crate) fn from_snapshot(
+    snapshot: crate::record::VerifiedSnapshot,
+    embed_types: Vec<String>,
+) -> Result<CorpusSnapshot, Error> {
+    let all = snapshot.records;
     let replaced = all
         .iter()
         .filter_map(|record| record.supersedes)
@@ -167,17 +182,7 @@ pub(crate) fn corpus_snapshot(store_root: &Path) -> Result<CorpusSnapshot, Error
             history.insert(record.id);
         }
     }
-    let mut digests = std::collections::HashMap::new();
-    for entry in fs::read_dir(store_root.join("records"))? {
-        let path = entry?.path();
-        for line in fs::read_to_string(&path)?.lines() {
-            if line.trim().is_empty() {
-                continue;
-            }
-            let record: StoredRecord = serde_json::from_str(line)?;
-            digests.insert(record.id, sha256_hex(line.as_bytes()));
-        }
-    }
+    let digests = snapshot.digests;
     let mut records = validated
         .into_iter()
         .map(|record| {
@@ -198,7 +203,27 @@ pub(crate) fn corpus_snapshot(store_root: &Path) -> Result<CorpusSnapshot, Error
         digest: sha256_hex(accumulator.as_bytes()),
         history: history.into_iter().collect(),
         skipped_by_type,
+        embed_types_sha256: fingerprint(&embed_types),
     })
+}
+
+/// The filter as a checkpoint can record it, or `None` for no filter at all.
+///
+/// A set, not a list: reordering the names or repeating one does not change
+/// which records get embedded, so it must not change the identity of a
+/// checkpoint either — otherwise an operator tidying their configuration would
+/// force a full pass for nothing.
+///
+/// `None` for an empty list, so a store that configures no filter writes no
+/// field and a marker written before this existed stays readable as what it is.
+pub(crate) fn fingerprint(embed_types: &[String]) -> Option<String> {
+    if embed_types.is_empty() {
+        return None;
+    }
+    let mut names = embed_types.to_vec();
+    names.sort();
+    names.dedup();
+    Some(sha256_hex(names.join("\n").as_bytes()))
 }
 
 /// An empty list is not a filter that matches nothing — it is the absence of a

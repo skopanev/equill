@@ -20,9 +20,61 @@ fn a_lagging_index_is_healthy_and_still_answers() {
     assert_eq!(current.freshness, crate::vector::VectorFreshness::Current);
     assert_eq!(current.pending_records, Some(0));
     assert_eq!(lagging.freshness, crate::vector::VectorFreshness::Lagging);
-    assert_eq!(lagging.pending_records, Some(1));
+    assert_eq!(lagging.pending_records, None);
     // Health is untouched by the lag: the index is behind, not broken.
     assert_eq!(state(&root).unwrap(), VectorState::Ready);
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Freshness answers from two published markers and nothing else. The proof is
+/// deletion: with the ledger gone, a reader that touched it would fail, and one
+/// that reads markers answers exactly as it did before.
+///
+/// This is the request path's contract. A search that reported freshness by
+/// hashing the corpus made the cost of saying "how fresh am I" a function of
+/// store history, on the path of every command.
+#[test]
+fn freshness_answers_from_the_watermarks_without_the_ledger() {
+    let (root, config, index) = fixture("no-ledger-freshness");
+    execute(&root, &config, &index, || Ok(embedder(&config, None))).expect("sync");
+    let before = crate::vector::freshness_of(&root).expect("freshness");
+
+    fs::remove_dir_all(root.join("records")).expect("remove the ledger");
+
+    let after = crate::vector::freshness_of(&root).expect("freshness without a ledger");
+    assert_eq!(after.freshness, before.freshness);
+    assert_eq!(after.indexed_records, before.indexed_records);
+    assert_eq!(after.pending_records, before.pending_records);
+    assert_eq!(after.freshness, crate::vector::VectorFreshness::Current);
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// The deterministic artifact of a marker swap between two reads: a torn pair,
+/// a checkpoint whose revision outruns the published target. The answer is
+/// Unknown with no pending count — the subtraction a lagging answer would run
+/// cannot be justified against a target the checkpoint was never validated
+/// for. Freshness reads the target once, inside the checkpoint it reports, so
+/// no second read exists for a compact or rebuild to swap markers between.
+#[test]
+fn a_marker_swapped_between_reads_leaves_a_torn_pair_that_answers_unknown() {
+    let (root, config, index) = fixture("torn-pair");
+    execute(&root, &config, &index, || Ok(embedder(&config, None))).expect("sync");
+    let published = crate::vector::desired::read(&root)
+        .expect("desired")
+        .map_or(0, |target| target.revision);
+    let marker = root.join("projections/qdrant/state.json");
+    let mut stored: serde_json::Value =
+        serde_json::from_slice(&fs::read(&marker).unwrap()).unwrap();
+    stored
+        .as_object_mut()
+        .unwrap()
+        .insert("indexed_revision".into(), json!(published + 1));
+    fs::write(&marker, serde_json::to_vec(&stored).unwrap()).unwrap();
+
+    let reading = crate::vector::freshness_of(&root).expect("freshness");
+
+    assert_eq!(reading.freshness, crate::vector::VectorFreshness::Unknown);
+    assert_eq!(reading.pending_records, None, "no count was invented");
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -76,7 +128,7 @@ fn a_failure_after_a_good_snapshot_leaves_the_good_one_serving() {
     assert_eq!(good.freshness, crate::vector::VectorFreshness::Current);
     assert_eq!(after.freshness, crate::vector::VectorFreshness::Lagging);
     // Pending is honest rather than falsely zero.
-    assert_eq!(after.pending_records, Some(1));
+    assert_eq!(after.pending_records, None);
     assert_eq!(after.indexed_records, good.indexed_records);
     fs::remove_dir_all(root).unwrap();
 }
@@ -141,7 +193,7 @@ fn a_first_pass_checkpoints_its_own_snapshot_despite_a_concurrent_append() {
     // Lagging from the moment it finished, which is the honest description.
     assert_eq!(reading.freshness, crate::vector::VectorFreshness::Lagging);
     assert_eq!(reading.indexed_records, Some(captured));
-    assert_eq!(reading.pending_records, Some(1));
+    assert_eq!(reading.pending_records, None);
     assert_eq!(state(&root).unwrap(), VectorState::Ready);
     fs::remove_dir_all(root).unwrap();
 }

@@ -3,8 +3,8 @@ use crate::kernel::error::Error;
 use crate::kernel::identity;
 use crate::kernel::store;
 use crate::schema;
-use std::collections::HashSet;
-use std::fs;
+use std::collections::{HashMap, HashSet};
+use std::io::Read;
 use std::path::Path;
 use uuid::Version;
 
@@ -13,32 +13,43 @@ pub fn verify_all(store_root: &Path) -> Result<usize, Error> {
 }
 
 pub fn read_all(store_root: &Path) -> Result<Vec<StoredRecord>, Error> {
+    Ok(read_snapshot(store_root)?.records)
+}
+
+pub(crate) struct VerifiedSnapshot {
+    pub records: Vec<StoredRecord>,
+    pub digests: HashMap<uuid::Uuid, String>,
+    pub bytes: u64,
+}
+
+pub(crate) fn read_snapshot(store_root: &Path) -> Result<VerifiedSnapshot, Error> {
+    read_captured(store_root, super::snapshot::capture(store_root, None)?)
+}
+
+/// Only for callers already holding writer.lock, after write recovery.
+pub(crate) fn read_all_exclusive(store_root: &Path) -> Result<Vec<StoredRecord>, Error> {
+    Ok(read_captured(
+        store_root,
+        super::snapshot::capture_exclusive(store_root, None)?,
+    )?
+    .records)
+}
+
+pub(crate) fn read_captured(
+    store_root: &Path,
+    snapshot: super::snapshot::Snapshot,
+) -> Result<VerifiedSnapshot, Error> {
+    #[cfg(test)]
+    super::snapshot::after_capture(store_root);
     #[cfg(test)]
     super::hotpath::ledger_read();
     let config = store::load(store_root)?;
-    let directory = store_root.join("records");
-    if !directory.is_dir() {
-        return Err(Error::Integrity(format!(
-            "required directory is missing: {}",
-            directory.display()
-        )));
-    }
     let mut ids = HashSet::new();
     let mut records = Vec::new();
-    let mut ledgers = Vec::new();
-    for entry in fs::read_dir(directory)? {
-        let path = entry?.path();
-        let is_ledger = path.extension().is_some_and(|value| value == "jsonl");
-        if !is_ledger {
-            return Err(Error::Integrity(format!(
-                "unexpected record ledger entry: {}",
-                path.display()
-            )));
-        }
-        ledgers.push(path);
-    }
-    for path in in_month_order(ledgers) {
-        let contents = fs::read_to_string(&path)?;
+    let mut digests = HashMap::new();
+    for mut shard in snapshot.shards {
+        let mut contents = String::new();
+        shard.reader.read_to_string(&mut contents)?;
         // A reader running beside an append-only writer can catch the last line
         // mid-write. Only completed lines are records: a trailing fragment with
         // no newline is a write in progress, not corruption, and refusing to
@@ -54,7 +65,7 @@ pub fn read_all(store_root: &Path) -> Result<Vec<StoredRecord>, Error> {
             if line.trim().is_empty() {
                 continue;
             }
-            let location = format!("{}:{}", path.display(), index + 1);
+            let location = format!("records/{}:{}", shard.name, index + 1);
             let record: StoredRecord = serde_json::from_str(line)
                 .map_err(|error| Error::Integrity(format!("{location}: {error}")))?;
             verify_record(store_root, &config, &record)
@@ -64,12 +75,20 @@ pub fn read_all(store_root: &Path) -> Result<Vec<StoredRecord>, Error> {
                     "{location}: duplicate record identifier"
                 )));
             }
+            digests.insert(
+                record.id,
+                crate::kernel::digest::sha256_hex(line.as_bytes()),
+            );
             records.push(record);
         }
     }
     super::lifecycle::validate_graph(store_root, &records)
         .map_err(|error| Error::Integrity(format!("record lifecycle: {error}")))?;
-    Ok(records)
+    Ok(VerifiedSnapshot {
+        records,
+        digests,
+        bytes: snapshot.bytes,
+    })
 }
 
 /// The ledgers of a store in the order their records were written.
@@ -89,7 +108,7 @@ pub fn read_all(store_root: &Path) -> Result<Vec<StoredRecord>, Error> {
 /// A function rather than a line, because a test can hand it a reversed list
 /// and see what it does. Handing `read_dir` a reversed list is not something a
 /// test can do.
-fn in_month_order(mut ledgers: Vec<std::path::PathBuf>) -> Vec<std::path::PathBuf> {
+pub(super) fn in_month_order<T: Ord>(mut ledgers: Vec<T>) -> Vec<T> {
     ledgers.sort();
     ledgers
 }
@@ -114,7 +133,7 @@ mod order {
     /// Whatever order the directory gives, the answer is the same.
     #[test]
     fn ledgers_are_read_oldest_month_first() {
-        let scrambled = ["2099-01", "1999-01", "2026-08", "2026-01"]
+        let scrambled: Vec<std::path::PathBuf> = ["2099-01", "1999-01", "2026-08", "2026-01"]
             .iter()
             .map(|month| std::path::PathBuf::from(format!("/store/records/{month}.jsonl")))
             .collect();

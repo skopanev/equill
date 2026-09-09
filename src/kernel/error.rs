@@ -3,6 +3,8 @@ use std::path::PathBuf;
 
 #[derive(Debug)]
 pub enum Error {
+    Audit(String),
+    Cli(clap::Error),
     Io(std::io::Error),
     Json(serde_json::Error),
     InvalidActor,
@@ -43,6 +45,8 @@ pub enum Error {
 impl Display for Error {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Audit(reason) => write!(formatter, "audit failed: {reason}"),
+            Self::Cli(error) => write!(formatter, "{error}"),
             Self::Io(error) => write!(formatter, "I/O error: {error}"),
             Self::Json(error) => write!(formatter, "invalid JSON: {error}"),
             Self::InvalidActor => write!(formatter, "EQUILL_ACTOR is not a stable identity"),

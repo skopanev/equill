@@ -1,3 +1,4 @@
+pub mod audit;
 pub mod command;
 pub mod compact;
 pub mod context;
@@ -16,7 +17,7 @@ pub mod schema;
 pub mod telemetry;
 pub mod vector;
 
-pub use runner::{run, run_cli};
+pub use runner::{run, run_cli, run_process};
 
 pub(crate) fn dispatch(
     cli: command::cli::Cli,
@@ -27,6 +28,7 @@ pub(crate) fn dispatch(
         progress = None;
     }
     match cli.command {
+        command::cli::Command::Audit { command } => command.run(json),
         command::cli::Command::Init {
             store,
             owner,
@@ -36,21 +38,7 @@ pub(crate) fn dispatch(
             let report = command::init::create_with_writers(&store, &owner, &namespace, &writers)?;
             command::output::render(json, &report, command::output::init(&store, &report))
         }
-        command::cli::Command::Record { store, input } => {
-            let actor = kernel::identity::actor_from_env()?;
-            if record::is_batch(&input)? {
-                let report = record::append_batch(&store, &input, &actor)?;
-                let text = format!("{} stored, {} rejected", report.stored, report.rejected);
-                let output = command::output::render(json, &report, text)?;
-                return if report.ok && report.stored > 0 {
-                    Ok(output)
-                } else {
-                    Err(kernel::error::Error::CommandRejected(output))
-                };
-            }
-            let report = record::append_file(&store, &input, &actor)?;
-            command::output::render(json, &report, command::output::record(&report))
-        }
+        command::cli::Command::Record(args) => command::record::run(json, args),
         command::cli::Command::Import {
             store,
             input,
@@ -94,6 +82,11 @@ pub(crate) fn dispatch(
             command::output::render(json, &report, command::output::doctor(&report))
         }
         command::cli::Command::Schema { command } => match command {
+            command::cli::SchemaCommand::Export {
+                store,
+                output,
+                all_registered,
+            } => command::catalog::export(json, &store, &output, all_registered),
             command::cli::SchemaCommand::List { store } => command::catalog::list(json, &store),
             command::cli::SchemaCommand::Show { store, type_name } => {
                 command::catalog::show(json, &store, &type_name)
@@ -212,10 +205,7 @@ pub(crate) fn dispatch(
                 .parse()
                 .map_err(|_| kernel::error::Error::InvalidRecord(format!("{id} is not an id")))?;
             let report = record::revoke(&store, id, comment.as_deref(), &actor)?;
-            let text = format!(
-                "Revoked {} — tombstone {}",
-                report.revoked, report.tombstone
-            );
+            let text = command::output::revoke(&report);
             command::output::render(json, &report, text)
         }
         command::cli::Command::Mcp { store } => {

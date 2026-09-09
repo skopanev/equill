@@ -89,12 +89,14 @@ fn permissions(directory: &Path, mode: u32) {
 /// An automatic sync reads the target before the corpus and holds no lock while
 /// it does — deliberately, because hashing the ledger under the writer lock made
 /// every concurrent write wait. So a pass can slip between the two halves of a
-/// configure, and which half it lands after decides whether the store ends up
-/// telling the truth.
+/// configure.
 ///
-/// Both orders are run here against the same fixture, using the same two
-/// functions `configure` calls, because the difference is the argument for the
-/// order rather than a property one of them happens to have.
+/// Since the checkpoint carries the filter its corpus was taken under, neither
+/// order can leave a false current any more: a pass that lands between the
+/// halves stamps the filter it actually applied, and that stamp stops matching
+/// the configuration as soon as the other half lands. What the order still buys
+/// is one avoided pass, not a correct answer. Both are run here against the
+/// same fixture so that difference is visible rather than asserted.
 #[test]
 fn a_sync_between_the_two_halves_of_a_configure_leaves_the_pass_owed() {
     let (root, config, index, _, note) = two_types("embed-types-interleave");
@@ -117,14 +119,24 @@ fn a_sync_between_the_two_halves_of_a_configure_leaves_the_pass_owed() {
     fs::remove_dir_all(root).expect("remove store");
 }
 
-/// The same interleaving with the halves swapped, which is the order this code
-/// deliberately does not use: the pass reads the new target while the descriptor
-/// is still the old one, indexes the corpus the filter has not narrowed yet, and
-/// records that target as covered. The store then reads as settled over a corpus
-/// that has changed — the excluded point is still there and nothing will ask
-/// again.
+/// The same interleaving with the halves swapped — the order this code does not
+/// use, and which used to lose the tail.
+///
+/// It no longer can, and the reason is worth stating: the pass that slips
+/// between the halves takes its corpus under the OLD descriptor, so it stamps
+/// its checkpoint with the old filter. When the new descriptor lands, that
+/// stamp no longer matches the configuration, the checkpoint stops describing
+/// this store, and the work is owed however the target happens to compare. The
+/// excluded point is still in the collection at that moment — the pass that ran
+/// had no filter to apply — and the next pass under the current configuration
+/// removes it.
+///
+/// So the protection sits in the marker's identity, not in the order of the two
+/// writes. The order is still the one worth keeping, because it avoids a wasted
+/// pass rather than a wrong answer; this test no longer carries the argument
+/// for it.
 #[test]
-fn publishing_the_target_first_is_what_leaves_a_false_current() {
+fn the_reversed_order_still_owes_the_pass_that_removes_the_excluded_point() {
     let (root, config, index, _, note) = two_types("embed-types-interleave-reversed");
     let narrowed = narrowed(&root);
     let before = Some(stored(&root));
@@ -134,13 +146,26 @@ fn publishing_the_target_first_is_what_leaves_a_false_current() {
     crate::vector::operator::store_descriptor(&root, &narrowed, before).expect("descriptor");
 
     assert!(
-        !outstanding_for_tests(&root),
-        "the reversed order no longer loses the target, so the order this code uses is no longer justified by this test"
+        outstanding_for_tests(&root),
+        "the reversed order left the index reading as current over a corpus that had changed"
     );
     assert!(
         index.inner.lock().unwrap().points.contains_key(&note),
-        "the excluded point is gone, so the reversed order did not produce the failure it is here to demonstrate"
+        "the premise did not hold: the interleaved pass already applied a filter it could not see"
     );
+
+    // The pass that follows reads the descriptor that is there now.
+    let current = crate::vector::config::load(&root)
+        .expect("config")
+        .expect("configured");
+    execute(&root, &current, &index, || Ok(embedder(&current, None)))
+        .expect("sync under the current configuration");
+
+    assert!(
+        !index.inner.lock().unwrap().points.contains_key(&note),
+        "the excluded point survived the pass that was owed"
+    );
+    assert!(!outstanding_for_tests(&root), "the pass did not settle");
     fs::remove_dir_all(root).expect("remove store");
 }
 

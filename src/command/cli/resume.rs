@@ -41,7 +41,7 @@ impl Command {
             Self::Reader { command } => command.store(),
             Self::Doctor { store, .. } => store.as_deref(),
             Self::Status { store } => store.as_deref(),
-            Self::Init { .. } | Self::Record { .. } | Self::Import { .. } => None,
+            Self::Audit { .. } | Self::Init { .. } | Self::Record(_) | Self::Import { .. } => None,
         }
     }
 }
@@ -49,6 +49,7 @@ impl Command {
 impl SchemaCommand {
     fn store(&self) -> Option<&std::path::Path> {
         match self {
+            Self::Export { .. } => None,
             Self::List { store } | Self::Show { store, .. } | Self::Register { store, .. } => {
                 Some(store)
             }

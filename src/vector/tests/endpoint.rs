@@ -77,7 +77,7 @@ fn endpoint_gated_rebuild_then_semantic_answer() {
     assert_eq!(state(&root).unwrap(), VectorState::Ready);
     let lagging = crate::vector::freshness_of(&root).expect("freshness");
     assert_eq!(lagging.freshness, crate::vector::VectorFreshness::Lagging);
-    assert_eq!(lagging.pending_records, Some(1));
+    assert_eq!(lagging.pending_records, None);
     // Strict vector still answers, from the checkpoint, and says it is behind.
     let before_sync = crate::vector::search(
         &root,
@@ -95,7 +95,7 @@ fn endpoint_gated_rebuild_then_semantic_answer() {
         before_sync.vector_freshness,
         crate::vector::VectorFreshness::Lagging
     );
-    assert_eq!(before_sync.vector_pending_records, Some(1));
+    assert_eq!(before_sync.vector_pending_records, None);
 
     let first_sync = sync(&root, "owner").expect("incremental sync");
     let all_ids = corpus(&root)

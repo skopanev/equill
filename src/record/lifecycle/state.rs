@@ -20,6 +20,10 @@ const STATE: &str = "projections/lifecycle/state.jsonl";
 pub(crate) struct Entry {
     pub(crate) type_name: String,
     pub(crate) namespace: String,
+    #[serde(default)]
+    pub(crate) ledger: String,
+    #[serde(default)]
+    pub(crate) record_sha256: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) supersedes: Option<Uuid>,
     /// The lifecycle keys this record presents, one per linear type that could
@@ -89,7 +93,8 @@ impl LifecycleState {
         &mut self,
         record: &StoredRecord,
         keys: BTreeMap<String, serde_json::Value>,
-    ) {
+    ) -> Result<(), Error> {
+        let record_sha256 = crate::kernel::digest::sha256_hex(&serde_json::to_vec(record)?);
         if let Some(target) = record.supersedes {
             self.superseded.insert(target);
         }
@@ -99,10 +104,13 @@ impl LifecycleState {
             Entry {
                 type_name: record.type_name.clone(),
                 namespace: record.namespace.clone(),
+                ledger: format!("records/{}.jsonl", &record.recorded_at[..7]),
+                record_sha256,
                 supersedes: record.supersedes,
                 keys,
             },
         );
+        Ok(())
     }
 }
 
@@ -132,6 +140,10 @@ pub(crate) fn load(store: &Path) -> Result<Option<LifecycleState>, Error> {
         let Ok(Line { id, entry }) = serde_json::from_str::<Line>(line) else {
             return Ok(None);
         };
+        if entry.ledger.is_empty() || entry.record_sha256.is_empty() {
+            // Older projections lack canonical candidate coordinates.
+            return Ok(None);
+        }
         if let Some(target) = entry.supersedes {
             state.superseded.insert(target);
         }
@@ -204,4 +216,15 @@ pub(crate) fn empty() -> LifecycleState {
         chain: String::new(),
         rewrite: true,
     }
+}
+
+pub(crate) fn from_records(
+    records: &[StoredRecord],
+    claiming: &[(String, crate::schema::TypeDefinition)],
+) -> Result<LifecycleState, Error> {
+    let mut state = empty();
+    for record in records {
+        state.record(record, super::keys_of(record, claiming))?;
+    }
+    Ok(state)
 }

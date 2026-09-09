@@ -44,6 +44,7 @@ struct Pending {
 /// The store already holds an unresolved transaction; accepting another write
 /// would bury it under one more.
 pub fn resolve_pending(store_root: &Path) -> Result<(), Error> {
+    super::publication::clean_orphans(store_root)?;
     let directory = crate::kernel::path::within(store_root, PENDING)?;
     let entries = match fs::read_dir(&directory) {
         Ok(entries) => entries,
@@ -142,7 +143,12 @@ fn coordinate(month: &str, receipt_id: Uuid) -> String {
     format!("receipts/writes/{month}/{receipt_id}.json")
 }
 
-fn finalize(store_root: &Path, path: &Path, month: &str, receipt_id: Uuid) -> Result<(), Error> {
+pub(crate) fn finalize(
+    store_root: &Path,
+    path: &Path,
+    month: &str,
+    receipt_id: Uuid,
+) -> Result<(), Error> {
     // The same construction the quarantine note records, so that "where this
     // receipt belongs" has one definition rather than two that agree by habit.
     let relative = format!("receipts/writes/{month}");

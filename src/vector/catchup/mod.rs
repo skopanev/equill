@@ -10,4 +10,5 @@ pub(crate) mod handoff;
 #[cfg(test)]
 pub(crate) mod seam;
 pub(crate) mod starter;
+pub(crate) mod text;
 pub(crate) mod worker;

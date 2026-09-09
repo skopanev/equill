@@ -31,6 +31,7 @@ pub(crate) fn run(
         }
         VectorCommand::Rebuild { store } => {
             let report = vector::rebuild_with_progress(&store, actor, progress)?;
+            crate::audit::result::remember([], report.records, None, None);
             // The skipped count only when a filter is doing something: a
             // trailing "0 skipped" on every rebuild is noise that trains a
             // reader to stop looking at the line.
@@ -56,6 +57,7 @@ pub(crate) fn run(
         }
         VectorCommand::Sync { store } => {
             let report = vector::sync_with_progress(&store, actor, progress)?;
+            crate::audit::result::remember([], report.records, None, None);
             let text = format!(
                 "Vector projection synced — {} embeddings, {} points upserted",
                 report.embeddings, report.points_upserted

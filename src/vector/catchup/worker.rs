@@ -89,7 +89,7 @@ struct LastDrain<'a> {
     error_class: Option<&'a str>,
 }
 
-const LAST_DRAIN: &str = "projections/qdrant/last-drain.json";
+pub(super) const LAST_DRAIN: &str = "projections/qdrant/last-drain.json";
 
 /// Which kind of failure this was, without repeating what the provider said.
 /// A provider can echo arbitrary text, and a durable file is exactly the wrong
@@ -106,7 +106,7 @@ fn error_class(error: &str) -> &'static str {
     }
 }
 
-fn record_outcome(store: &Path, report: &DrainReport) {
+pub(super) fn record_outcome(store: &Path, report: &DrainReport) {
     let outcome = if report.attempt_error.is_some() {
         // Remember the failure so the next fifty writers do not each start a
         // child that will fail the same way.
@@ -177,7 +177,7 @@ pub fn run_once(store: &Path) -> DrainReport {
     // check gave each arriving worker work to do before discovering it was
     // redundant, so two were alive at once.
     if !super::starter::catch_text_up_first(store) {
-        return DrainReport::default();
+        return super::text::finish(store, lease);
     }
     let started = Instant::now();
     let mut report = DrainReport {
