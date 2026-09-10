@@ -11,6 +11,8 @@ use uuid::Uuid;
 pub(super) const CONFIG: &str = "registry/vector/qdrant.json";
 const SCHEMA: &str = "equill.qdrant-config.v1";
 
+mod deepinfra;
+pub use deepinfra::{DeepInfraEmbeddingConfig, DeepInfraProvider};
 mod voyage;
 pub use voyage::{VoyageEmbeddingConfig, VoyageProvider};
 mod artifact;
@@ -39,6 +41,7 @@ pub struct VectorConfig {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum EmbeddingConfig {
+    DeepInfra(DeepInfraEmbeddingConfig),
     Voyage(VoyageEmbeddingConfig),
     Ollama(OllamaEmbeddingConfig),
     Local(LocalEmbeddingConfig),
@@ -128,6 +131,7 @@ fn validate_shape(config: &VectorConfig) -> Result<(), Error> {
         return Err(vector_error("invalid embedding descriptor"));
     }
     match &config.embedding {
+        EmbeddingConfig::DeepInfra(embedding) => embedding.validate(config)?,
         EmbeddingConfig::Voyage(embedding) => embedding.validate(config)?,
         EmbeddingConfig::Local(embedding) => {
             for artifact in [
@@ -165,6 +169,7 @@ fn validate_shape(config: &VectorConfig) -> Result<(), Error> {
 impl EmbeddingConfig {
     pub(crate) fn model_id(&self) -> &str {
         match self {
+            Self::DeepInfra(value) => &value.model_id,
             Self::Voyage(value) => &value.model_id,
             Self::Local(value) => &value.model_id,
             Self::Ollama(value) => &value.model_id,
@@ -173,6 +178,7 @@ impl EmbeddingConfig {
 
     pub(crate) fn model_sha256(&self) -> String {
         match self {
+            Self::DeepInfra(value) => value.fingerprint(),
             Self::Voyage(value) => value.fingerprint(),
             Self::Local(value) => value.model.sha256.clone(),
             Self::Ollama(value) => value.model_sha256.clone(),
@@ -181,6 +187,7 @@ impl EmbeddingConfig {
 
     pub(crate) fn tokenizer_sha256(&self) -> String {
         match self {
+            Self::DeepInfra(value) => value.fingerprint(),
             Self::Voyage(value) => value.fingerprint(),
             Self::Local(value) => value.tokenizer.sha256.clone(),
             Self::Ollama(value) => value.model_sha256.clone(),
@@ -189,6 +196,7 @@ impl EmbeddingConfig {
 
     pub(crate) fn input_schema(&self) -> &str {
         match self {
+            Self::DeepInfra(value) => &value.input_schema,
             Self::Voyage(value) => &value.input_schema,
             Self::Local(value) => &value.input_schema,
             Self::Ollama(value) => &value.input_schema,

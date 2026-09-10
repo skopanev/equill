@@ -21,9 +21,9 @@ pub fn fixture(name: &str) -> std::path::PathBuf {
     let _ = std::fs::remove_file(root.join("registry/vector/qdrant.json"));
     register(&root);
     for (index, role) in ROLES.iter().enumerate() {
-        append(&root, index, "finik", *role);
+        append(&root, index, "sample-project", *role);
     }
-    append(&root, ROLES.len(), "finik", None);
+    append(&root, ROLES.len(), "sample-project", None);
     append(&root, ROLES.len() + 1, "other", Some("pm"));
     root
 }

@@ -16,7 +16,7 @@ use surfaces::{cli_json, cli_text, mcp, titles_of};
 #[test]
 fn every_surface_selects_the_same_records_for_a_scalar_role() {
     let root = fixture("scalar");
-    let asked = &["project=finik", "role=pm"];
+    let asked = &["project=sample-project", "role=pm"];
 
     let json = cli_json(&root, asked);
     let session = mcp(&root, asked);
@@ -38,8 +38,8 @@ fn every_surface_selects_the_same_records_for_a_scalar_role() {
 fn every_surface_selects_the_same_records_for_a_role_set() {
     let root = fixture("set");
     for asked in [
-        &["project=finik", "role=lane,backend"],
-        &["project=finik", "role=lane,kyc"],
+        &["project=sample-project", "role=lane,backend"],
+        &["project=sample-project", "role=lane,kyc"],
     ] {
         let json = cli_json(&root, asked);
         let session = mcp(&root, asked);
@@ -60,7 +60,7 @@ fn every_surface_selects_the_same_records_for_a_role_set() {
 #[test]
 fn every_surface_agrees_on_a_role_no_record_carries() {
     let root = fixture("absent");
-    let asked = &["project=finik", "role=nobody"];
+    let asked = &["project=sample-project", "role=nobody"];
 
     let json = cli_json(&root, asked);
     let session = mcp(&root, asked);
@@ -87,9 +87,9 @@ fn a_role_set_returns_every_role_it_names() {
     let root = fixture("membership");
     let roleless = ROLELESS;
 
-    let pm = cli_json(&root, &["project=finik", "role=pm"]);
-    let pair = cli_json(&root, &["project=finik", "role=lane,backend"]);
-    let missing = cli_json(&root, &["project=finik", "role=lane,kyc"]);
+    let pm = cli_json(&root, &["project=sample-project", "role=pm"]);
+    let pair = cli_json(&root, &["project=sample-project", "role=lane,backend"]);
+    let missing = cli_json(&root, &["project=sample-project", "role=lane,kyc"]);
 
     assert_eq!(
         pm.ids.len(),
@@ -119,8 +119,8 @@ fn a_role_set_returns_every_role_it_names() {
 fn the_published_digest_distinguishes_two_different_questions() {
     let root = fixture("digest");
 
-    let pm = cli_json(&root, &["project=finik", "role=pm"]);
-    let gm = cli_json(&root, &["project=finik", "role=gm"]);
+    let pm = cli_json(&root, &["project=sample-project", "role=pm"]);
+    let gm = cli_json(&root, &["project=sample-project", "role=gm"]);
 
     assert!(!pm.bundle_digest.is_empty(), "no digest was published");
     assert_ne!(
@@ -129,7 +129,7 @@ fn the_published_digest_distinguishes_two_different_questions() {
     );
     assert_eq!(
         pm.bundle_digest,
-        mcp(&root, &["project=finik", "role=pm"]).bundle_digest,
+        mcp(&root, &["project=sample-project", "role=pm"]).bundle_digest,
         "CLI and MCP published different digests for one request"
     );
     let _ = std::fs::remove_dir_all(root);
@@ -144,8 +144,8 @@ fn the_published_digest_distinguishes_two_different_questions() {
 #[test]
 fn asking_for_one_role_does_not_return_another() {
     let root = fixture("control");
-    let pm = cli_json(&root, &["project=finik", "role=pm"]);
-    let gm = cli_json(&root, &["project=finik", "role=gm"]);
+    let pm = cli_json(&root, &["project=sample-project", "role=pm"]);
+    let gm = cli_json(&root, &["project=sample-project", "role=gm"]);
 
     // The roleless records are universal and belong to both answers; the named
     // ones must not cross over.
@@ -159,9 +159,9 @@ fn asking_for_one_role_does_not_return_another() {
         "the two answers share something other than the roleless records"
     );
     // And the same through the other two doors, so no surface widens alone.
-    assert_eq!(mcp(&root, &["project=finik", "role=pm"]), pm);
+    assert_eq!(mcp(&root, &["project=sample-project", "role=pm"]), pm);
     assert_eq!(
-        cli_text(&root, &["project=finik", "role=pm"]),
+        cli_text(&root, &["project=sample-project", "role=pm"]),
         titles_of(&root, &pm.ids)
     );
     let _ = std::fs::remove_dir_all(root);
@@ -178,7 +178,7 @@ fn asking_for_one_role_does_not_return_another() {
 #[test]
 fn the_receipt_carries_its_records_as_objects_and_keeps_what_it_said_before() {
     let root = fixture("receipt-records");
-    let asked = &["project=finik", "role=pm"];
+    let asked = &["project=sample-project", "role=pm"];
     let body = surfaces::cli_json_value(&root, asked);
 
     let ids: Vec<String> = body["selected_record_ids"]
@@ -227,7 +227,7 @@ fn the_receipt_carries_its_records_as_objects_and_keeps_what_it_said_before() {
 #[test]
 fn runtime_budgets_are_enforced_through_cli_and_mcp() {
     let root = fixture("mcp-budget");
-    let asked = &["project=finik", "role=pm"];
+    let asked = &["project=sample-project", "role=pm"];
     let body = surfaces::mcp_value(&root, asked, Some(20), None);
 
     assert_eq!(body["receipt"]["runtime_budget_tokens"], 20);

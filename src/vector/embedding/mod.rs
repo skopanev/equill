@@ -29,6 +29,7 @@ pub struct EmbeddingRuntime {
 }
 
 enum Runtime {
+    DeepInfra(Box<provider::deepinfra::DeepInfraRuntime>),
     Voyage(Box<provider::voyage::VoyageRuntime>),
     Candle(Box<provider::candle::CandleRuntime>),
     Ollama(Box<provider::ollama::OllamaRuntime>),
@@ -37,6 +38,9 @@ enum Runtime {
 impl EmbeddingRuntime {
     pub fn load(store: &Path, config: &VectorConfig) -> Result<Self, Error> {
         let inner = match &config.embedding {
+            EmbeddingConfig::DeepInfra(embedding) => Runtime::DeepInfra(Box::new(
+                provider::deepinfra::DeepInfraRuntime::load(config, embedding)?,
+            )),
             EmbeddingConfig::Voyage(embedding) => Runtime::Voyage(Box::new(
                 provider::voyage::VoyageRuntime::load(config, embedding)?,
             )),
@@ -53,6 +57,7 @@ impl EmbeddingRuntime {
     pub fn embed_query(&self, instruction: &str, query: &str) -> Result<Vec<f32>, Error> {
         let query = bounded_query(query);
         match &self.inner {
+            Runtime::DeepInfra(value) => value.embed_query(instruction, query),
             Runtime::Voyage(value) => value.embed_query(instruction, query),
             Runtime::Candle(value) => value.embed_query(instruction, query),
             Runtime::Ollama(value) => value.embed_query(instruction, query),
@@ -63,6 +68,7 @@ impl EmbeddingRuntime {
 impl Embedder for EmbeddingRuntime {
     fn descriptor(&self) -> &EmbeddingDescriptor {
         match &self.inner {
+            Runtime::DeepInfra(value) => value.descriptor(),
             Runtime::Voyage(value) => value.descriptor(),
             Runtime::Candle(value) => value.descriptor(),
             Runtime::Ollama(value) => value.descriptor(),
@@ -71,6 +77,7 @@ impl Embedder for EmbeddingRuntime {
 
     fn embed(&self, documents: &[EmbeddingDocument]) -> Result<Vec<Vec<f32>>, Error> {
         match &self.inner {
+            Runtime::DeepInfra(value) => value.embed(documents),
             Runtime::Voyage(value) => value.embed(documents),
             Runtime::Candle(value) => value.embed(documents),
             Runtime::Ollama(value) => value.embed(documents),

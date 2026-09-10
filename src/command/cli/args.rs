@@ -150,7 +150,7 @@ mod tests {
             "--query",
             "retry",
             "--project",
-            "finik",
+            "sample-project",
             "--role",
             "backend",
             "--phase",
@@ -170,7 +170,7 @@ mod tests {
             harness,
             ..
         } = coordinate;
-        assert_eq!(project.as_deref(), Some("finik"));
+        assert_eq!(project.as_deref(), Some("sample-project"));
         assert_eq!(role.as_deref(), Some("backend"));
         assert_eq!(phase.as_deref(), Some("unit"));
         assert_eq!(harness.as_deref(), Some("codex"));
