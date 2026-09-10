@@ -62,11 +62,22 @@ fn a_filter_that_empties_the_vector_half_still_leaves_the_text_answer() {
         1,
         "every vector hit was excluded and the text half was suppressed with it"
     );
+    // And the receipt names what actually answered. A caller citing this as
+    // evidence is citing a text search, and has to be able to see that.
+    assert_eq!(report.answered_by, "fts");
+    assert!(
+        report
+            .fallback
+            .as_deref()
+            .is_some_and(|reason| reason.contains("vector")),
+        "the stand-in was not reported: {:?}",
+        report.fallback
+    );
     fs::remove_dir_all(root).expect("cleanup");
 }
 
 /// `fill_remaining: false`, the setting this case is about.
-fn fallback_only() -> crate::retrieval::Policy {
+pub(super) fn fallback_only() -> crate::retrieval::Policy {
     crate::retrieval::Policy {
         default_budget_records: Some(30),
         query_instruction: crate::retrieval::DEFAULT_QUERY_INSTRUCTION.into(),
@@ -79,5 +90,130 @@ fn fallback_only() -> crate::retrieval::Policy {
         hybrid_fill_remaining: false,
         hybrid_deduplicate: true,
         skip_query_patterns: Default::default(),
+    }
+}
+
+/// What the report says about which half answered.
+///
+/// The receipt is the evidence a caller cites. A text answer reported as a
+/// hybrid one is not a smaller truth, it is the wrong one — and an empty
+/// vector half reported that way has been cited as proof that nothing existed.
+mod answered {
+    use super::super::super::SearchStrategy;
+    use super::super::search::{add, store};
+    use super::fallback_only;
+    use crate::projection::SearchRequest;
+    use crate::record::StoredRecord;
+    use crate::retrieval::{Policy, Source};
+    use std::fs;
+    use std::path::Path;
+
+    type Half =
+        Result<(Vec<StoredRecord>, Vec<crate::vector::RejectedHit>), crate::kernel::error::Error>;
+
+    fn nothing(_: &Path, _: &SearchRequest) -> Half {
+        Ok((Vec::new(), Vec::new()))
+    }
+
+    fn everything(store_root: &Path, _: &SearchRequest) -> Half {
+        Ok((crate::record::read_all(store_root)?, Vec::new()))
+    }
+
+    fn report(
+        root: &Path,
+        half: fn(&Path, &SearchRequest) -> Half,
+        policy: &Policy,
+    ) -> crate::vector::StrategySearchReport {
+        let request = SearchRequest {
+            query: Some("merging".into()),
+            namespace: None,
+            type_name: None,
+            limit: 10,
+        };
+        crate::vector::with_semantic_half(half, || {
+            crate::vector::search_with_policy(
+                root,
+                &request,
+                SearchStrategy::Hybrid,
+                policy,
+                &|_| true,
+            )
+            .expect("hybrid search")
+        })
+    }
+
+    fn text_first() -> Policy {
+        Policy {
+            hybrid_order: [Source::Fts, Source::Vector],
+            ..fallback_only()
+        }
+    }
+
+    #[test]
+    fn a_text_answer_to_a_hybrid_question_says_text_answered() {
+        let root = store("answered-empty-vector");
+        add(&root, "Always run the build checks before merging");
+
+        let report = report(&root, nothing, &fallback_only());
+
+        assert_eq!(report.returned_count, 1);
+        assert_eq!(report.answered_by, "fts");
+        let stood_in = report
+            .fallback
+            .expect("the text half stood in and the receipt owes that");
+        assert!(stood_in.contains("vector"), "{stood_in}");
+        assert_eq!(
+            report.total_matches, None,
+            "a hybrid answer must not be reported as the exhaustive total"
+        );
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn a_vector_answer_says_so_and_names_no_stand_in() {
+        let root = store("answered-vector");
+        add(&root, "Always run the build checks before merging");
+
+        let report = report(&root, everything, &fallback_only());
+
+        assert_eq!(report.returned_count, 1);
+        assert_eq!(report.answered_by, "hybrid");
+        assert!(
+            report.fallback.is_none(),
+            "nothing stood in, so nothing may be reported as having done"
+        );
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    /// Both halves empty. Nobody stood in, and the receipt says nothing beyond
+    /// that — which is honest but still cannot separate "found nothing" from
+    /// "could never have found anything". That needs a number this change was
+    /// asked not to add.
+    #[test]
+    fn two_empty_halves_report_no_stand_in() {
+        let root = store("answered-both-empty");
+        add(&root, "An unrelated note");
+
+        let report = report(&root, nothing, &fallback_only());
+
+        assert_eq!(report.returned_count, 0);
+        assert_eq!(report.answered_by, "hybrid");
+        assert!(report.fallback.is_none());
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    /// The mirror image: text is configured first, text finds nothing, and the
+    /// vector half stands in for it.
+    #[test]
+    fn with_text_configured_first_a_vector_answer_is_the_stand_in() {
+        let root = store("answered-text-first");
+        add(&root, "A note the query cannot reach");
+
+        let report = report(&root, everything, &text_first());
+
+        assert_eq!(report.answered_by, "vector");
+        let stood_in = report.fallback.expect("the vector half stood in");
+        assert!(stood_in.contains("fts"), "{stood_in}");
+        fs::remove_dir_all(root).expect("cleanup");
     }
 }

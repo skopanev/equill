@@ -89,7 +89,7 @@ fn ordered_hybrid_keeps_vector_order_then_fills_unique_fts() {
         skip_query_patterns: Default::default(),
     };
 
-    let hits = ordered(
+    let (hits, answered) = ordered(
         vec![hit(1), hit(2)],
         vec![hit(1), hit(3), hit(4)],
         &policy,
@@ -97,6 +97,11 @@ fn ordered_hybrid_keeps_vector_order_then_fills_unique_fts() {
     );
 
     assert_eq!(ids(&hits), vec![1, 2, 3, 4]);
+    assert_eq!(
+        answered,
+        Some(Source::Vector),
+        "the preferred half started it"
+    );
 }
 
 /// `fill_remaining: false` makes the second source a fallback, not a top-up.
@@ -104,28 +109,36 @@ fn ordered_hybrid_keeps_vector_order_then_fills_unique_fts() {
 /// alone would have found.
 #[test]
 fn a_vector_answer_is_not_topped_up_when_filling_is_off() {
-    let hits = ordered(vec![hit(1), hit(2)], vec![hit(3), hit(4)], &fallback(), 4);
+    let (hits, answered) = ordered(vec![hit(1), hit(2)], vec![hit(3), hit(4)], &fallback(), 4);
 
     assert_eq!(ids(&hits), vec![1, 2]);
+    assert_eq!(answered, Some(Source::Vector));
 }
 
 /// And the half that broke: an empty or unavailable index reaches this as an
 /// empty list, and stopping there would answer nothing where text could answer.
 #[test]
 fn an_empty_first_source_falls_through_to_the_second() {
-    let hits = ordered(Vec::new(), vec![hit(3), hit(4)], &fallback(), 4);
+    let (hits, answered) = ordered(Vec::new(), vec![hit(3), hit(4)], &fallback(), 4);
 
     assert_eq!(ids(&hits), vec![3, 4]);
+    assert_eq!(
+        answered,
+        Some(Source::Fts),
+        "the text half answered and the caller has no way to know"
+    );
+    let (empty, nobody) = ordered(Vec::new(), Vec::new(), &fallback(), 4);
     assert!(
-        ordered(Vec::new(), Vec::new(), &fallback(), 4).is_empty(),
+        empty.is_empty(),
         "two empty sources are still an empty answer"
     );
+    assert_eq!(nobody, None, "nobody answered, so nobody stood in");
 }
 
 /// The cap is the caller's, and a fallback answer is bound by it too.
 #[test]
 fn a_fallback_answer_is_bounded_by_the_limit() {
-    let hits = ordered(Vec::new(), vec![hit(3), hit(4), hit(5)], &fallback(), 2);
+    let (hits, _) = ordered(Vec::new(), vec![hit(3), hit(4), hit(5)], &fallback(), 2);
 
     assert_eq!(ids(&hits), vec![3, 4]);
 }

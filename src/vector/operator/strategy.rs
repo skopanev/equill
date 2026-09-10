@@ -162,16 +162,18 @@ pub(crate) fn search_with_policy(
             // index alone. That difference is the whole reason the two have
             // separate names, and until now they behaved identically whenever
             // semantics answered at all.
-            let answered_by = if strategy == SearchStrategy::Hybrid {
+            let (answered_by, stood_in) = if strategy == SearchStrategy::Hybrid {
                 let mut text = projection::search(store_root, request)?.hits;
                 // Both halves are narrowed before either can claim to have
                 // answered.
                 hits.retain(|hit| eligible(&hit.record));
                 text.retain(|hit| eligible(&hit.record));
-                hits = crate::vector::ordered(hits, text, policy, request.limit as usize);
-                "hybrid"
+                let answered;
+                (hits, answered) =
+                    crate::vector::ordered(hits, text, policy, request.limit as usize);
+                crate::vector::answered_by(answered, policy.hybrid_order[0])
             } else {
-                "vector"
+                ("vector", None)
             };
             hits.truncate(request.limit as usize);
             let reading = crate::vector::freshness_of(store_root)?;
@@ -186,7 +188,7 @@ pub(crate) fn search_with_policy(
                 strategy,
                 answered_by,
                 vector_state: state,
-                fallback: None,
+                fallback: stood_in,
                 rejected,
                 hits,
             })

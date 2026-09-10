@@ -53,7 +53,7 @@ pub use embedder::{Embedder, embed_batch};
 pub use embedding::{
     EMBED_MODEL_ID, EmbeddingRuntime, MAX_TOKENS, VECTOR_DIMENSIONS, instructed_query,
 };
-pub use fusion::{fuse, ordered};
+pub use fusion::{answered_by, fuse, ordered};
 pub use model::{
     CollectionReport, DistanceMetric, EmbeddingDescriptor, EmbeddingDocument, INPUT_SCHEMA,
     VectorPoint, VectorSearchHit, VectorSearchRequest, VectorState,

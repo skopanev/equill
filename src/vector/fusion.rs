@@ -109,15 +109,54 @@ pub fn fuse(vector: Vec<SearchHit>, text: Vec<SearchHit>) -> Vec<SearchHit> {
 /// unconditionally after the first source — which is what "no top-up" was read
 /// as — turned an unavailable or empty index into an empty answer, when the
 /// text half could have answered it.
+/// Who answered, and what stood in for whom.
+///
+/// The report names the half that answered, not the kind of search that was
+/// asked for. A text answer to a hybrid question used to read as a vector one,
+/// which is how an empty vector half became evidence that nothing existed.
+///
+/// Both halves empty is not a stand-in: the question was put to both and
+/// neither had anything. Note what that still cannot say — an empty answer is
+/// not distinguishable from a path that could never have answered, because
+/// nothing here reports how much either half could see.
+pub fn answered_by(
+    answered: Option<crate::retrieval::Source>,
+    preferred: crate::retrieval::Source,
+) -> (&'static str, Option<String>) {
+    match answered {
+        Some(source) if source != preferred => (
+            name(source),
+            Some(format!(
+                "{} answered: the configured {} half returned nothing eligible",
+                name(source),
+                name(preferred)
+            )),
+        ),
+        _ => ("hybrid", None),
+    }
+}
+
+fn name(source: crate::retrieval::Source) -> &'static str {
+    match source {
+        crate::retrieval::Source::Vector => "vector",
+        crate::retrieval::Source::Fts => "fts",
+    }
+}
+
+/// Returns the hits and the source that produced them, `None` when neither
+/// did. Which half answered is decided here and nowhere else; losing it meant
+/// a report could only name the kind of search that was asked for, not the one
+/// that answered — and a text answer to a hybrid question read as a vector one.
 pub fn ordered(
     vector: Vec<SearchHit>,
     text: Vec<SearchHit>,
     policy: &crate::retrieval::Policy,
     limit: usize,
-) -> Vec<SearchHit> {
+) -> (Vec<SearchHit>, Option<crate::retrieval::Source>) {
     let mut vector = Some(vector);
     let mut text = Some(text);
     let mut output = Vec::new();
+    let mut answered = None;
     let mut seen = std::collections::HashSet::new();
     for (position, source) in policy.hybrid_order.iter().enumerate() {
         // First NON-EMPTY source, not first source: an empty answer from the
@@ -132,8 +171,9 @@ pub fn ordered(
         for hit in hits {
             if (!policy.hybrid_deduplicate || seen.insert(hit.record.id)) && output.len() < limit {
                 output.push(hit);
+                answered.get_or_insert(*source);
             }
         }
     }
-    output
+    (output, answered)
 }
