@@ -107,6 +107,7 @@ fn live(
             type_names: request.type_name.clone().into_iter().collect(),
             limit: overfetch,
         },
+        config.max_document_chars,
     )?;
     Ok((verified.records, verified.rejected))
 }

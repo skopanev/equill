@@ -45,6 +45,9 @@ fn stage_current(root: &Path) {
             "model_sha256": config["embedding"]["model"]["sha256"],
             "indexed_records": records.len(),
             "indexed_sha256": digest,
+            // A real pass records the cap its inputs were built under; a
+            // marker without it is treated as describing another preprocessing.
+            "max_document_chars": crate::vector::DEFAULT_MAX_CHARS,
         }))
         .expect("marker"),
     )

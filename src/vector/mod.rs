@@ -43,9 +43,9 @@ use provider::qdrant::{Collection, QdrantTransport, Transport};
 use std::path::{Path, PathBuf};
 
 pub use config::{
-    DeepInfraEmbeddingConfig, DeepInfraProvider, EmbeddingConfig, LocalEmbeddingConfig,
-    ModelArtifact, OllamaEmbeddingConfig, OllamaProvider, VectorConfig, VoyageEmbeddingConfig,
-    VoyageProvider,
+    DEFAULT_MAX_CHARS, DeepInfraEmbeddingConfig, DeepInfraProvider, EmbeddingConfig,
+    LocalEmbeddingConfig, ModelArtifact, OllamaEmbeddingConfig, OllamaProvider, VectorConfig,
+    VoyageEmbeddingConfig, VoyageProvider,
 };
 #[cfg(test)]
 pub(crate) use coverage::corpus;

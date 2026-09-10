@@ -124,6 +124,19 @@ pub(crate) fn validate_search(request: &VectorSearchRequest, dimensions: u64) ->
     validate_vector(&request.vector, dimensions)
 }
 
+/// The first `limit` characters, counted as Unicode scalar values.
+///
+/// Bytes would be the wrong unit twice over: a byte cap can split a character
+/// and produce invalid UTF-8, and it would bound different amounts of text in
+/// different languages. This is also the ONE place either input is shortened,
+/// so a question and a document cannot drift apart in how they are measured.
+pub(crate) fn bounded_chars(text: &str, limit: usize) -> &str {
+    match text.char_indices().nth(limit) {
+        Some((offset, _)) => &text[..offset],
+        None => text,
+    }
+}
+
 pub(crate) fn validate_vector(vector: &[f32], dimensions: u64) -> Result<(), Error> {
     if vector.len() != dimensions as usize {
         return Err(vector_error("embedding dimensions do not match config"));

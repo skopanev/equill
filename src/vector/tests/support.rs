@@ -118,6 +118,9 @@ pub(crate) fn stage_lagging_index(root: &std::path::Path, indexed: usize, pendin
             // A digest of something, and deliberately not of this corpus: the
             // difference is what makes the checkpoint behind rather than level.
             "indexed_sha256": "f".repeat(64),
+            // A real pass records the cap its inputs were built under; a
+            // marker without it is treated as describing another preprocessing.
+            "max_document_chars": crate::vector::DEFAULT_MAX_CHARS,
         }))
         .expect("marker JSON"),
     )
@@ -152,6 +155,7 @@ pub(crate) fn stage_current_index(root: &std::path::Path, indexed: usize) {
             // A digest of something: freshness compares revisions, and only the
             // format of this field is checked on the request path.
             "indexed_sha256": "a".repeat(64),
+            "max_document_chars": crate::vector::DEFAULT_MAX_CHARS,
         }))
         .expect("marker JSON"),
     )

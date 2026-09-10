@@ -11,12 +11,15 @@ use uuid::Uuid;
 pub(super) const CONFIG: &str = "registry/vector/qdrant.json";
 const SCHEMA: &str = "equill.qdrant-config.v1";
 
-mod deepinfra;
-pub use deepinfra::{DeepInfraEmbeddingConfig, DeepInfraProvider};
-mod voyage;
-pub use voyage::{VoyageEmbeddingConfig, VoyageProvider};
 mod artifact;
+mod deepinfra;
+mod embedding;
+mod limits;
+mod voyage;
 use artifact::verify_artifact;
+pub use deepinfra::{DeepInfraEmbeddingConfig, DeepInfraProvider};
+pub use limits::DEFAULT_MAX_CHARS;
+pub use voyage::{VoyageEmbeddingConfig, VoyageProvider};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -32,6 +35,14 @@ pub struct VectorConfig {
     /// Types this store embeds; empty means all of them. See `coverage`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub embed_types: Vec<String>,
+    /// The most characters an embedding input may carry, in Unicode scalar
+    /// values so a cap never splits a character. Two limits because the inputs
+    /// differ: a question is typed, a document is what a record means. Absent
+    /// means the default, not "no limit" — see `limits`.
+    #[serde(default = "limits::default_chars")]
+    pub max_query_chars: usize,
+    #[serde(default = "limits::default_chars")]
+    pub max_document_chars: usize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key_env: Option<String>,
     #[serde(default)]
@@ -121,6 +132,8 @@ fn validate_shape(config: &VectorConfig) -> Result<(), Error> {
     if !valid_collection_name(&config.collection_alias) {
         return Err(vector_error("invalid collection alias"));
     }
+    limits::validate(config.max_query_chars, "max_query_chars")?;
+    limits::validate(config.max_document_chars, "max_document_chars")?;
     if !(1..=65_536).contains(&config.dimensions) {
         return Err(vector_error("dimensions must be between 1 and 65536"));
     }
@@ -164,44 +177,6 @@ fn validate_shape(config: &VectorConfig) -> Result<(), Error> {
         return Err(vector_error("invalid API key environment variable name"));
     }
     Ok(())
-}
-
-impl EmbeddingConfig {
-    pub(crate) fn model_id(&self) -> &str {
-        match self {
-            Self::DeepInfra(value) => &value.model_id,
-            Self::Voyage(value) => &value.model_id,
-            Self::Local(value) => &value.model_id,
-            Self::Ollama(value) => &value.model_id,
-        }
-    }
-
-    pub(crate) fn model_sha256(&self) -> String {
-        match self {
-            Self::DeepInfra(value) => value.fingerprint(),
-            Self::Voyage(value) => value.fingerprint(),
-            Self::Local(value) => value.model.sha256.clone(),
-            Self::Ollama(value) => value.model_sha256.clone(),
-        }
-    }
-
-    pub(crate) fn tokenizer_sha256(&self) -> String {
-        match self {
-            Self::DeepInfra(value) => value.fingerprint(),
-            Self::Voyage(value) => value.fingerprint(),
-            Self::Local(value) => value.tokenizer.sha256.clone(),
-            Self::Ollama(value) => value.model_sha256.clone(),
-        }
-    }
-
-    pub(crate) fn input_schema(&self) -> &str {
-        match self {
-            Self::DeepInfra(value) => &value.input_schema,
-            Self::Voyage(value) => &value.input_schema,
-            Self::Local(value) => &value.input_schema,
-            Self::Ollama(value) => &value.input_schema,
-        }
-    }
 }
 
 fn validate_endpoint(endpoint: &str, allow_remote: bool) -> Result<(), Error> {

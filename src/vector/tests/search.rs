@@ -42,7 +42,7 @@ fn only_hits_the_ledger_still_backs_are_returned() {
         .iter()
         .find(|(item, _)| item.id == real)
         .expect("stored");
-    let truth = canonical(record, digest).expect("canonical");
+    let truth = canonical(record, digest, crate::vector::DEFAULT_MAX_CHARS).expect("canonical");
 
     let hits = vec![
         hit(record.clone(), &truth.input_sha256),
@@ -53,6 +53,7 @@ fn only_hits_the_ledger_still_backs_are_returned() {
         &FakeEmbedder,
         "how do I verify a change",
         request(10),
+        crate::vector::DEFAULT_MAX_CHARS,
     )
     .expect("retrieve");
 
@@ -67,8 +68,14 @@ fn only_hits_the_ledger_still_backs_are_returned() {
 fn an_empty_query_is_refused_before_the_index_is_asked() {
     let root = store("empty");
 
-    let error =
-        retrieve(&FakeIndex(Vec::new()), &FakeEmbedder, "  ", request(5)).expect_err("empty query");
+    let error = retrieve(
+        &FakeIndex(Vec::new()),
+        &FakeEmbedder,
+        "  ",
+        request(5),
+        crate::vector::DEFAULT_MAX_CHARS,
+    )
+    .expect_err("empty query");
 
     assert!(error.to_string().contains("requires a query"));
     fs::remove_dir_all(root).expect("cleanup");
@@ -83,14 +90,20 @@ fn raw_vector_scores_below_the_threshold_are_not_returned() {
         .iter()
         .find(|(record, _)| record.id == id)
         .expect("stored");
-    let truth = canonical(record, digest).expect("canonical");
+    let truth = canonical(record, digest, crate::vector::DEFAULT_MAX_CHARS).expect("canonical");
     let mut low = hit(record.clone(), &truth.input_sha256);
     low.score = 0.47;
     let mut search = request(10);
     search.score_threshold = Some(0.48);
 
-    let verified =
-        retrieve(&FakeIndex(vec![low]), &FakeEmbedder, "build", search).expect("retrieve");
+    let verified = retrieve(
+        &FakeIndex(vec![low]),
+        &FakeEmbedder,
+        "build",
+        search,
+        crate::vector::DEFAULT_MAX_CHARS,
+    )
+    .expect("retrieve");
 
     assert!(verified.records.is_empty());
     assert!(verified.rejected.is_empty());

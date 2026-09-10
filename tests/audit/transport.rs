@@ -43,8 +43,8 @@ fn broken_response_pipes_preserve_known_domain_success_in_one_audit_event() {
         assert_eq!(event.output.durable, Some(true));
         assert_eq!(event.output.ids.len(), 1);
         assert!(
-            equill::record::read_all(&fixture.store)
-                .expect("ledger")
+            fixture
+                .truth()
                 .iter()
                 .any(|record| event.output.ids.contains(&record.id))
         );

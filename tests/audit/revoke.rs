@@ -42,7 +42,7 @@ fn revoke_surfaces_and_interrupted_outcomes_keep_the_committed_tombstone() {
                 "{surface}: {}",
                 String::from_utf8_lossy(&output.stderr)
             );
-            let records = equill::record::read_all(&fixture.store).expect("truth");
+            let records = fixture.truth();
             let tombstone = records
                 .iter()
                 .find(|record| record.supersedes == Some(fixture.record))

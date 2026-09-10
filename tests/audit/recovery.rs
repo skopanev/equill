@@ -138,7 +138,7 @@ fn abrupt_process_exit_before_and_after_outcome_checkpoint_keeps_one_honest_even
             events[0].domain_outcome,
             if checkpoint { "success" } else { "unknown" }
         );
-        let records = equill::record::read_all(&fixture.store).expect("ledger");
+        let records = fixture.truth();
         assert_eq!(
             records.len(),
             2,

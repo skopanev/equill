@@ -12,6 +12,8 @@ use uuid::Uuid;
 
 pub(super) fn config() -> VectorConfig {
     VectorConfig {
+        max_query_chars: crate::vector::DEFAULT_MAX_CHARS,
+        max_document_chars: crate::vector::DEFAULT_MAX_CHARS,
         embed_types: Vec::new(),
         schema: "equill.qdrant-config.v1".into(),
         enabled: true,

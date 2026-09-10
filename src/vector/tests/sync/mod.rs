@@ -131,9 +131,15 @@ impl SyncIndex for FakeIndex {
         inner.ready_marks += 1;
         inner.checkpoint = Some((records, digest.to_owned()));
         drop(inner);
+        // Loaded rather than held: the real projection opens with whatever the
+        // descriptor says now, and a stale copy here would write a marker no
+        // configure could ever match.
+        let current = crate::vector::config::load(&self.root)
+            .expect("config")
+            .unwrap_or_else(|| self.config.clone());
         crate::vector::state::stage_ready(
             &self.root,
-            &self.config,
+            &current,
             physical,
             // Given, not invented from a count — and the filter comes from the
             // pass that took the corpus, not from a re-read of the descriptor.

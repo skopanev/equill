@@ -125,3 +125,59 @@ fn ollama_provider_is_loopback_only() {
     assert!(error.contains("remote endpoint requires explicit TLS opt-in"));
     fs::remove_dir_all(root).expect("cleanup");
 }
+
+/// A descriptor written before the limits existed keeps loading, and reads as
+/// the default rather than as "no limit". An unbounded input is what a paid
+/// provider bills for and what a context window refuses, so absence cannot
+/// mean unbounded.
+#[test]
+fn absent_limits_read_as_the_default_and_explicit_ones_are_honoured() {
+    let root = support::root("limits-default");
+    let descriptor = support::config(&root);
+    assert!(
+        descriptor.get("max_query_chars").is_none(),
+        "the fixture already names the limits, so this measures nothing"
+    );
+    support::write(&root, &descriptor);
+
+    let loaded = crate::vector::config::load(&root)
+        .expect("config")
+        .expect("configured");
+
+    assert_eq!(loaded.max_query_chars, crate::vector::DEFAULT_MAX_CHARS);
+    assert_eq!(loaded.max_document_chars, crate::vector::DEFAULT_MAX_CHARS);
+    assert_eq!(crate::vector::DEFAULT_MAX_CHARS, 2_000);
+
+    let mut explicit = support::config(&root);
+    explicit["max_query_chars"] = serde_json::json!(512);
+    explicit["max_document_chars"] = serde_json::json!(4_096);
+    support::write(&root, &explicit);
+    let overridden = crate::vector::config::load(&root)
+        .expect("config")
+        .expect("configured");
+    assert_eq!(overridden.max_query_chars, 512);
+    assert_eq!(overridden.max_document_chars, 4_096);
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+/// Zero is refused rather than read as "no limit": a silent zero would embed
+/// nothing and look like a configuration that worked.
+#[test]
+fn a_zero_or_absurd_limit_is_refused_at_load() {
+    let root = support::root("limits-invalid");
+    for (field, value) in [
+        ("max_query_chars", 0_u64),
+        ("max_document_chars", 0),
+        ("max_query_chars", 10_000_000),
+    ] {
+        let mut descriptor = support::config(&root);
+        descriptor[field] = serde_json::json!(value);
+        support::write(&root, &descriptor);
+
+        let error =
+            crate::vector::config::load(&root).expect_err(&format!("{field}={value} was accepted"));
+
+        assert!(error.to_string().contains(field), "{field}: {error}");
+    }
+    fs::remove_dir_all(root).expect("cleanup");
+}

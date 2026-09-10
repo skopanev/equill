@@ -10,6 +10,7 @@ fn shared_runtime_caps_queries_but_keeps_long_documents_intact() {
     let key = key_file("query-limit", "sk-test");
     let (provider, recorder) = runtime(&key, vec![ok(1), ok(1)]);
     let embedder = EmbeddingRuntime {
+        max_query_chars: crate::vector::DEFAULT_MAX_CHARS,
         inner: Runtime::Voyage(Box::new(provider)),
     };
     let prefix = "я🦀".repeat(1_000);

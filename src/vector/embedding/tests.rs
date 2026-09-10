@@ -7,15 +7,51 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 #[test]
-fn query_limit_preserves_short_inputs_and_unicode_boundaries() {
+fn the_cap_preserves_short_inputs_and_never_splits_a_character() {
+    use crate::vector::model::bounded_chars;
     for text in ["", "short query", "вопрос", "🦀"] {
-        assert_eq!(super::bounded_query(text), text);
+        assert_eq!(bounded_chars(text, 2_000), text);
     }
     for character in ['a', 'я', '🦀'] {
+        // 2000 scalar values exactly, then one more. Counting bytes would cut
+        // the multi-byte cases mid-character and produce invalid UTF-8; these
+        // are here so that mistake cannot pass.
         let exact = character.to_string().repeat(2_000);
-        assert_eq!(super::bounded_query(&exact), exact);
-        assert_eq!(super::bounded_query(&format!("{exact}tail")), exact);
+        assert_eq!(bounded_chars(&exact, 2_000), exact, "2000 is not over");
+        assert_eq!(
+            bounded_chars(&format!("{exact}{character}"), 2_000)
+                .chars()
+                .count(),
+            2_000,
+            "2001 was not cut back to 2000"
+        );
+        assert_eq!(bounded_chars(&format!("{exact}tail"), 2_000), exact);
     }
+}
+
+/// The instruction is counted against the cap, because it goes out with the
+/// question. It is also kept whole: a half-instruction asks something else.
+#[test]
+fn the_instruction_is_counted_against_the_query_cap_and_kept_whole() {
+    let instruction = "Retrieve durable memory directly applicable to the current request.";
+    let framing = instructed_query(instruction, "").chars().count();
+
+    let room = super::room_for_query(Some(instruction), 2_000).expect("room");
+
+    assert_eq!(room, 2_000 - framing);
+    assert_eq!(
+        super::room_for_query(None, 2_000).expect("no framing"),
+        2_000,
+        "a provider that adds no prefix reserves nothing"
+    );
+    // An instruction that fills the limit leaves no question to ask, and that
+    // is a refusal rather than a prefix sent on its own.
+    let error = super::room_for_query(Some(instruction), framing)
+        .expect_err("an instruction filling the cap was accepted");
+    assert!(
+        error.to_string().contains("nothing would be asked"),
+        "{error}"
+    );
 }
 
 /// The contract is pinned deliberately: a silent change to pooling, dimensions,
@@ -105,6 +141,8 @@ fn config(directory: &Path) -> VectorConfig {
         sha256: sha256_hex(&std::fs::read(directory.join(name)).expect("artifact")),
     };
     VectorConfig {
+        max_query_chars: crate::vector::DEFAULT_MAX_CHARS,
+        max_document_chars: crate::vector::DEFAULT_MAX_CHARS,
         embed_types: Vec::new(),
         schema: "equill.qdrant-config.v1".into(),
         enabled: true,

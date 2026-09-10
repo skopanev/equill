@@ -42,6 +42,13 @@ pub(super) struct StateFile {
     /// how a narrowed index stayed current over records it had never dropped.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) embed_types_sha256: Option<String>,
+    /// The document cap the indexed inputs were built under — identity, not
+    /// freshness: a checkpoint under another cap describes different inputs,
+    /// and the corpus digest cannot see a cap because it hashes ledger lines.
+    /// Absent matches no cap, so a pre-cap marker earns one pass, cheap where
+    /// nothing was truncated. The QUERY cap never touches a document.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) max_document_chars: Option<usize>,
 }
 
 /// Whether the index reflects the ledger as it is now. This is not health: an
@@ -145,6 +152,7 @@ fn stage(
         indexed_revision: snapshot.map(|(_, _, revision, _)| revision),
         indexed_sha256: snapshot.map(|(_, digest, _, _)| digest.to_owned()),
         embed_types_sha256: snapshot.and_then(|(_, _, _, filter)| filter.map(str::to_owned)),
+        max_document_chars: snapshot.map(|_| config.max_document_chars),
     };
     let bytes = serde_json::to_vec(&marker)
         .map_err(|_| vector_error("ready marker serialization failed"))?;
@@ -212,6 +220,7 @@ pub(super) fn describes(marker: &StateFile, config: &VectorConfig) -> bool {
         // for. Both absent means no filter on either side, which is what every
         // marker written before this field says.
         && marker.embed_types_sha256 == super::coverage::fingerprint(&config.embed_types)
+        && marker.max_document_chars == Some(config.max_document_chars)
         && valid_collection_name(&marker.physical_collection)
 }
 

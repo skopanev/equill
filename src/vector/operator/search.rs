@@ -55,14 +55,19 @@ pub struct VerifiedHits {
 /// vector still describes the record: an edit that keeps the ledger honest can
 /// still leave an embedding behind. So the canonical input is re-derived and
 /// compared, and anything stale is dropped rather than returned.
-pub fn verify(hits: Vec<VectorSearchHit>, limit: usize) -> Result<VerifiedHits, Error> {
-    verify_with_threshold(hits, limit, None)
+pub fn verify(
+    hits: Vec<VectorSearchHit>,
+    limit: usize,
+    max_document_chars: usize,
+) -> Result<VerifiedHits, Error> {
+    verify_with_threshold(hits, limit, None, max_document_chars)
 }
 
 fn verify_with_threshold(
     hits: Vec<VectorSearchHit>,
     limit: usize,
     score_threshold: Option<f32>,
+    max_document_chars: usize,
 ) -> Result<VerifiedHits, Error> {
     let mut records = Vec::new();
     let mut rejected = Vec::new();
@@ -71,7 +76,7 @@ fn verify_with_threshold(
             continue;
         }
         let digest = sha256_hex(&serde_json::to_vec(&hit.record)?);
-        match document::canonical(&hit.record, &digest) {
+        match document::canonical(&hit.record, &digest, max_document_chars) {
             Ok(document) if document.input_sha256 == hit.input_sha256 => {
                 records.push(hit.record);
                 if records.len() == limit {
@@ -91,6 +96,7 @@ pub fn retrieve(
     embedder: &impl QueryEmbedder,
     query: &str,
     request: VectorSearchRequest,
+    max_document_chars: usize,
 ) -> Result<VerifiedHits, Error> {
     if query.trim().is_empty() {
         return Err(vector_error("search requires a query"));
@@ -102,6 +108,7 @@ pub fn retrieve(
         index.search(&VectorSearchRequest { vector, ..request })?,
         limit,
         score_threshold,
+        max_document_chars,
     )
 }
 

@@ -20,7 +20,13 @@ fn semantic_retrieval_performs_zero_full_ledger_reads_and_rechecks_embedding_inp
     crate::vector::tests::support::write(&root, &config);
     let index = VectorProjection::open(&root).unwrap().unwrap();
     let mut hit = candidate(&record);
-    hit.input_sha256 = canonical(&record, &hit.record_sha256).unwrap().input_sha256;
+    hit.input_sha256 = canonical(
+        &record,
+        &hit.record_sha256,
+        crate::vector::DEFAULT_MAX_CHARS,
+    )
+    .unwrap()
+    .input_sha256;
     fs::write(
         root.join("records/2019-01.jsonl"),
         b"{ unrelated corruption }\n",
@@ -29,7 +35,13 @@ fn semantic_retrieval_performs_zero_full_ledger_reads_and_rechecks_embedding_inp
     crate::record::hotpath::reset();
     crate::record::located::shard_reads();
     let found = crate::vector::hydrate::with_candidates(vec![hit.clone()], || {
-        retrieve(&index, &Query, "synthetic query", request())
+        retrieve(
+            &index,
+            &Query,
+            "synthetic query",
+            request(),
+            crate::vector::DEFAULT_MAX_CHARS,
+        )
     })
     .expect("semantic retrieval");
     assert_eq!(found.records.len(), 1);
@@ -40,7 +52,13 @@ fn semantic_retrieval_performs_zero_full_ledger_reads_and_rechecks_embedding_inp
 
     hit.input_sha256 = "f".repeat(64);
     let stale = crate::vector::hydrate::with_candidates(vec![hit], || {
-        retrieve(&index, &Query, "synthetic query", request())
+        retrieve(
+            &index,
+            &Query,
+            "synthetic query",
+            request(),
+            crate::vector::DEFAULT_MAX_CHARS,
+        )
     })
     .unwrap();
     assert!(stale.records.is_empty());
@@ -100,7 +118,14 @@ fn release_hydration_reports_first_and_warm_local_overhead() {
         crate::record::located::shard_reads();
         let elapsed = crate::vector::hydrate::with_candidates(hits.clone(), || {
             let started = Instant::now();
-            let result = retrieve(&index, &Query, "synthetic query", request()).unwrap();
+            let result = retrieve(
+                &index,
+                &Query,
+                "synthetic query",
+                request(),
+                crate::vector::DEFAULT_MAX_CHARS,
+            )
+            .unwrap();
             let elapsed = started.elapsed();
             assert_eq!(result.records.len(), 10);
             assert!(result.rejected.is_empty());

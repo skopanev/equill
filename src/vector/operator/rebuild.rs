@@ -83,7 +83,7 @@ pub fn rebuild_with_progress(
     for chunk in records.chunks(BATCH) {
         let documents = chunk
             .iter()
-            .map(|(record, digest)| canonical(record, digest))
+            .map(|(record, digest)| canonical(record, digest, vector_config.max_document_chars))
             .collect::<Result<Vec<_>, _>>()?;
         let points = embed_batch(&embedder, &documents)?;
         completed += points.len();

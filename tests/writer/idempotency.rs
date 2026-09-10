@@ -38,6 +38,65 @@ fn cli(root: &Path, input: &Path, key: Option<&str>) -> Value {
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
+/// Remove the disposable store, tolerating a directory that is still being
+/// written into — and naming what was written if it never stops.
+///
+/// `remove_dir_all` walks the tree and then removes the directory, so anything
+/// that appears between those two steps makes the final removal fail with
+/// `DirectoryNotEmpty`. That is what this test hit under a full parallel run
+/// and never once in isolation.
+///
+/// Who creates that file is NOT established. It is not this store's writer:
+/// the process that wrote has exited, no worker is started because no vector
+/// projection is configured, and twenty-five isolated reproductions produced
+/// nothing to look at. So this does not pretend to know — it retries the exact
+/// removal while the exact error says the directory refilled, and when the
+/// deadline passes it fails with the leftovers listed, so the next occurrence
+/// identifies the writer instead of only reporting the symptom.
+///
+/// Not silenced and not slept through: the error is still fatal, and the wait
+/// ends on a condition rather than after a guessed interval.
+fn discard(root: &Path) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        match fs::remove_dir_all(root) {
+            Ok(()) => return,
+            Err(error)
+                if error.kind() == std::io::ErrorKind::DirectoryNotEmpty
+                    && std::time::Instant::now() < deadline =>
+            {
+                std::thread::yield_now();
+            }
+            Err(error) => panic!(
+                "{root:?} could not be discarded: {error}; left behind: {:?}",
+                leftovers(root)
+            ),
+        }
+    }
+}
+
+/// Everything still under the store, relative to it, so a failure says which
+/// file refilled the directory rather than only that one did.
+fn leftovers(root: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        let Ok(entries) = fs::read_dir(&directory) else {
+            continue;
+        };
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if let Ok(relative) = path.strip_prefix(root) {
+                found.push(relative.to_path_buf());
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
 #[test]
 fn cli_process_restart_and_mcp_return_the_core_outcome() {
     let root = store();
@@ -65,7 +124,7 @@ fn cli_process_restart_and_mcp_return_the_core_outcome() {
     .unwrap();
     assert_eq!(core.id.to_string(), first["id"]);
     assert_eq!(equill::record::read_all(&root).unwrap().len(), 1);
-    fs::remove_dir_all(root).unwrap();
+    discard(&root);
 }
 
 #[test]
@@ -79,5 +138,5 @@ fn jsonl_entries_share_the_same_idempotency_contract() {
     assert_eq!(first["records"][0]["id"], first["records"][1]["id"]);
     assert_eq!(first["records"], second["records"]);
     assert_eq!(equill::record::read_all(&root).unwrap().len(), 1);
-    fs::remove_dir_all(root).unwrap();
+    discard(&root);
 }

@@ -69,6 +69,33 @@ impl Fixture {
         command
     }
 
+    /// The ledger, read once the store will let a snapshot be taken.
+    ///
+    /// A write is durable before the process that made it exits, but the work
+    /// it handed off is not: the worker it started may still hold the writer
+    /// lock, and a committed snapshot refuses to read across an active writer
+    /// rather than show a torn one. That refusal is the product working, so the
+    /// test waits for the condition it actually needs instead of weakening it.
+    ///
+    /// Not a sleep: this retries the exact read, and only while the exact
+    /// reason is "writer active". Any other error fails immediately, and a
+    /// writer that never lets go fails loudly rather than hanging.
+    pub fn truth(&self) -> Vec<equill::record::StoredRecord> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            match equill::record::read_all(&self.store) {
+                Ok(records) => return records,
+                Err(error)
+                    if std::time::Instant::now() < deadline
+                        && error.to_string().contains("writer active") =>
+                {
+                    std::thread::yield_now();
+                }
+                Err(error) => panic!("truth: {error}"),
+            }
+        }
+    }
+
     pub fn cli(&self, args: &[&str]) -> Output {
         self.command().args(args).output().expect("CLI")
     }
@@ -133,4 +160,49 @@ pub fn snapshot(root: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
         }
     }
     result
+}
+
+/// The reason the audit tests once failed, reproduced on purpose.
+///
+/// A write is durable before the process that made it exits, but the worker it
+/// handed off to may still hold the writer lock. A committed snapshot refuses
+/// to read across an active writer rather than show a torn ledger — correct
+/// behaviour that a test reading truth immediately can lose a race to. The
+/// race is rare and load-dependent, so it is staged here instead of waited
+/// for: a writer is held deliberately, and both halves of the contract are
+/// checked.
+#[test]
+fn reading_truth_waits_for_an_active_writer_instead_of_failing() {
+    use fs2::FileExt;
+    let fixture = Fixture::new();
+    let writer = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(fixture.store.join("locks/writer.lock"))
+        .expect("writer lock");
+    writer.lock_exclusive().expect("hold the writer lock");
+
+    // The premise: while a writer is held, the snapshot refuses, and it refuses
+    // for this exact reason. Without this the test below could pass by reading
+    // a store nobody was writing to.
+    let refused = equill::record::read_all(&fixture.store)
+        .expect_err("a snapshot was taken across an active writer");
+    assert!(
+        refused.to_string().contains("writer active"),
+        "refused for another reason: {refused}"
+    );
+
+    let released = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        FileExt::unlock(&writer).expect("release");
+    });
+    let records = fixture.truth();
+    released.join().expect("releasing thread");
+
+    assert!(
+        records.iter().any(|record| record.id == fixture.record),
+        "the wait returned a ledger without the seeded record"
+    );
 }

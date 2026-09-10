@@ -27,7 +27,12 @@ pub fn configure(store_root: &Path, file: &Path, actor: &str) -> Result<VectorCo
     let candidate: Value = serde_json::from_slice(&fs::read(file)?)?;
     embed_types_are_registered(store_root, &candidate)?;
     let before = previous(store_root)?;
-    let filter_changed = embed_types_of(before.as_ref()) != embed_types_of(Some(&candidate));
+    // Two settings decide what the index should contain, and a change to
+    // either owes a pass. The QUERY cap is deliberately not one of them: it
+    // never touches an indexed document, and treating it as one would re-embed
+    // a corpus because somebody shortened a question.
+    let indexing_changed = embed_types_of(before.as_ref()) != embed_types_of(Some(&candidate))
+        || document_cap_of(before.as_ref()) != document_cap_of(Some(&candidate));
     let report = store_descriptor(store_root, &candidate, before.clone())?;
     // The descriptor first, then the target — and if the target will not go up,
     // the descriptor comes back down.
@@ -44,7 +49,7 @@ pub fn configure(store_root: &Path, file: &Path, actor: &str) -> Result<VectorCo
     // Leaving the descriptor stored with no target is the state a retry cannot
     // escape: the same file compared against itself shows no change, skips the
     // target and returns success.
-    if filter_changed && let Err(publication) = announce_outstanding_work(store_root) {
+    if indexing_changed && let Err(publication) = announce_outstanding_work(store_root) {
         undo(store_root, before)?;
         return Err(publication);
     }
@@ -93,6 +98,15 @@ pub(crate) fn announce_outstanding_work(store_root: &Path) -> Result<(), Error> 
     let _writers = StoreLock::exclusive(store_root)?;
     super::super::desired::advance(store_root, 1)?;
     Ok(())
+}
+
+/// The document cap as the file states it, defaulted the way the reader
+/// defaults it — so adding the field with its default value is not a change.
+fn document_cap_of(config: Option<&Value>) -> usize {
+    config
+        .and_then(|value| value.get("max_document_chars"))
+        .and_then(Value::as_u64)
+        .map_or(crate::vector::DEFAULT_MAX_CHARS, |chars| chars as usize)
 }
 
 /// The filter as the file states it, in order. A reordering is not a change of

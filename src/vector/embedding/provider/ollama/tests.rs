@@ -38,6 +38,8 @@ fn pinned_model_embeds_a_prefixed_query_through_loopback() {
 
 fn config(endpoint: String, digest: String) -> VectorConfig {
     VectorConfig {
+        max_query_chars: crate::vector::DEFAULT_MAX_CHARS,
+        max_document_chars: crate::vector::DEFAULT_MAX_CHARS,
         embed_types: Vec::new(),
         schema: "equill.qdrant-config.v1".into(),
         enabled: true,

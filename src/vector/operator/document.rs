@@ -16,11 +16,24 @@ use std::fmt::Write as _;
 ///
 /// Ordering is total and explicit, so the same record always produces the same
 /// bytes and therefore the same `input_sha256`.
-pub fn canonical(record: &StoredRecord, record_sha256: &str) -> Result<EmbeddingDocument, Error> {
+pub fn canonical(
+    record: &StoredRecord,
+    record_sha256: &str,
+    max_chars: usize,
+) -> Result<EmbeddingDocument, Error> {
     if record.namespace.trim().is_empty() || record.type_name.trim().is_empty() {
         return Err(vector_error("record has no embeddable coordinates"));
     }
-    let text = canonical_text(record);
+    // Capped BEFORE the digest, and this order is the whole contract: the
+    // digest has to describe the text that was actually embedded, not the text
+    // a record could have produced. Hashing first would leave a store whose
+    // vectors were computed from 2000 characters and whose bookkeeping claimed
+    // the whole record — and the delta pass, which compares exactly this
+    // digest, would see nothing to redo when the limit changed.
+    //
+    // It also means the ledger payload is untouched: this shortens an input,
+    // never a record.
+    let text = crate::vector::model::bounded_chars(&canonical_text(record), max_chars).to_owned();
     Ok(EmbeddingDocument {
         record_id: record.id,
         namespace: record.namespace.clone(),

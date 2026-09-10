@@ -46,7 +46,7 @@ pub(super) fn pending<I: SyncIndex>(
             }
         }
         for (record, record_sha256) in chunk {
-            let document = canonical(record, record_sha256)?;
+            let document = canonical(record, record_sha256, config.max_document_chars)?;
             let known = current.get(&record.id);
             let same_meaning = known.is_some_and(|item| {
                 item.input_sha256 == document.input_sha256
