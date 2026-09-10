@@ -1,6 +1,7 @@
 mod arguments;
 mod catalog;
 mod environment;
+mod hook;
 mod protocol;
 mod retrieval;
 #[cfg(test)]

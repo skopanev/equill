@@ -39,6 +39,7 @@ pub fn call(
         }
         "search" => search(store, log_queries, arguments),
         "context" => assemble(store, actor, log_queries, arguments),
+        "hook_context" => super::hook::context(store, actor, log_queries, arguments),
         "record" => {
             let draft = arguments
                 .get("draft")
@@ -148,7 +149,7 @@ fn search(store: &Path, log_queries: bool, arguments: &Value) -> Result<Value, E
     value(&report)
 }
 
-fn assemble(
+pub(super) fn assemble(
     store: &Path,
     actor: &str,
     log_queries: bool,

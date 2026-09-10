@@ -193,6 +193,7 @@ pub(super) fn operation(value: &str) -> String {
         "add",
         "schema_list",
         "schema_show",
+        "hook_context",
         "initialize",
         "ping",
         "tools/list",

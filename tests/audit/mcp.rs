@@ -49,6 +49,10 @@ fn entire_mcp_catalog_success_protocol_and_execution_failures_are_audited_once()
             json!({"query":"synthetic","vector_enabled":false}),
         ),
         ("context", json!({"profile":"reader","query":"synthetic"})),
+        (
+            "hook_context",
+            json!({"hook_event_name":"PostToolBatch","profile":"reader","query":"synthetic"}),
+        ),
         ("get", json!({"id":fixture.record})),
         ("record", json!({"draft":draft()})),
         ("revoke", json!({"id":fixture.record})),
