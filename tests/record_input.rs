@@ -80,6 +80,40 @@ fn stderr(output: &Output) -> String {
 }
 
 #[test]
+fn future_observation_is_rejected_on_cli_and_jsonl_keeps_partial_success_contract() {
+    let root = store("future-observation");
+    let input = root.join("future.json");
+    let mut future = draft(json!("synthetic rejected observation"));
+    future["observed_at"] = jiff::Timestamp::MAX.to_string().into();
+    write_json(&input, &future);
+    let rejected = record(&root, &input);
+    assert!(!rejected.status.success());
+    assert!(stderr(&rejected).contains("observed_at exceeds writer recorded_at"));
+    assert!(!stderr(&rejected).contains("synthetic rejected observation"));
+    assert!(equill::record::read_all(&root).unwrap().is_empty());
+
+    let batch = root.join("mixed.jsonl");
+    fs::write(
+        &batch,
+        format!("{}\n{future}\n", draft(json!("historical"))),
+    )
+    .unwrap();
+    let output = record(&root, &batch);
+    assert!(!output.status.success());
+    let report = body(&output);
+    assert_eq!(report["stored"], 1);
+    assert_eq!(report["rejected"], 1);
+    assert!(
+        report["records"][1]["error"]
+            .as_str()
+            .unwrap()
+            .contains("observed_at")
+    );
+    assert_eq!(equill::record::read_all(&root).unwrap().len(), 1);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn pretty_printed_object_is_one_successful_record() {
     let root = store("pretty");
     let input = root.join("pretty.json");

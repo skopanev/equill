@@ -2,6 +2,31 @@ use super::support::*;
 use crate::record::{RecordDraft, append_indexed};
 use serde_json::json;
 use std::fs;
+
+#[test]
+fn future_observation_is_an_operation_error_not_a_transport_error() {
+    let root = store();
+    let replies = exchange(
+        &root,
+        "owner",
+        &[call(
+            "record",
+            json!({"draft": {
+                "namespace": "agent.memory", "type": "agent.lesson.v1",
+                "observed_at": jiff::Timestamp::MAX.to_string(),
+                "payload": {"rule": "synthetic rejected observation"}
+            }}),
+            1,
+        )],
+    );
+    assert!(replies[0]["error"].is_null());
+    assert_eq!(replies[0]["result"]["isError"], true);
+    let message = replies[0]["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(message.contains("observed_at exceeds writer recorded_at"));
+    assert!(!message.contains("synthetic rejected observation"));
+    assert!(crate::record::read_all(&root).unwrap().is_empty());
+    fs::remove_dir_all(root).unwrap();
+}
 /// The adapter is a second surface, never a second write path: a record written
 /// through MCP is the same immutable, grant-checked append, and an actor the
 /// store does not allow is refused here exactly as it is at the CLI.

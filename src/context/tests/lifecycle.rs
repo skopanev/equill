@@ -8,6 +8,30 @@ use serde_json::json;
 use std::fs;
 
 #[test]
+fn future_valid_at_is_accepted_by_writer_and_becomes_visible_at_exact_boundary() {
+    let root = store("future-validity");
+    registry(&root, 4_000, 1_000, &["recency"], "agent.memory");
+    let valid = "2090-01-01T00:00:00Z";
+    let id = append(&root, "Scheduled synthetic rule", &[], None, valid);
+    let mut before = request("");
+    before.at = "2089-12-31T23:59:59.999999999Z".into();
+    let result = assemble(&root, "worker.v1", before, "test-owner", &Filter::default()).unwrap();
+    assert!(!result.selected_record_ids.contains(&id));
+    assert!(
+        result
+            .receipt
+            .excluded
+            .iter()
+            .any(|item| { item.id == id && item.reason == ExclusionReason::InvalidAtRequestTime })
+    );
+    let mut at = request("");
+    at.at = valid.into();
+    let result = assemble(&root, "worker.v1", at, "test-owner", &Filter::default()).unwrap();
+    assert_eq!(result.selected_record_ids, vec![id]);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn unchanged_request_is_byte_stable_and_filters_lifecycle() {
     let root = store("stable");
     registry(&root, 4_000, 1_000, &["exact", "tag"], "agent.memory");
