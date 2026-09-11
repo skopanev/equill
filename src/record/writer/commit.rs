@@ -18,6 +18,11 @@ pub(super) fn records(
     let Some(first) = prepared.first() else {
         return Ok(Vec::new());
     };
+    // Fresh commits only: cached outcomes and recovery must remain clock-neutral.
+    // Check the entire batch before staging receipts or reserving vector work.
+    for item in &prepared {
+        super::observation_time::validate(&item.record.observed_at, &item.record.recorded_at)?;
+    }
     let month = month(&first.record.recorded_at)?;
     let ledger = format!("records/{month}.jsonl");
     let target = path::within(root, &ledger)?;

@@ -2,6 +2,7 @@ mod atomic;
 mod authority;
 mod blocked;
 mod commit;
+mod observation_time;
 mod operation;
 mod prepare;
 mod revocation;

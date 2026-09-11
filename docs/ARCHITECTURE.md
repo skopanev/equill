@@ -493,6 +493,40 @@ stands in the settings file, so it can be found by searching that file. The
 query text is never recorded there. A store that configures no patterns produces
 a receipt without the field, byte-identical to the receipts it produced before.
 
+## Observation time on fresh writes
+
+Every fresh immutable write requires `observed_at` to be no more than 60 seconds
+ahead of the writer-generated `recorded_at`. The comparison uses parsed instants
+at nanosecond precision: exactly +60 seconds passes, +60 seconds plus 1ns fails.
+This fixed clock-skew allowance is not a settings key or an import bypass. It
+does not detect fabricated times within that window or correct an inaccurate
+writer clock. Rejection uses the normal invalid-record error, without payloads.
+
+Historical observations have no new age limit; timestamps are never clamped or
+restamped. `observed_at` remains required. Future `valid_at` is legitimate and
+independent: context excludes the record until the requested time reaches it.
+Omitting `valid_at` still defaults it to `observed_at`.
+
+The shared fresh commit checks every prepared record before publishing receipts,
+reserving vector work or appending ledger bytes. CLI, MCP, supersession,
+revocation and fresh imports cannot bypass it. Existing successful idempotent
+replays and duplicate import skips remain subject to authorization but do not
+recheck their observation against a new clock. Recovery and ledger-based reads,
+doctor, rebuild and native compact preserve pre-existing records, including old
+bad timestamps; this is not a history migration.
+
+Existing transaction boundaries are unchanged. `record --input` JSONL is
+best-effort and reports rejected rows alongside successful rows. Legacy JSONL
+import is atomic per input: one bad observation refuses that entire input.
+Manifest import processes inputs separately, so prior inputs may already have
+committed when a later input fails. Fresh import into a new store applies the
+same 60-second check even when the source was accepted by an older version.
+
+Legacy manifest compact re-imports into an empty shadow store, unlike ordinary
+projection rebuild. A retained bad future observation can reject that re-import;
+existing rollback leaves the original store and sources unchanged. There is no
+automatic timestamp repair or special bypass for this path.
+
 ## First-run experience
 
 `equill init` brings up a complete working store with zero configuration:
