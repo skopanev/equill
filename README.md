@@ -95,6 +95,9 @@ equill doctor --store .equill --full
 `init` creates the embedded SQLite/FTS5 projection. A successful immutable append stays
 successful if projection indexing fails; the projection becomes `degraded` and
 `equill rebuild --store .equill` reconstructs it from the record log.
+New stores have an owner-only root directory (`0700`) and metadata file (`0600`).
+Existing stores keep their current filesystem permissions; restrict their root
+directory before using them for private records on a shared machine.
 
 `import` accepts legacy JSONL envelopes, never trusts their actor as writer identity,
 and preserves the legacy id, actor, timestamp, and source-line digest as evidence. The
@@ -375,7 +378,7 @@ receipt. Git is the archive for removed source lines; compaction is never automa
 
 ## Development
 
-Requires Rust 1.85 or newer.
+Requires Rust 1.88 or newer.
 
 ```bash
 cargo fmt --check

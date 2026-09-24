@@ -6,6 +6,7 @@ use serde::Serialize;
 use serde_json::json;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -57,7 +58,8 @@ pub fn create_with_writers(
     }
 
     let staging = staging_path(store)?;
-    fs::create_dir(&staging)?;
+    let mut directory = fs::DirBuilder::new();
+    directory.mode(0o700).create(&staging)?;
     let result = initialize_staging(&staging, owner, namespace, writers).and_then(|report| {
         fs::rename(&staging, store)?;
         Ok(report)
@@ -131,6 +133,7 @@ fn initialize_staging(
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
+        .mode(0o600)
         .open(staging.join("store.json"))?;
     serde_json::to_writer_pretty(&mut file, &metadata)?;
     file.write_all(b"\n")?;
@@ -145,6 +148,7 @@ fn initialize_staging(
 mod tests {
     use super::create;
     use std::fs;
+    use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -166,6 +170,18 @@ mod tests {
         assert!(path.join("records").is_dir());
         assert!(path.join("registry/types").is_dir());
         assert!(path.join("projections/sqlite/equill.sqlite3").is_file());
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(
+            fs::metadata(path.join("store.json"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
         fs::remove_dir_all(path).expect("remove test store");
     }
 

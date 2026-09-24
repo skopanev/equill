@@ -29,7 +29,7 @@ must never silently copy records into the source repository or a global store.
 
 Every handwritten code file is at most 250 physical lines, including blank lines and
 comments. Split by responsibility; do not compress code to evade the limit. Generated
-files and Markdown specifications are exempt. CI enforces the rule.
+files and Markdown specifications are exempt. `cargo test` enforces the rule.
 
 ## Directory size
 
@@ -37,6 +37,7 @@ A directory contains at most 10 handwritten files; aim to split at 7. Module ent
 files count. When a directory approaches the cap, group files by capability in named
 subdirectories before adding more. Do not create vague buckets such as `misc`, `utils`,
 or a global `providers` directory. Generated files are exempt.
+`cargo test` enforces this limit for Rust source files.
 
 ## Replaceable projections
 
