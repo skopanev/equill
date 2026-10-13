@@ -39,7 +39,7 @@ equill context   assemble bounded deterministic context
 equill get       read one record by the id every result prints
 equill revoke    withdraw a record by writing a tombstone that supersedes it
 equill search    find current records by text, by field filter, or by both
-equill vector    configure, disable, or rebuild the optional Qdrant projection
+equill vector    configure, disable, sync, or rebuild the optional Qdrant projection
 equill mcp       serve the local stdio MCP adapter over the caller's own pipe
 equill rebuild   rebuild disposable projections
 equill doctor    validate a store and its policies
@@ -120,6 +120,50 @@ set writes one immutable receipt containing the manifest SHA-256, every input SH
 and every source-line digest. `equill doctor --full` proves those lines still exist in
 the immutable ledger. Duplicate paths and partially imported sets never produce a set
 receipt; rerunning after a fix is safe because each completed line is idempotent.
+
+## Vector search
+
+Vector search uses an embedding provider and a Qdrant server. The embedding provider
+turns text into vectors; Qdrant stores and searches them. Equill supports local
+Candle models, Ollama, and Voyage. Voyage is an embedding API, not a replacement for
+Qdrant. Each store selects its provider, Qdrant endpoint, and collection in
+`registry/vector/qdrant.json`. See [Voyage setup](docs/VOYAGE.md) for its separate
+credential and rebuild steps.
+
+Equill does not start Qdrant. Start the existing service before using vector search.
+The configured endpoint must be reachable from the process running Equill.
+`127.0.0.1` inside a container refers to that container, not its host. Qdrant uses
+port `6334` for the gRPC client. Equill accepts plain HTTP only for loopback
+endpoints. A remote endpoint requires HTTPS and `allow_remote: true`; changing the
+URL to `http://host.docker.internal:6334` is not a valid fix. During recovery,
+reuse the service's data directory. An empty instance does not restore the existing
+collection.
+
+On macOS, `brew services start <qdrant-formula>` without `sudo` registers a user
+LaunchAgent. It starts at login. Running the same command with `sudo` registers a
+system LaunchDaemon instead. Before switching an existing service, disable or
+unregister the system service. Ensure the user can read the config and write to the
+same Qdrant data and log paths. Do not run two Qdrant processes against one data
+directory.
+
+Port `6334` is not an HTTP health endpoint. Test the configured gRPC path with a
+vector-only Equill query after the service starts.
+
+Check the live retrieval path with a query that is safe to send to the configured
+embedding provider:
+
+```bash
+equill search --store .equill --query "example" --strategy vector --limit 1
+```
+
+`equill status` reads the local vector marker and checkpoint. Its `ready` and
+`current` values do not test the Qdrant connection or the embedding provider.
+Hybrid search can return FTS results when vectors fail, so a hybrid result alone
+does not prove that vector search works. If a vector-only query reports a Qdrant
+connection error, restore the existing service first. If its collection was lost,
+the root actor can run
+`equill vector rebuild --store .equill` and then `equill vector sync --store .equill`.
+A rebuild recreates vectors from immutable records and can incur embedding API costs.
 
 ## Record lifecycle and write scope
 
